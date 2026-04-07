@@ -106,8 +106,8 @@ function CreateRFIModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -278,8 +278,8 @@ function RespondModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-lg bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-lg bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
             {t('rfi.respond_title', { defaultValue: 'Respond to RFI #{{number}}', number: rfi.rfi_number })}
@@ -658,7 +658,7 @@ export function RFIPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -668,12 +668,12 @@ export function RFIPage() {
             : []),
           { label: t('rfi.title', { defaultValue: 'RFIs' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <HelpCircle size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-content-primary">
           {t('rfi.page_title', { defaultValue: 'Requests for Information' })}
         </h1>
 
@@ -701,19 +701,17 @@ export function RFIPage() {
           )}
           <Button
             variant="primary"
-            size="sm"
             onClick={() => setShowCreateModal(true)}
             disabled={!projectId}
-            className="shrink-0 whitespace-nowrap"
+            icon={<Plus size={16} />}
           >
-            <Plus size={14} className="mr-1 shrink-0" />
-            <span>{t('rfi.new_rfi', { defaultValue: 'New RFI' })}</span>
+            {t('rfi.new_rfi', { defaultValue: 'New RFI' })}
           </Button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Card className="p-4 animate-card-in">
           <p className="text-2xs text-content-tertiary uppercase tracking-wide">
             {t('rfi.stat_total', { defaultValue: 'Total RFIs' })}
@@ -752,7 +750,7 @@ export function RFIPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Search */}
         <div className="relative flex-1 max-w-sm">
           <Search
@@ -794,7 +792,7 @@ export function RFIPage() {
       </div>
 
       {/* Table */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <Card padding="none">
             {Array.from({ length: 5 }).map((_, i) => (

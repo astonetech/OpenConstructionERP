@@ -139,8 +139,8 @@ function CreateNCRModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -592,7 +592,7 @@ export function NCRPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -600,12 +600,12 @@ export function NCRPage() {
           ...(projectName ? [{ label: projectName, to: `/projects/${projectId}` }] : []),
           { label: t('ncr.title', { defaultValue: 'NCR' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <AlertOctagon size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-content-primary">
           {t('ncr.page_title', { defaultValue: 'Non-Conformance Reports' })}
         </h1>
 
@@ -633,19 +633,17 @@ export function NCRPage() {
           )}
           <Button
             variant="primary"
-            size="sm"
             onClick={() => setShowCreateModal(true)}
             disabled={!projectId}
-            className="shrink-0 whitespace-nowrap"
+            icon={<Plus size={16} />}
           >
-            <Plus size={14} className="mr-1 shrink-0" />
-            <span>{t('ncr.new_ncr', { defaultValue: 'New NCR' })}</span>
+            {t('ncr.new_ncr', { defaultValue: 'New NCR' })}
           </Button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <Card className="p-4 animate-card-in">
           <p className="text-2xs text-content-tertiary uppercase tracking-wide">
             {t('ncr.stat_total', { defaultValue: 'Total' })}
@@ -682,7 +680,7 @@ export function NCRPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Search */}
         <div className="relative flex-1 max-w-sm">
           <Search
@@ -724,7 +722,7 @@ export function NCRPage() {
       </div>
 
       {/* Table */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <Card padding="none">
             {Array.from({ length: 5 }).map((_, i) => (

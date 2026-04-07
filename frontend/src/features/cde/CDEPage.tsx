@@ -122,8 +122,8 @@ function CreateCDEModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -556,7 +556,7 @@ export function CDEPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -566,12 +566,12 @@ export function CDEPage() {
             : []),
           { label: t('cde.title', { defaultValue: 'Common Data Environment' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <Database size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold text-content-primary shrink-0">
           {t('cde.page_title', { defaultValue: 'Common Data Environment' })}
         </h1>
 
@@ -611,7 +611,7 @@ export function CDEPage() {
       </div>
 
       {/* State filter tabs */}
-      <div className="mt-6 flex items-center gap-1 overflow-x-auto pb-1">
+      <div className="mb-6 flex items-center gap-1 overflow-x-auto pb-1">
         {[
           { key: '' as CDEState | '', label: 'All', count: stateCounts.all },
           ...STATE_ORDER.map((s) => ({
@@ -646,7 +646,7 @@ export function CDEPage() {
       </div>
 
       {/* Search */}
-      <div className="mt-4 relative max-w-sm">
+      <div className="mb-6 relative max-w-sm">
         <Search
           size={16}
           className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary"
@@ -662,7 +662,7 @@ export function CDEPage() {
       </div>
 
       {/* Table */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <Card padding="none">
             {Array.from({ length: 5 }).map((_, i) => (

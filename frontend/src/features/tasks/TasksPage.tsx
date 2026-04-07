@@ -109,8 +109,8 @@ function AddTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -541,7 +541,7 @@ export function TasksPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -551,12 +551,12 @@ export function TasksPage() {
             : []),
           { label: t('tasks.title', { defaultValue: 'Tasks' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <ClipboardList size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-content-primary">
           {t('tasks.title', { defaultValue: 'Tasks' })}
         </h1>
 
@@ -585,19 +585,17 @@ export function TasksPage() {
           )}
           <Button
             variant="primary"
-            size="sm"
             onClick={() => setShowAddModal(true)}
             disabled={!projectId}
-            className="shrink-0 whitespace-nowrap"
+            icon={<Plus size={16} />}
           >
-            <Plus size={14} className="mr-1 shrink-0" />
-            <span>{t('tasks.new_task', { defaultValue: 'New Task' })}</span>
+            {t('tasks.new_task', { defaultValue: 'New Task' })}
           </Button>
         </div>
       </div>
 
       {/* Type filter tabs */}
-      <div className="mt-5 flex items-center gap-1 overflow-x-auto pb-1">
+      <div className="mb-4 flex items-center gap-1 overflow-x-auto pb-1">
         <button
           onClick={() => setTypeFilter('')}
           className={clsx(
@@ -628,7 +626,7 @@ export function TasksPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Search */}
         <div className="relative flex-1 max-w-sm">
           <Search
@@ -660,7 +658,7 @@ export function TasksPage() {
       </div>
 
       {/* Board / Columns */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {STATUSES.map((s) => (

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import {
-  Users,
   Search,
   Plus,
   ChevronDown,
@@ -129,8 +128,8 @@ function AddContactModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -484,34 +483,32 @@ export function ContactsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
           { label: t('nav.dashboard', { defaultValue: 'Dashboard' }), to: '/' },
           { label: t('contacts.title', { defaultValue: 'Contacts' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <Users size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-content-primary">
           {t('contacts.page_title', { defaultValue: 'Contacts Directory' })}
         </h1>
         <Button
           variant="primary"
-          size="sm"
           onClick={() => setShowAddModal(true)}
-          className="shrink-0 whitespace-nowrap"
+          icon={<Plus size={16} />}
         >
-          <Plus size={14} className="mr-1 shrink-0" />
-          <span>{t('contacts.add_contact', { defaultValue: 'Add Contact' })}</span>
+          {t('contacts.add_contact', { defaultValue: 'Add Contact' })}
         </Button>
       </div>
 
       {/* Filter bar */}
-      <Card padding="none" className="mt-6">
+      <Card padding="none" className="mb-6">
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
           {/* Search */}
           <div className="relative flex-1">
@@ -576,7 +573,7 @@ export function ContactsPage() {
       </Card>
 
       {/* Results */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (

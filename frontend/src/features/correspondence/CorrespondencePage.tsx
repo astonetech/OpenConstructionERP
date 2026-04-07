@@ -99,8 +99,8 @@ function CreateCorrespondenceModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-primary rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="w-full max-w-2xl bg-surface-elevated rounded-xl shadow-xl border border-border animate-card-in mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-light">
           <h2 className="text-lg font-semibold text-content-primary">
@@ -509,7 +509,7 @@ export function CorrespondencePage() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-6">
+    <div className="max-w-content mx-auto animate-fade-in">
       {/* Breadcrumb */}
       <Breadcrumb
         items={[
@@ -519,12 +519,12 @@ export function CorrespondencePage() {
             : []),
           { label: t('correspondence.title', { defaultValue: 'Correspondence' }) },
         ]}
+        className="mb-4"
       />
 
       {/* Header */}
-      <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-lg font-bold text-content-primary flex items-center gap-2 shrink-0">
-          <Mail size={20} className="text-oe-blue" />
+      <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold text-content-primary shrink-0">
           {t('correspondence.page_title', { defaultValue: 'Correspondence' })}
         </h1>
 
@@ -564,7 +564,7 @@ export function CorrespondencePage() {
       </div>
 
       {/* Toolbar */}
-      <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3">
         {/* Search */}
         <div className="relative flex-1 max-w-sm">
           <Search
@@ -628,7 +628,7 @@ export function CorrespondencePage() {
       </div>
 
       {/* Table */}
-      <div className="mt-6">
+      <div>
         {isLoading ? (
           <Card padding="none">
             {Array.from({ length: 5 }).map((_, i) => (
