@@ -164,6 +164,8 @@ export function BOQEditorPage() {
   const [undoRedoVersion, setUndoRedoVersion] = useState(0);
   /** Flag to suppress undo recording during undo/redo-triggered mutations. */
   const isUndoRedoInProgressRef = useRef(false);
+  /** Stable ref for handleAddPosition — allows keyboard shortcut access before declaration. */
+  const addPositionRef = useRef<(() => void) | null>(null);
 
   // Derived booleans that re-evaluate when undoRedoVersion changes
   const canUndo = undoRedoVersion >= 0 && undoStackRef.current.length > 0;
@@ -673,6 +675,12 @@ export function BOQEditorPage() {
         setExcelPasteOpen(true);
         return;
       }
+      // Ctrl+Enter / Cmd+Enter = Add new position
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        addPositionRef.current?.();
+        return;
+      }
     }
 
     document.addEventListener('keydown', handleKeyDown);
@@ -951,6 +959,8 @@ export function BOQEditorPage() {
     },
     [boqId, boq, grouped, addMutation],
   );
+  // Keep ref in sync for keyboard shortcut access
+  addPositionRef.current = handleAddPosition;
 
   /* handleDeleteSection — wired via section context menu (future)
   const handleDeleteSection = useCallback(

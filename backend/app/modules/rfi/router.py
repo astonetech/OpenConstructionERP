@@ -24,6 +24,7 @@ from app.modules.rfi.schemas import (
     RFICreate,
     RFIRespondRequest,
     RFIResponse,
+    RFIStatsResponse,
     RFIUpdate,
 )
 from app.modules.rfi.service import RFIService
@@ -36,7 +37,52 @@ def _get_service(session: SessionDep) -> RFIService:
     return RFIService(session)
 
 
+def _compute_rfi_fields(item: object) -> tuple[bool, int]:
+    """Compute is_overdue and days_open for an RFI item."""
+    now = datetime.now(UTC)
+
+    # days_open: from created_at to now (or responded_at if answered/closed)
+    days_open = 0
+    created_at = getattr(item, "created_at", None)
+    if created_at is not None:
+        end = now
+        status = getattr(item, "status", "")
+        responded_at = getattr(item, "responded_at", None)
+        if status in ("answered", "closed") and responded_at:
+            try:
+                end = datetime.fromisoformat(str(responded_at))
+                if end.tzinfo is None:
+                    end = end.replace(tzinfo=UTC)
+            except (ValueError, TypeError):
+                end = now
+        start = created_at
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        try:
+            days_open = max(0, (end - start).days)
+        except TypeError:
+            days_open = 0
+
+    # is_overdue: open/draft status + response_due_date in the past
+    is_overdue = False
+    status = getattr(item, "status", "")
+    response_due_date = getattr(item, "response_due_date", None)
+    if status in ("draft", "open") and response_due_date:
+        try:
+            due = datetime.fromisoformat(str(response_due_date))
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=UTC)
+            is_overdue = now > due
+        except (ValueError, TypeError):
+            is_overdue = False
+
+    return is_overdue, days_open
+
+
 def _to_response(item: object) -> RFIResponse:
+    is_overdue, days_open = _compute_rfi_fields(item)
     return RFIResponse(
         id=item.id,  # type: ignore[attr-defined]
         project_id=item.project_id,  # type: ignore[attr-defined]
@@ -62,6 +108,8 @@ def _to_response(item: object) -> RFIResponse:
         metadata=getattr(item, "metadata_", {}),
         created_at=item.created_at,  # type: ignore[attr-defined]
         updated_at=item.updated_at,  # type: ignore[attr-defined]
+        is_overdue=is_overdue,
+        days_open=days_open,
     )
 
 
@@ -92,6 +140,19 @@ async def create_rfi(
 ) -> RFIResponse:
     rfi = await service.create_rfi(data, user_id=user_id)
     return _to_response(rfi)
+
+
+@router.get("/stats", response_model=RFIStatsResponse)
+async def rfi_stats(
+    project_id: uuid.UUID = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: RFIService = Depends(_get_service),
+) -> RFIStatsResponse:
+    """Return summary statistics for RFIs in a project.
+
+    Computes total, open, overdue, avg response time, and breakdown by status.
+    """
+    return await service.get_stats(project_id)
 
 
 @router.get("/export")

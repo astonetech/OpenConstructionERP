@@ -33,4 +33,5 @@ export const projectsApi = {
   update: (id: string, data: Partial<CreateProjectData>) =>
     apiPatch<Project>(`/v1/projects/${id}`, data),
   archive: (id: string) => apiDelete(`/v1/projects/${id}`),
+  restore: (id: string) => apiPost<Project>(`/v1/projects/${id}/restore`, {}),
 };

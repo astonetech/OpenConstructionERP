@@ -2142,9 +2142,16 @@ async def export_boq_gaeb(
     ET.SubElement(gaeb_info, "ProgSystem").text = "OpenEstimate.io"
     ET.SubElement(gaeb_info, "ProgName").text = "OpenEstimate"
 
+    # Determine currency from project
+    project_currency = "EUR"
+    if project:
+        project_currency = (project.currency or "EUR").strip()[:3].upper()
+
     # Award
     award = ET.SubElement(gaeb, "Award")
     ET.SubElement(award, "DP").text = "83"
+    ET.SubElement(award, "Cur").text = project_currency
+    ET.SubElement(award, "CurLbl").text = project_currency
 
     # BoQ
     boq_el = ET.SubElement(award, "BoQ")
@@ -3719,6 +3726,28 @@ async def get_cost_breakdown(
         grand total, and top 10 most expensive resources.
     """
     return await service.get_cost_breakdown(boq_id)
+
+
+# ── Statistics ──────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/boqs/{boq_id}/statistics",
+    dependencies=[Depends(RequirePermission("boq.read"))],
+)
+async def get_boq_statistics(
+    boq_id: uuid.UUID,
+    service: BOQService = Depends(_get_service),
+) -> dict:
+    """Get aggregated statistics for a BOQ.
+
+    Returns position count, section count, direct cost, grand total, average
+    unit rate, completion percentage, unit/source breakdowns, and
+    classification coverage.
+    """
+
+    result = await service.get_statistics(boq_id)
+    return result.model_dump()
 
 
 # ── Sensitivity Analysis (Tornado Chart) ─────────────────────────────────────

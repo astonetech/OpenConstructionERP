@@ -110,3 +110,24 @@ class TaskResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
+
+    # Computed fields
+    is_overdue: bool = Field(
+        default=False,
+        description="True when status is not completed and due_date is past today",
+    )
+
+
+class TaskStatsResponse(BaseModel):
+    """Summary statistics for tasks in a project."""
+
+    total: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_type: dict[str, int] = Field(default_factory=dict)
+    by_priority: dict[str, int] = Field(default_factory=dict)
+    overdue_count: int = 0
+    completed_count: int = 0
+    avg_checklist_progress: float | None = Field(
+        default=None,
+        description="Average checklist completion across all non-completed tasks",
+    )

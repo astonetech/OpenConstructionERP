@@ -29,6 +29,7 @@ from app.modules.contacts.schemas import (
     ContactCreate,
     ContactListResponse,
     ContactResponse,
+    ContactStatsResponse,
     ContactUpdate,
 )
 from app.modules.contacts.service import ContactService
@@ -88,6 +89,51 @@ async def search_contacts(
         search=q,
         contact_type=contact_type,
         is_active=is_active,
+        offset=offset,
+        limit=limit,
+    )
+    return ContactListResponse(
+        items=[ContactResponse.model_validate(c) for c in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/stats", response_model=ContactStatsResponse)
+async def contact_stats(
+    service: ContactService = Depends(_get_service),
+) -> ContactStatsResponse:
+    """Aggregate contact statistics.
+
+    Returns total, breakdown by type and country (top 10), and count of
+    contacts with approved prequalification that have qualified_until set.
+    """
+    raw = await service.get_stats()
+    return ContactStatsResponse(
+        total=raw["total"],
+        by_type=raw["by_type"],
+        by_country_top10=raw["by_country_top10"],
+        with_expiring_prequalification=raw["with_expiring_prequalification"],
+    )
+
+
+# ── By Company ───────────────────────────────────────────────────────────────
+
+
+@router.get("/by-company", response_model=ContactListResponse)
+async def contacts_by_company(
+    company_name: str = Query(..., min_length=1, max_length=255),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    service: ContactService = Depends(_get_service),
+) -> ContactListResponse:
+    """List all contacts at the same company (case-insensitive match)."""
+    items, total = await service.list_by_company(
+        company_name,
         offset=offset,
         limit=limit,
     )

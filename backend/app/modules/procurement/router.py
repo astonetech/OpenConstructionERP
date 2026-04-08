@@ -27,6 +27,7 @@ from app.modules.procurement.schemas import (
     POListResponse,
     POResponse,
     POUpdate,
+    ProcurementStatsResponse,
 )
 from app.modules.procurement.service import ProcurementService
 
@@ -75,6 +76,22 @@ async def create_purchase_order(
     """Create a new purchase order."""
     po = await service.create_po(data, user_id=user_id)
     return POResponse.model_validate(po)
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/stats", response_model=ProcurementStatsResponse)
+async def procurement_stats(
+    project_id: uuid.UUID = Query(...),
+    service: ProcurementService = Depends(_get_service),
+) -> ProcurementStatsResponse:
+    """Aggregate procurement statistics for a project.
+
+    Returns total POs, breakdown by status, total committed amount,
+    confirmed goods receipt count, and count of POs pending delivery.
+    """
+    return await service.get_stats(project_id)
 
 
 # ── Goods Receipts (MUST be before /{po_id}) ────────────────────────────────

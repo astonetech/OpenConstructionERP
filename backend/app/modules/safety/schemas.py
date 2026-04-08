@@ -164,3 +164,50 @@ class ObservationResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
+
+
+# ── Stats & Trends schemas ─────────────────────────────────────────────────
+
+
+class SafetyStatsResponse(BaseModel):
+    """Dashboard KPIs for a project's safety data."""
+
+    total_incidents: int = 0
+    total_observations: int = 0
+    days_without_incident: int | None = Field(
+        default=None,
+        description="Calendar days since the last incident (None if no incidents)",
+    )
+    total_days_lost: int = 0
+    recordable_incidents: int = Field(
+        default=0,
+        description="Incidents with treatment_type in (medical, hospital, fatality)",
+    )
+    ltifr: float | None = Field(
+        default=None,
+        description="Lost Time Injury Frequency Rate per 1M hours (needs man-hours in metadata)",
+    )
+    trir: float | None = Field(
+        default=None,
+        description="Total Recordable Incident Rate per 200k hours (needs man-hours in metadata)",
+    )
+    incidents_by_type: dict[str, int] = Field(default_factory=dict)
+    incidents_by_status: dict[str, int] = Field(default_factory=dict)
+    observations_by_risk_tier: dict[str, int] = Field(default_factory=dict)
+    open_corrective_actions: int = 0
+
+
+class SafetyTrendEntry(BaseModel):
+    """A single time-period bucket in a safety trend."""
+
+    period: str = Field(description="Period label, e.g. '2026-01' for monthly")
+    incident_count: int = 0
+    observation_count: int = 0
+    days_lost: int = 0
+
+
+class SafetyTrendsResponse(BaseModel):
+    """Time-series safety data for charting."""
+
+    period_type: str = Field(description="'monthly' or 'weekly'")
+    entries: list[SafetyTrendEntry] = Field(default_factory=list)

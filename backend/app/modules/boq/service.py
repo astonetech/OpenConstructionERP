@@ -51,6 +51,7 @@ from app.modules.boq.schemas import (
     ActivityLogResponse,
     BOQCreate,
     BOQFromTemplateRequest,
+    BOQStatisticsResponse,
     BOQUpdate,
     BOQWithPositions,
     BOQWithSections,
@@ -2070,6 +2071,89 @@ class BOQService:
             categories=categories,
             markups=markup_lines,
             top_resources=top_resources,
+        )
+
+    # ── Statistics ─────────────────────────────────────────────────────
+
+    async def get_statistics(self, boq_id: uuid.UUID) -> BOQStatisticsResponse:
+        """Compute aggregated statistics for a BOQ.
+
+        Returns position count, section count, direct cost, grand total,
+        average unit rate, completion percentage, unit breakdown, source
+        breakdown, and classification coverage.
+
+        Args:
+            boq_id: Target BOQ identifier.
+
+        Returns:
+            BOQStatisticsResponse with all computed metrics.
+
+        Raises:
+            HTTPException 404 if BOQ not found.
+        """
+        boq = await self.get_boq(boq_id)
+        all_positions, _ = await self.position_repo.list_for_boq(boq_id)
+
+        sections = [p for p in all_positions if _is_section(p)]
+        items = [p for p in all_positions if not _is_section(p)]
+
+        # Direct cost
+        direct_cost = Decimal("0")
+        unit_rates: list[float] = []
+        unit_breakdown: dict[str, int] = {}
+        source_breakdown: dict[str, int] = {}
+        complete_count = 0
+        classified_count = 0
+
+        for pos in items:
+            total_val = _str_to_float(pos.total)
+            direct_cost += Decimal(str(total_val))
+
+            rate = _str_to_float(pos.unit_rate)
+            qty = _str_to_float(pos.quantity)
+            if rate > 0:
+                unit_rates.append(rate)
+            if rate > 0 and qty > 0:
+                complete_count += 1
+
+            # Unit breakdown
+            unit_key = (pos.unit or "").strip().lower() or "other"
+            unit_breakdown[unit_key] = unit_breakdown.get(unit_key, 0) + 1
+
+            # Source breakdown
+            source_key = pos.source or "manual"
+            source_breakdown[source_key] = source_breakdown.get(source_key, 0) + 1
+
+            # Classification coverage
+            if pos.classification and any(pos.classification.values()):
+                classified_count += 1
+
+        item_count = len(items)
+        avg_rate = sum(unit_rates) / len(unit_rates) if unit_rates else 0.0
+        completion_pct = (complete_count / item_count * 100.0) if item_count > 0 else 0.0
+        classification_pct = (classified_count / item_count * 100.0) if item_count > 0 else 0.0
+
+        # Grand total (direct cost + markups)
+        markups_orm = await self.markup_repo.list_for_boq(boq_id)
+        markup_results = _calculate_markup_amounts(direct_cost, markups_orm)
+        markup_total = sum(amount for _, amount in markup_results)
+        grand_total = float(direct_cost + markup_total)
+
+        return BOQStatisticsResponse(
+            boq_id=str(boq_id),
+            boq_name=boq.name,
+            status=boq.status,
+            position_count=item_count,
+            section_count=len(sections),
+            direct_cost=round(float(direct_cost), 2),
+            grand_total=round(grand_total, 2),
+            avg_unit_rate=round(avg_rate, 2),
+            completion_pct=round(completion_pct, 1),
+            unit_breakdown=unit_breakdown,
+            source_breakdown=source_breakdown,
+            classification_coverage_pct=round(classification_pct, 1),
+            created_at=boq.created_at,
+            updated_at=boq.updated_at,
         )
 
     @staticmethod

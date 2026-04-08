@@ -160,6 +160,32 @@ async def delete_project(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+# ── Restore (un-archive) ────────────────────────────────────────────────
+
+
+@router.post("/{project_id}/restore", response_model=ProjectResponse)
+async def restore_project(
+    project_id: uuid.UUID,
+    user_id: CurrentUserId,
+    payload: CurrentUserPayload,
+    service: ProjectService = Depends(_get_service),
+) -> ProjectResponse:
+    """Restore an archived project back to active status.
+
+    Only the project owner or admin can restore. Returns the restored project.
+    """
+    # Use include_archived=True so we can find the archived project
+    project = await service.get_project(project_id, include_archived=True)
+    is_admin = bool(payload and payload.get("role") == "admin")
+    if not is_admin and str(project.owner_id) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this project",
+        )
+    restored = await service.restore_project(project_id)
+    return ProjectResponse.model_validate(restored)
+
+
 # ── Project Dashboard (cross-module aggregation) ───────────────────────
 
 

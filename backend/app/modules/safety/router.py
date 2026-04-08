@@ -30,6 +30,8 @@ from app.modules.safety.schemas import (
     ObservationCreate,
     ObservationResponse,
     ObservationUpdate,
+    SafetyStatsResponse,
+    SafetyTrendsResponse,
 )
 from app.modules.safety.service import SafetyService
 
@@ -87,6 +89,32 @@ def _observation_to_response(item: object) -> ObservationResponse:
         created_at=item.created_at,  # type: ignore[attr-defined]
         updated_at=item.updated_at,  # type: ignore[attr-defined]
     )
+
+
+# ── Stats & Trends ──────────────────────────────────────────────────────
+
+
+@router.get("/stats", response_model=SafetyStatsResponse)
+async def safety_stats(
+    project_id: uuid.UUID = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: SafetyService = Depends(_get_service),
+) -> SafetyStatsResponse:
+    """Return dashboard KPIs: incident counts, days without incident,
+    observations by risk tier, open corrective actions, etc.
+    """
+    return await service.get_stats(project_id)
+
+
+@router.get("/trends", response_model=SafetyTrendsResponse)
+async def safety_trends(
+    project_id: uuid.UUID = Query(...),
+    period: str = Query(default="monthly", pattern=r"^(monthly|weekly)$"),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: SafetyService = Depends(_get_service),
+) -> SafetyTrendsResponse:
+    """Return time-series incident and observation data grouped by period."""
+    return await service.get_trends(project_id, period=period)
 
 
 # ── Incidents ────────────────────────────────────────────────────────────

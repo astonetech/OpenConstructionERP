@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.events import event_bus
 from app.modules.meetings.models import Meeting
 from app.modules.meetings.repository import MeetingRepository
-from app.modules.meetings.schemas import MeetingCreate, MeetingUpdate
+from app.modules.meetings.schemas import (
+    MeetingCreate,
+    MeetingStatsResponse,
+    MeetingUpdate,
+    OpenActionItemResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -235,3 +240,54 @@ class MeetingService:
             )
 
         return meeting
+
+    # ── Stats ────────────────────────────────────────────────────────────
+
+    async def get_stats(self, project_id: uuid.UUID) -> MeetingStatsResponse:
+        """Return aggregate meeting statistics for a project.
+
+        Includes open_action_items_count computed by scanning the JSON
+        action_items arrays of all non-cancelled meetings.
+        """
+        raw = await self.repo.stats_for_project(project_id)
+
+        # Count open action items by scanning JSON columns
+        meetings = await self.repo.all_for_project(project_id)
+        open_count = 0
+        for m in meetings:
+            for ai in m.action_items or []:
+                if isinstance(ai, dict) and ai.get("status", "open") == "open":
+                    open_count += 1
+
+        return MeetingStatsResponse(
+            total=raw["total"],
+            by_status=raw["by_status"],
+            by_type=raw["by_type"],
+            open_action_items_count=open_count,
+            next_meeting_date=raw["next_meeting_date"],
+        )
+
+    # ── Open Action Items ────────────────────────────────────────────────
+
+    async def get_open_actions(
+        self,
+        project_id: uuid.UUID,
+    ) -> list[OpenActionItemResponse]:
+        """Return all open action items across all meetings in a project."""
+        meetings = await self.repo.all_for_project(project_id)
+        result: list[OpenActionItemResponse] = []
+        for m in meetings:
+            for ai in m.action_items or []:
+                if isinstance(ai, dict) and ai.get("status", "open") == "open":
+                    result.append(
+                        OpenActionItemResponse(
+                            meeting_id=m.id,
+                            meeting_number=m.meeting_number,
+                            meeting_title=m.title,
+                            meeting_date=m.meeting_date,
+                            description=ai.get("description", ""),
+                            owner_id=ai.get("owner_id"),
+                            due_date=ai.get("due_date"),
+                        )
+                    )
+        return result

@@ -89,3 +89,72 @@ class MeetingRepository:
         if meeting is not None:
             await self.session.delete(meeting)
             await self.session.flush()
+
+    async def stats_for_project(self, project_id: uuid.UUID) -> dict:
+        """Compute aggregate meeting statistics for a project.
+
+        Returns dict with total, by_status, by_type, and next_meeting_date.
+        open_action_items_count is computed separately in the service layer
+        because action_items is a JSON column that requires Python-level parsing.
+        """
+        # Total
+        total_stmt = (
+            select(func.count())
+            .select_from(Meeting)
+            .where(Meeting.project_id == project_id)
+        )
+        total = (await self.session.execute(total_stmt)).scalar_one()
+
+        # By status
+        status_stmt = (
+            select(Meeting.status, func.count())
+            .where(Meeting.project_id == project_id)
+            .group_by(Meeting.status)
+        )
+        status_rows = (await self.session.execute(status_stmt)).all()
+        by_status = {row[0]: row[1] for row in status_rows}
+
+        # By type
+        type_stmt = (
+            select(Meeting.meeting_type, func.count())
+            .where(Meeting.project_id == project_id)
+            .group_by(Meeting.meeting_type)
+        )
+        type_rows = (await self.session.execute(type_stmt)).all()
+        by_type = {row[0]: row[1] for row in type_rows}
+
+        # Next upcoming meeting (meeting_date >= today, ordered ASC, limit 1)
+        from datetime import UTC, datetime
+
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        next_stmt = (
+            select(Meeting.meeting_date)
+            .where(Meeting.project_id == project_id)
+            .where(Meeting.meeting_date >= today_str)
+            .where(Meeting.status.in_(("draft", "scheduled", "in_progress")))
+            .order_by(Meeting.meeting_date.asc())
+            .limit(1)
+        )
+        next_date = (await self.session.execute(next_stmt)).scalar_one_or_none()
+
+        return {
+            "total": total,
+            "by_status": by_status,
+            "by_type": by_type,
+            "next_meeting_date": next_date,
+        }
+
+    async def all_for_project(self, project_id: uuid.UUID) -> list[Meeting]:
+        """Load all meetings for a project (used for action item extraction).
+
+        Only loads non-cancelled meetings to avoid scanning completed+cancelled
+        meetings that should not have active action items.
+        """
+        stmt = (
+            select(Meeting)
+            .where(Meeting.project_id == project_id)
+            .where(Meeting.status.notin_(("cancelled",)))
+            .order_by(Meeting.meeting_date.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

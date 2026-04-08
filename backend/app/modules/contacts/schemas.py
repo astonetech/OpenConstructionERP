@@ -164,3 +164,15 @@ class ContactListResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+# ── Stats ────────────────────────────────────────────────────────────────
+
+
+class ContactStatsResponse(BaseModel):
+    """Aggregate statistics for contacts."""
+
+    total: int = 0
+    by_type: dict[str, int] = Field(default_factory=dict)
+    by_country_top10: dict[str, int] = Field(default_factory=dict)
+    with_expiring_prequalification: int = 0

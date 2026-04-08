@@ -158,3 +158,15 @@ class RevisionResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
+
+
+# ── Stats ────────────────────────────────────────────────────────────────
+
+
+class CDEStatsResponse(BaseModel):
+    """Aggregate statistics for CDE containers within a project."""
+
+    total: int = 0
+    by_state: dict[str, int] = Field(default_factory=dict)
+    by_discipline: dict[str, int] = Field(default_factory=dict)
+    latest_revisions: int = 0

@@ -26,6 +26,7 @@ from app.modules.procurement.schemas import (
     GRCreate,
     POCreate,
     POUpdate,
+    ProcurementStatsResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -393,6 +394,19 @@ class ProcurementService:
             )
         logger.info("GR confirmed: %s", gr_id)
         return updated
+
+    # ── Stats ───────────────────────────────────────────────────────────────
+
+    async def get_stats(self, project_id: uuid.UUID) -> ProcurementStatsResponse:
+        """Return aggregate procurement statistics for a project."""
+        raw = await self.po_repo.stats_for_project(project_id)
+        return ProcurementStatsResponse(
+            total_pos=raw["total_pos"],
+            by_status=raw["by_status"],
+            total_committed=raw["total_committed"],
+            total_received=raw["total_received"],
+            pending_delivery_count=raw["pending_delivery_count"],
+        )
 
     @staticmethod
     def _check_po_fully_received(po: PurchaseOrder) -> bool:

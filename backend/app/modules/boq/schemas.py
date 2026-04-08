@@ -912,6 +912,37 @@ class CheckScopeResponse(BaseModel):
     tokens_used: int = 0
 
 
+class BOQStatisticsResponse(BaseModel):
+    """Aggregated statistics for a BOQ."""
+
+    boq_id: str
+    boq_name: str
+    status: str
+    position_count: int = 0
+    section_count: int = 0
+    direct_cost: float = 0.0
+    grand_total: float = 0.0
+    avg_unit_rate: float = 0.0
+    completion_pct: float = Field(
+        default=0.0,
+        description="Percentage of positions with both quantity > 0 and unit_rate > 0",
+    )
+    unit_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of positions per unit type (m2, m3, kg, etc.)",
+    )
+    source_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of positions per source (manual, template, gaeb_import, etc.)",
+    )
+    classification_coverage_pct: float = Field(
+        default=0.0,
+        description="Percentage of positions with at least one classification code",
+    )
+    created_at: datetime
+    updated_at: datetime
+
+
 class EscalateRateRequest(BaseModel):
     """Request to escalate a rate to current prices."""
 

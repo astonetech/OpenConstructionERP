@@ -75,6 +75,59 @@ class ContainerRepository:
         await self.session.flush()
         self.session.expire_all()
 
+    async def stats_for_project(self, project_id: uuid.UUID) -> dict:
+        """Compute aggregate statistics for a project's CDE containers.
+
+        Returns dict with keys: total, by_state, by_discipline, latest_revisions.
+        """
+        # Total count
+        total_stmt = (
+            select(func.count())
+            .select_from(DocumentContainer)
+            .where(DocumentContainer.project_id == project_id)
+        )
+        total = (await self.session.execute(total_stmt)).scalar_one()
+
+        # Count by state
+        state_stmt = (
+            select(DocumentContainer.cde_state, func.count())
+            .where(DocumentContainer.project_id == project_id)
+            .group_by(DocumentContainer.cde_state)
+        )
+        state_rows = (await self.session.execute(state_stmt)).all()
+        by_state = {row[0]: row[1] for row in state_rows}
+
+        # Count by discipline
+        disc_stmt = (
+            select(
+                func.coalesce(DocumentContainer.discipline_code, "other"),
+                func.count(),
+            )
+            .where(DocumentContainer.project_id == project_id)
+            .group_by(func.coalesce(DocumentContainer.discipline_code, "other"))
+        )
+        disc_rows = (await self.session.execute(disc_stmt)).all()
+        by_discipline = {row[0]: row[1] for row in disc_rows}
+
+        # Count containers that have at least one revision (latest_revisions)
+        rev_stmt = (
+            select(func.count(func.distinct(DocumentRevision.container_id)))
+            .select_from(DocumentRevision)
+            .join(
+                DocumentContainer,
+                DocumentRevision.container_id == DocumentContainer.id,
+            )
+            .where(DocumentContainer.project_id == project_id)
+        )
+        latest_revisions = (await self.session.execute(rev_stmt)).scalar_one()
+
+        return {
+            "total": total,
+            "by_state": by_state,
+            "by_discipline": by_discipline,
+            "latest_revisions": latest_revisions,
+        }
+
 
 class RevisionRepository:
     """Data access for DocumentRevision models."""

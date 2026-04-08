@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.rfi.models import RFI
 from app.modules.rfi.repository import RFIRepository
-from app.modules.rfi.schemas import RFICreate, RFIUpdate
+from app.modules.rfi.schemas import RFICreate, RFIStatsResponse, RFIUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -202,3 +202,77 @@ class RFIService:
         await self.session.refresh(rfi)
         logger.info("RFI closed: %s", rfi_id)
         return rfi
+
+    async def get_stats(self, project_id: uuid.UUID) -> RFIStatsResponse:
+        """Compute summary statistics for all RFIs in a project.
+
+        Returns total, open, overdue counts, average response time,
+        and cost/schedule impact counts.
+        """
+        from sqlalchemy import select
+
+        now = datetime.now(UTC)
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Fetch all RFIs for the project (unfiltered, no pagination)
+        base = select(RFI).where(RFI.project_id == project_id)
+        result = await self.session.execute(base)
+        rfis = list(result.scalars().all())
+
+        total = len(rfis)
+        by_status: dict[str, int] = {}
+        open_count = 0
+        overdue_count = 0
+        cost_impact_count = 0
+        schedule_impact_count = 0
+        response_days: list[float] = []
+
+        for rfi in rfis:
+            # Count by status
+            by_status[rfi.status] = by_status.get(rfi.status, 0) + 1
+
+            # Open = draft or open
+            if rfi.status in ("draft", "open"):
+                open_count += 1
+
+            # Overdue = open/draft + past due date
+            if rfi.status in ("draft", "open") and rfi.response_due_date:
+                try:
+                    if rfi.response_due_date < today_str:
+                        overdue_count += 1
+                except (TypeError, ValueError):
+                    pass
+
+            # Impact counts
+            if rfi.cost_impact:
+                cost_impact_count += 1
+            if rfi.schedule_impact:
+                schedule_impact_count += 1
+
+            # Average response time (only for answered/closed with responded_at)
+            if rfi.status in ("answered", "closed") and rfi.responded_at and rfi.created_at:
+                try:
+                    resp_date = datetime.fromisoformat(str(rfi.responded_at))
+                    if resp_date.tzinfo is None:
+                        resp_date = resp_date.replace(tzinfo=UTC)
+                    created = rfi.created_at
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=UTC)
+                    days = max(0.0, (resp_date - created).total_seconds() / 86400)
+                    response_days.append(days)
+                except (ValueError, TypeError):
+                    pass
+
+        avg_days_to_response: float | None = None
+        if response_days:
+            avg_days_to_response = round(sum(response_days) / len(response_days), 1)
+
+        return RFIStatsResponse(
+            total=total,
+            by_status=by_status,
+            open=open_count,
+            overdue=overdue_count,
+            avg_days_to_response=avg_days_to_response,
+            cost_impact_count=cost_impact_count,
+            schedule_impact_count=schedule_impact_count,
+        )

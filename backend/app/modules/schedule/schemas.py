@@ -329,6 +329,32 @@ class GanttSummary(BaseModel):
     not_started: int = 0
 
 
+class ScheduleStatsResponse(BaseModel):
+    """Aggregate schedule statistics for a project's schedules and activities."""
+
+    total_activities: int = 0
+    critical_count: int = Field(
+        default=0, description="Activities on the critical path (is_critical=True)"
+    )
+    on_track: int = Field(
+        default=0, description="Activities with status not_started or in_progress that are not delayed"
+    )
+    delayed: int = Field(
+        default=0, description="Activities with status=delayed"
+    )
+    completed: int = 0
+    not_started: int = 0
+    in_progress: int = 0
+    progress_pct: float = Field(
+        default=0.0,
+        description="Overall weighted progress across all activities (0.0 - 100.0)",
+    )
+    total_duration_days: int = Field(
+        default=0,
+        description="Sum of all activity durations",
+    )
+
+
 class GanttData(BaseModel):
     """Structured data for Gantt chart rendering."""
 

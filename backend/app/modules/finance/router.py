@@ -645,6 +645,23 @@ async def create_evm_snapshot(
     return EVMSnapshotResponse.model_validate(snapshot)
 
 
+# ── Finance Dashboard ─────────────────────────────────────────────────────────
+
+
+@router.get("/dashboard")
+async def finance_dashboard(
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    project_id: uuid.UUID | None = Query(default=None),
+    service: FinanceService = Depends(_get_service),
+) -> dict:
+    """Aggregated finance KPIs: payable, receivable, overdue, budget, cash flow.
+
+    Optionally scope to a single project via ``project_id`` query parameter.
+    Returns budget warning level ("normal", "caution" at 80%+, "critical" at 95%+).
+    """
+    return await service.get_dashboard(project_id=project_id)
+
+
 # ── Invoice by ID (parametric routes LAST) ──────────────────────────────────
 
 

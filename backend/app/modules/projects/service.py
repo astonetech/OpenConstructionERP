@@ -215,3 +215,35 @@ class ProjectService:
         )
 
         logger.info("Project archived: %s", project_id)
+
+    # ── Restore (un-archive) ─────────────────────────────────────────────
+
+    async def restore_project(self, project_id: uuid.UUID) -> Project:
+        """Restore a previously archived project back to active status.
+
+        Raises 404 if project not found (including never-archived ones that
+        don't exist). Raises 400 if project is already active.
+        """
+        project = await self.get_project(project_id, include_archived=True)
+        if project.status != "archived":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project is not archived — nothing to restore",
+            )
+        owner_id = str(project.owner_id)
+
+        await self.repo.update_fields(project_id, status="active")
+
+        await _safe_publish(
+            "projects.project.restored",
+            {
+                "project_id": str(project_id),
+                "owner_id": owner_id,
+            },
+            source_module="oe_projects",
+        )
+
+        logger.info("Project restored: %s", project_id)
+
+        # Re-fetch to return fresh data
+        return await self.get_project(project_id)

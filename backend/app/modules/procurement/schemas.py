@@ -195,3 +195,16 @@ class GRListResponse(BaseModel):
 
     items: list[GRResponse]
     total: int
+
+
+# ── Stats ────────────────────────────────────────────────────────────────
+
+
+class ProcurementStatsResponse(BaseModel):
+    """Aggregate statistics for procurement within a project."""
+
+    total_pos: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    total_committed: str = "0"
+    total_received: int = 0
+    pending_delivery_count: int = 0

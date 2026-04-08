@@ -68,6 +68,75 @@ class PurchaseOrderRepository:
         await self.session.flush()
         self.session.expire_all()
 
+    async def stats_for_project(self, project_id: uuid.UUID) -> dict:
+        """Compute aggregate procurement statistics for a project.
+
+        Returns dict with total_pos, by_status, total_committed,
+        total_received (confirmed GR count), pending_delivery_count.
+        """
+        # Total POs
+        total_stmt = (
+            select(func.count())
+            .select_from(PurchaseOrder)
+            .where(PurchaseOrder.project_id == project_id)
+        )
+        total_pos = (await self.session.execute(total_stmt)).scalar_one()
+
+        # By status
+        status_stmt = (
+            select(PurchaseOrder.status, func.count())
+            .where(PurchaseOrder.project_id == project_id)
+            .group_by(PurchaseOrder.status)
+        )
+        status_rows = (await self.session.execute(status_stmt)).all()
+        by_status = {row[0]: row[1] for row in status_rows}
+
+        # Total committed = SUM(amount_total) for non-cancelled POs
+        # amount_total is stored as string, so we cast in Python after fetching
+        committed_stmt = (
+            select(PurchaseOrder.amount_total)
+            .where(PurchaseOrder.project_id == project_id)
+            .where(PurchaseOrder.status != "cancelled")
+        )
+        committed_rows = (await self.session.execute(committed_stmt)).all()
+        from decimal import Decimal, InvalidOperation
+
+        total_committed = Decimal("0")
+        for row in committed_rows:
+            try:
+                total_committed += Decimal(row[0])
+            except (InvalidOperation, ValueError, TypeError):
+                pass
+
+        # Count of confirmed goods receipts
+        from app.modules.procurement.models import GoodsReceipt
+
+        received_stmt = (
+            select(func.count())
+            .select_from(GoodsReceipt)
+            .join(PurchaseOrder, GoodsReceipt.po_id == PurchaseOrder.id)
+            .where(PurchaseOrder.project_id == project_id)
+            .where(GoodsReceipt.status == "confirmed")
+        )
+        total_received = (await self.session.execute(received_stmt)).scalar_one()
+
+        # POs pending delivery (issued or partially_received)
+        pending_stmt = (
+            select(func.count())
+            .select_from(PurchaseOrder)
+            .where(PurchaseOrder.project_id == project_id)
+            .where(PurchaseOrder.status.in_(("issued", "partially_received")))
+        )
+        pending_delivery = (await self.session.execute(pending_stmt)).scalar_one()
+
+        return {
+            "total_pos": total_pos,
+            "by_status": by_status,
+            "total_committed": str(total_committed),
+            "total_received": total_received,
+            "pending_delivery_count": pending_delivery,
+        }
+
     async def next_po_number(self, project_id: uuid.UUID) -> str:
         """Generate the next PO number for a project.
 

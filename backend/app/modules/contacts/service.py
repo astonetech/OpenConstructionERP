@@ -195,3 +195,25 @@ class ContactService:
     async def count_contacts(self, contact_type: str | None = None) -> int:
         """Count contacts, optionally by type."""
         return await self.repo.count(contact_type=contact_type)
+
+    # ── Stats ────────────────────────────────────────────────────────────
+
+    async def get_stats(self) -> dict:
+        """Return aggregate contact statistics."""
+        return await self.repo.stats()
+
+    # ── By Company ───────────────────────────────────────────────────────
+
+    async def list_by_company(
+        self,
+        company_name: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Contact], int]:
+        """List contacts grouped by company name."""
+        return await self.repo.list_by_company(
+            company_name,
+            limit=limit,
+            offset=offset,
+        )

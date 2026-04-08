@@ -14,6 +14,7 @@ Endpoints:
 import io
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -23,6 +24,7 @@ from app.modules.tasks.schemas import (
     TaskCompleteRequest,
     TaskCreate,
     TaskResponse,
+    TaskStatsResponse,
     TaskUpdate,
 )
 from app.modules.tasks.service import TaskService
@@ -42,6 +44,21 @@ def _compute_checklist_progress(checklist: list | None) -> float:
     total = len(checklist)
     done = sum(1 for c in checklist if isinstance(c, dict) and c.get("completed"))
     return round(done / total * 100, 1) if total > 0 else 0.0
+
+
+def _compute_is_overdue(item: object) -> bool:
+    """Determine if a task is overdue based on due_date and status."""
+    status = getattr(item, "status", "")
+    if status == "completed":
+        return False
+    due_date = getattr(item, "due_date", None)
+    if not due_date:
+        return False
+    try:
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        return str(due_date) < today_str
+    except (ValueError, TypeError):
+        return False
 
 
 def _to_response(item: object) -> TaskResponse:
@@ -67,6 +84,7 @@ def _to_response(item: object) -> TaskResponse:
         metadata=getattr(item, "metadata_", {}),
         created_at=item.created_at,  # type: ignore[attr-defined]
         updated_at=item.updated_at,  # type: ignore[attr-defined]
+        is_overdue=_compute_is_overdue(item),
     )
 
 
@@ -127,6 +145,20 @@ async def create_task(
     """Create a new task."""
     task = await service.create_task(data, user_id=user_id)
     return _to_response(task)
+
+
+@router.get("/stats", response_model=TaskStatsResponse)
+async def task_stats(
+    project_id: uuid.UUID = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: TaskService = Depends(_get_service),
+) -> TaskStatsResponse:
+    """Return summary statistics for tasks in a project.
+
+    Includes total, breakdown by status/type/priority, overdue count,
+    and average checklist progress.
+    """
+    return await service.get_stats(project_id, current_user_id=user_id)
 
 
 # ── Export tasks as Excel ────────────────────────────────────────────────────

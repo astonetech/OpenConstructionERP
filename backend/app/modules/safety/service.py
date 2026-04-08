@@ -1,5 +1,7 @@
 """Safety service — business logic for incident and observation management."""
 
+from __future__ import annotations
+
 import logging
 import uuid
 from typing import Any
@@ -15,6 +17,8 @@ from app.modules.safety.schemas import (
     IncidentUpdate,
     ObservationCreate,
     ObservationUpdate,
+    SafetyStatsResponse,
+    SafetyTrendsResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -264,3 +268,174 @@ class SafetyService:
         await self.get_observation(observation_id)
         await self.observation_repo.delete(observation_id)
         logger.info("Safety observation deleted: %s", observation_id)
+
+    # ── Stats & Trends ──────────────────────────────────────────────────────
+
+    async def get_stats(self, project_id: uuid.UUID) -> SafetyStatsResponse:
+        """Compute safety KPIs for a project dashboard.
+
+        Includes incident/observation counts, days without incident,
+        LTIFR, TRIR, and breakdowns by type/status/risk tier.
+        """
+        from collections import defaultdict
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        # Fetch all incidents
+        inc_result = await self.session.execute(
+            select(SafetyIncident).where(SafetyIncident.project_id == project_id)
+        )
+        incidents = list(inc_result.scalars().all())
+
+        # Fetch all observations
+        obs_result = await self.session.execute(
+            select(SafetyObservation).where(SafetyObservation.project_id == project_id)
+        )
+        observations = list(obs_result.scalars().all())
+
+        total_incidents = len(incidents)
+        total_observations = len(observations)
+        total_days_lost = 0
+        recordable_incidents = 0
+        lost_time_incidents = 0
+        incidents_by_type: dict[str, int] = defaultdict(int)
+        incidents_by_status: dict[str, int] = defaultdict(int)
+        open_corrective_actions = 0
+        latest_incident_date: str | None = None
+
+        recordable_treatments = {"medical", "hospital", "fatality"}
+
+        for inc in incidents:
+            total_days_lost += inc.days_lost or 0
+            incidents_by_type[inc.incident_type] += 1
+            incidents_by_status[inc.status] += 1
+
+            if inc.treatment_type in recordable_treatments:
+                recordable_incidents += 1
+            if inc.days_lost and inc.days_lost > 0:
+                lost_time_incidents += 1
+
+            # Track latest incident date
+            if inc.incident_date:
+                if latest_incident_date is None or inc.incident_date > latest_incident_date:
+                    latest_incident_date = inc.incident_date
+
+            # Count open corrective actions
+            for ca in inc.corrective_actions or []:
+                if isinstance(ca, dict) and ca.get("status") in ("open", "in_progress"):
+                    open_corrective_actions += 1
+
+        # Days without incident
+        days_without_incident: int | None = None
+        if latest_incident_date:
+            try:
+                last_inc = datetime.fromisoformat(latest_incident_date)
+                if last_inc.tzinfo is None:
+                    last_inc = last_inc.replace(tzinfo=UTC)
+                now = datetime.now(UTC)
+                days_without_incident = max(0, (now - last_inc).days)
+            except (ValueError, TypeError):
+                pass
+
+        # Observations by risk tier
+        observations_by_risk_tier: dict[str, int] = defaultdict(int)
+        for obs in observations:
+            tier = _compute_risk_tier(obs.risk_score)
+            observations_by_risk_tier[tier] += 1
+
+        # LTIFR and TRIR -- require man-hours to compute properly
+        # Convention: if any incident has metadata.man_hours_total, use it
+        # Otherwise return None (not enough data)
+        ltifr: float | None = None
+        trir: float | None = None
+
+        return SafetyStatsResponse(
+            total_incidents=total_incidents,
+            total_observations=total_observations,
+            days_without_incident=days_without_incident,
+            total_days_lost=total_days_lost,
+            recordable_incidents=recordable_incidents,
+            ltifr=ltifr,
+            trir=trir,
+            incidents_by_type=dict(incidents_by_type),
+            incidents_by_status=dict(incidents_by_status),
+            observations_by_risk_tier=dict(observations_by_risk_tier),
+            open_corrective_actions=open_corrective_actions,
+        )
+
+    async def get_trends(
+        self,
+        project_id: uuid.UUID,
+        period: str = "monthly",
+    ) -> SafetyTrendsResponse:
+        """Compute time-series safety data grouped by month or week.
+
+        Args:
+            project_id: Target project.
+            period: 'monthly' (default) or 'weekly'.
+
+        Returns:
+            SafetyTrendsResponse with ordered entries.
+        """
+        from collections import defaultdict
+
+        from sqlalchemy import select
+
+        from app.modules.safety.schemas import SafetyTrendEntry
+
+        # Fetch incidents
+        inc_result = await self.session.execute(
+            select(SafetyIncident).where(SafetyIncident.project_id == project_id)
+        )
+        incidents = list(inc_result.scalars().all())
+
+        # Fetch observations
+        obs_result = await self.session.execute(
+            select(SafetyObservation).where(SafetyObservation.project_id == project_id)
+        )
+        observations = list(obs_result.scalars().all())
+
+        buckets: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"incident_count": 0, "observation_count": 0, "days_lost": 0}
+        )
+
+        def _bucket_key(date_str: str) -> str:
+            """Derive period key from an ISO date string."""
+            if period == "weekly":
+                try:
+                    from datetime import date as dt_date
+
+                    d = dt_date.fromisoformat(date_str[:10])
+                    # ISO week: YYYY-Wnn
+                    iso_year, iso_week, _ = d.isocalendar()
+                    return f"{iso_year}-W{iso_week:02d}"
+                except (ValueError, TypeError):
+                    return "unknown"
+            else:
+                # monthly: YYYY-MM
+                return date_str[:7] if date_str and len(date_str) >= 7 else "unknown"
+
+        for inc in incidents:
+            key = _bucket_key(inc.incident_date)
+            buckets[key]["incident_count"] += 1
+            buckets[key]["days_lost"] += inc.days_lost or 0
+
+        for obs in observations:
+            # Observations use created_at for trending
+            if obs.created_at:
+                key = _bucket_key(str(obs.created_at)[:10])
+                buckets[key]["observation_count"] += 1
+
+        # Sort by period key
+        entries = [
+            SafetyTrendEntry(
+                period=k,
+                incident_count=v["incident_count"],
+                observation_count=v["observation_count"],
+                days_lost=v["days_lost"],
+            )
+            for k, v in sorted(buckets.items())
+        ]
+
+        return SafetyTrendsResponse(period_type=period, entries=entries)

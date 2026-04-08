@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.dependencies import CurrentUserId, CurrentUserPayload, SessionDep
 from app.modules.cde.schemas import (
+    CDEStatsResponse,
     ContainerCreate,
     ContainerResponse,
     ContainerUpdate,
@@ -87,6 +88,22 @@ def _revision_to_response(revision: object) -> RevisionResponse:
         created_at=revision.created_at,  # type: ignore[attr-defined]
         updated_at=revision.updated_at,  # type: ignore[attr-defined]
     )
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/stats", response_model=CDEStatsResponse)
+async def cde_stats(
+    project_id: uuid.UUID = Query(...),
+    service: CDEService = Depends(_get_service),
+) -> CDEStatsResponse:
+    """Aggregate CDE statistics for a project.
+
+    Returns total containers, breakdown by CDE state and discipline,
+    and count of containers with at least one revision.
+    """
+    return await service.get_stats(project_id)
 
 
 # ── Container List ────────────────────────────────────────────────────────────

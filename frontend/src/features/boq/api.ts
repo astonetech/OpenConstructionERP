@@ -665,6 +665,25 @@ export const boqApi = {
       `/v1/boq/boqs/${boqId}/cost-risk?iterations=${iterations}`,
     ),
 
+  /* Statistics — aggregated BOQ metrics */
+  getStatistics: (boqId: string) =>
+    apiGet<{
+      boq_id: string;
+      boq_name: string;
+      status: string;
+      position_count: number;
+      section_count: number;
+      direct_cost: number;
+      grand_total: number;
+      avg_unit_rate: number;
+      completion_pct: number;
+      unit_breakdown: Record<string, number>;
+      source_breakdown: Record<string, number>;
+      classification_coverage_pct: number;
+      created_at: string;
+      updated_at: string;
+    }>(`/v1/boq/boqs/${boqId}/statistics`),
+
   /* Snapshot / Version History */
   getSnapshots: (boqId: string) =>
     apiGet<BOQSnapshot[]>(`/v1/boq/boqs/${boqId}/snapshots`),

@@ -92,3 +92,28 @@ class RFIResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
+
+    # Computed fields
+    is_overdue: bool = Field(
+        default=False,
+        description="True when status is open/draft and response_due_date is past today",
+    )
+    days_open: int = Field(
+        default=0,
+        description="Number of days from created_at to now (or responded_at if answered/closed)",
+    )
+
+
+class RFIStatsResponse(BaseModel):
+    """Summary statistics for RFIs in a project."""
+
+    total: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    open: int = 0
+    overdue: int = 0
+    avg_days_to_response: float | None = Field(
+        default=None,
+        description="Average days from creation to official response (answered/closed RFIs only)",
+    )
+    cost_impact_count: int = 0
+    schedule_impact_count: int = 0

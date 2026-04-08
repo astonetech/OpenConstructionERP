@@ -50,6 +50,7 @@ from app.modules.schedule.schemas import (
     RiskAnalysisResponse,
     ScheduleCreate,
     ScheduleResponse,
+    ScheduleStatsResponse,
     ScheduleUpdate,
     WorkOrderCreate,
     WorkOrderResponse,
@@ -1054,3 +1055,128 @@ async def delete_progress_update(
         raise HTTPException(status_code=404, detail="Progress update not found")
     await session.delete(record)
     await session.flush()
+
+
+# ── Schedule Stats & Critical Path ──────────────────────────────────────────
+
+
+@router.get(
+    "/stats",
+    response_model=ScheduleStatsResponse,
+    dependencies=[Depends(RequirePermission("schedule.read"))],
+)
+async def schedule_stats(
+    project_id: uuid.UUID = Query(..., description="Project to compute stats for"),
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> ScheduleStatsResponse:
+    """Return aggregate schedule statistics across all schedules in a project.
+
+    Computes total activities, critical count, delayed, on_track, progress_pct, etc.
+    """
+    from sqlalchemy import select
+
+    from app.modules.schedule.models import Activity, Schedule
+
+    # Get all schedules for the project
+    sched_stmt = select(Schedule.id).where(Schedule.project_id == project_id)
+    sched_result = await session.execute(sched_stmt)
+    schedule_ids = [row[0] for row in sched_result.all()]
+
+    if not schedule_ids:
+        return ScheduleStatsResponse()
+
+    # Get all activities across those schedules
+    act_stmt = select(Activity).where(Activity.schedule_id.in_(schedule_ids))
+    act_result = await session.execute(act_stmt)
+    activities = list(act_result.scalars().all())
+
+    total = len(activities)
+    if total == 0:
+        return ScheduleStatsResponse()
+
+    critical_count = 0
+    delayed = 0
+    completed = 0
+    not_started = 0
+    in_progress = 0
+    on_track = 0
+    total_duration = 0
+    weighted_progress = 0.0
+    total_weight = 0
+
+    for act in activities:
+        dur = act.duration_days or 0
+        total_duration += dur
+
+        progress = _str_to_float(act.progress_pct)
+        if dur > 0:
+            weighted_progress += progress * dur
+            total_weight += dur
+
+        if getattr(act, "is_critical", False):
+            critical_count += 1
+
+        if act.status == "delayed":
+            delayed += 1
+        elif act.status == "completed":
+            completed += 1
+        elif act.status == "not_started":
+            not_started += 1
+            on_track += 1
+        elif act.status == "in_progress":
+            in_progress += 1
+            on_track += 1
+
+    progress_pct = 0.0
+    if total_weight > 0:
+        progress_pct = round(weighted_progress / total_weight, 1)
+
+    return ScheduleStatsResponse(
+        total_activities=total,
+        critical_count=critical_count,
+        on_track=on_track,
+        delayed=delayed,
+        completed=completed,
+        not_started=not_started,
+        in_progress=in_progress,
+        progress_pct=progress_pct,
+        total_duration_days=total_duration,
+    )
+
+
+@router.get(
+    "/critical-path",
+    response_model=list[ActivityResponse],
+    dependencies=[Depends(RequirePermission("schedule.read"))],
+)
+async def critical_path_activities(
+    project_id: uuid.UUID = Query(..., description="Project to retrieve critical path for"),
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> list[ActivityResponse]:
+    """Return only critical-path activities across all schedules in a project.
+
+    Filters activities where is_critical=True, ordered by early_start.
+    Requires CPM calculation to have been run first.
+    """
+    from sqlalchemy import select
+
+    from app.modules.schedule.models import Activity, Schedule
+
+    # Get all schedules for the project
+    sched_stmt = select(Schedule.id).where(Schedule.project_id == project_id)
+    sched_result = await session.execute(sched_stmt)
+    schedule_ids = [row[0] for row in sched_result.all()]
+
+    if not schedule_ids:
+        return []
+
+    act_stmt = (
+        select(Activity)
+        .where(Activity.schedule_id.in_(schedule_ids))
+        .where(Activity.is_critical == True)  # noqa: E712
+        .order_by(Activity.early_start, Activity.sort_order)
+    )
+    act_result = await session.execute(act_stmt)
+    activities = list(act_result.scalars().all())
+
+    return [_activity_to_response(a) for a in activities]

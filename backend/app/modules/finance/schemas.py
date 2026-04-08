@@ -225,18 +225,32 @@ class BudgetResponse(BaseModel):
     actual: str = "0"
     forecast_final: str = "0"
     variance: str = "0"
+    consumed_pct: float = 0.0
+    warning_level: str = "normal"
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
 
     def model_post_init(self, __context: Any) -> None:
-        """Compute variance = revised_budget - actual after deserialization."""
+        """Compute variance, consumed_pct, and warning_level after deserialization."""
         try:
             revised = float(self.revised_budget)
             actual = float(self.actual)
             self.variance = str(revised - actual)
+            if revised > 0:
+                self.consumed_pct = round(actual / revised * 100, 1)
+            else:
+                self.consumed_pct = 0.0
+            if self.consumed_pct >= 95:
+                self.warning_level = "critical"
+            elif self.consumed_pct >= 80:
+                self.warning_level = "caution"
+            else:
+                self.warning_level = "normal"
         except (ValueError, TypeError):
             self.variance = "0"
+            self.consumed_pct = 0.0
+            self.warning_level = "normal"
 
 
 class BudgetListResponse(BaseModel):
@@ -293,3 +307,28 @@ class EVMListResponse(BaseModel):
 
     items: list[EVMSnapshotResponse]
     total: int
+
+
+# ── Finance Dashboard ───────────────────────────────────────────────────────
+
+
+class FinanceDashboardResponse(BaseModel):
+    """Aggregated finance KPIs for a project or across all projects."""
+
+    total_payable: float = 0.0
+    total_receivable: float = 0.0
+    total_overdue: float = 0.0
+    overdue_count: int = 0
+    invoices_draft: int = 0
+    invoices_pending: int = 0
+    invoices_approved: int = 0
+    invoices_paid: int = 0
+    total_budget_original: float = 0.0
+    total_budget_revised: float = 0.0
+    total_committed: float = 0.0
+    total_actual: float = 0.0
+    total_variance: float = 0.0
+    budget_consumed_pct: float = 0.0
+    budget_warning_level: str = "normal"  # "normal" | "caution" | "critical"
+    total_payments: float = 0.0
+    cash_flow_net: float = 0.0

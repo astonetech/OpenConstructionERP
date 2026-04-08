@@ -19,6 +19,7 @@ from app.core.events import event_bus
 from app.modules.cde.models import DocumentContainer, DocumentRevision
 from app.modules.cde.repository import ContainerRepository, RevisionRepository
 from app.modules.cde.schemas import (
+    CDEStatsResponse,
     ContainerCreate,
     ContainerUpdate,
     RevisionCreate,
@@ -47,8 +48,35 @@ class CDEService:
     ) -> DocumentContainer:
         """Create a new document container.
 
+        If ``container_code`` equals the sentinel value ``"AUTO"``, a code is
+        auto-generated from the ISO 19650 naming convention parts
+        (originator_code, functional_breakdown, spatial_breakdown, form_code,
+        discipline_code, sequence_number).
+
         Raises 409 if container_code already exists within the project.
         """
+        # Auto-generate container_code from naming convention parts when requested
+        if data.container_code.strip().upper() == "AUTO":
+            data.container_code = self.generate_container_code(
+                originator=data.originator_code,
+                functional=data.functional_breakdown,
+                spatial=data.spatial_breakdown,
+                form=data.form_code,
+                discipline=data.discipline_code,
+                number=data.sequence_number,
+            )
+            if not data.container_code:
+                from fastapi import HTTPException as _HTTPException
+
+                raise _HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Cannot auto-generate container_code: provide at least one "
+                        "naming convention field (originator_code, functional_breakdown, "
+                        "spatial_breakdown, form_code, discipline_code, or sequence_number)"
+                    ),
+                )
+
         existing = await self.container_repo.get_by_code_and_project(
             data.project_id, data.container_code
         )
@@ -295,3 +323,40 @@ class CDEService:
             offset=offset,
             limit=limit,
         )
+
+    # ── Stats ────────────────────────────────────────────────────────────
+
+    async def get_stats(self, project_id: uuid.UUID) -> CDEStatsResponse:
+        """Return aggregate CDE statistics for a project."""
+        raw = await self.container_repo.stats_for_project(project_id)
+        return CDEStatsResponse(
+            total=raw["total"],
+            by_state=raw["by_state"],
+            by_discipline=raw["by_discipline"],
+            latest_revisions=raw["latest_revisions"],
+        )
+
+    # ── ISO 19650 naming convention ──────────────────────────────────────
+
+    @staticmethod
+    def generate_container_code(
+        *,
+        project: str | None = None,
+        originator: str | None = None,
+        functional: str | None = None,
+        spatial: str | None = None,
+        form: str | None = None,
+        discipline: str | None = None,
+        number: str | None = None,
+    ) -> str:
+        """Generate an ISO 19650 container code from naming convention parts.
+
+        Pattern: ``{Project}-{Originator}-{Functional}-{Spatial}-{Form}-{Discipline}-{Number}``
+        Empty parts are omitted.
+        """
+        parts = [
+            p
+            for p in (project, originator, functional, spatial, form, discipline, number)
+            if p
+        ]
+        return "-".join(parts)

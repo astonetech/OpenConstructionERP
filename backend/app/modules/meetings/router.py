@@ -27,7 +27,9 @@ from app.modules.meetings.schemas import (
     AttendeeEntry,
     MeetingCreate,
     MeetingResponse,
+    MeetingStatsResponse,
     MeetingUpdate,
+    OpenActionItemResponse,
 )
 from app.modules.meetings.service import MeetingService
 
@@ -86,6 +88,37 @@ async def list_meetings(
         status_filter=status_filter,
     )
     return [_meeting_to_response(m) for m in meetings]
+
+
+# ── Stats ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/stats", response_model=MeetingStatsResponse)
+async def meeting_stats(
+    project_id: uuid.UUID = Query(...),
+    service: MeetingService = Depends(_get_service),
+) -> MeetingStatsResponse:
+    """Aggregate meeting statistics for a project.
+
+    Returns total, breakdown by status and type, count of open action items
+    across all meetings, and the next upcoming meeting date.
+    """
+    return await service.get_stats(project_id)
+
+
+# ── Open Action Items ────────────────────────────────────────────────────────
+
+
+@router.get("/open-actions", response_model=list[OpenActionItemResponse])
+async def open_action_items(
+    project_id: uuid.UUID = Query(...),
+    service: MeetingService = Depends(_get_service),
+) -> list[OpenActionItemResponse]:
+    """All open action items across all meetings in a project.
+
+    Returns each action item with its parent meeting context (number, title, date).
+    """
+    return await service.get_open_actions(project_id)
 
 
 # ── Create ────────────────────────────────────────────────────────────────────

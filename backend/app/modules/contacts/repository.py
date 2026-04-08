@@ -4,6 +4,8 @@ All database queries for contacts live here.
 No business logic — pure data access.
 """
 
+from __future__ import annotations
+
 import uuid
 
 from sqlalchemy import func, or_, select, update
@@ -98,3 +100,81 @@ class ContactRepository:
                 select(Contact).where(Contact.contact_type == contact_type).subquery()
             )
         return (await self.session.execute(base)).scalar_one()
+
+    async def stats(self) -> dict:
+        """Compute aggregate contact statistics.
+
+        Returns dict with keys: total, by_type, by_country_top10,
+        with_expiring_prequalification.
+        """
+        # Total active contacts
+        total_stmt = (
+            select(func.count())
+            .select_from(Contact)
+            .where(Contact.is_active.is_(True))
+        )
+        total = (await self.session.execute(total_stmt)).scalar_one()
+
+        # Count by type
+        type_stmt = (
+            select(Contact.contact_type, func.count())
+            .where(Contact.is_active.is_(True))
+            .group_by(Contact.contact_type)
+        )
+        type_rows = (await self.session.execute(type_stmt)).all()
+        by_type = {row[0]: row[1] for row in type_rows}
+
+        # Top 10 countries
+        country_stmt = (
+            select(Contact.country_code, func.count())
+            .where(Contact.is_active.is_(True))
+            .where(Contact.country_code.isnot(None))
+            .group_by(Contact.country_code)
+            .order_by(func.count().desc())
+            .limit(10)
+        )
+        country_rows = (await self.session.execute(country_stmt)).all()
+        by_country_top10 = {row[0]: row[1] for row in country_rows}
+
+        # Contacts with expiring prequalification (approved + qualified_until set)
+        expiring_stmt = (
+            select(func.count())
+            .select_from(Contact)
+            .where(Contact.is_active.is_(True))
+            .where(Contact.prequalification_status == "approved")
+            .where(Contact.qualified_until.isnot(None))
+        )
+        with_expiring = (await self.session.execute(expiring_stmt)).scalar_one()
+
+        return {
+            "total": total,
+            "by_type": by_type,
+            "by_country_top10": by_country_top10,
+            "with_expiring_prequalification": with_expiring,
+        }
+
+    async def list_by_company(
+        self,
+        company_name: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Contact], int]:
+        """List all contacts at the same company.
+
+        Uses case-insensitive matching on company_name.
+        """
+        base = (
+            select(Contact)
+            .where(Contact.is_active.is_(True))
+            .where(func.lower(Contact.company_name) == company_name.lower())
+        )
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self.session.execute(count_stmt)).scalar_one()
+
+        stmt = base.order_by(Contact.last_name.asc()).offset(offset).limit(limit)
+        result = await self.session.execute(stmt)
+        contacts = list(result.scalars().all())
+
+        return contacts, total

@@ -121,3 +121,28 @@ class MeetingResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime
     updated_at: datetime
+
+
+# ── Stats ────────────────────────────────────────────────────────────────
+
+
+class MeetingStatsResponse(BaseModel):
+    """Aggregate statistics for meetings within a project."""
+
+    total: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_type: dict[str, int] = Field(default_factory=dict)
+    open_action_items_count: int = 0
+    next_meeting_date: str | None = None
+
+
+class OpenActionItemResponse(BaseModel):
+    """An open action item extracted from a meeting's JSON action_items array."""
+
+    meeting_id: UUID
+    meeting_number: str
+    meeting_title: str
+    meeting_date: str
+    description: str
+    owner_id: str | None = None
+    due_date: str | None = None

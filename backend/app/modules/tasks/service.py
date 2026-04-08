@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.tasks.models import Task
 from app.modules.tasks.repository import TaskRepository
-from app.modules.tasks.schemas import TaskCreate, TaskUpdate
+from app.modules.tasks.schemas import TaskCreate, TaskStatsResponse, TaskUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -171,3 +171,85 @@ class TaskService:
         await self.session.refresh(task)
         logger.info("Task completed: %s", task_id)
         return task
+
+    async def get_stats(
+        self,
+        project_id: uuid.UUID,
+        current_user_id: str | None = None,
+    ) -> TaskStatsResponse:
+        """Compute summary statistics for all tasks in a project.
+
+        Includes total, breakdowns by status/type/priority, overdue count,
+        and average checklist progress across non-completed tasks.
+        """
+        from collections import defaultdict
+        from datetime import UTC, datetime
+
+        from sqlalchemy import or_, select
+
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
+
+        base = select(Task).where(Task.project_id == project_id)
+        # Respect private task visibility
+        if current_user_id is not None:
+            base = base.where(
+                or_(
+                    Task.is_private == False,  # noqa: E712
+                    Task.created_by == current_user_id,
+                )
+            )
+        else:
+            base = base.where(Task.is_private == False)  # noqa: E712
+
+        result = await self.session.execute(base)
+        tasks = list(result.scalars().all())
+
+        total = len(tasks)
+        by_status: dict[str, int] = defaultdict(int)
+        by_type: dict[str, int] = defaultdict(int)
+        by_priority: dict[str, int] = defaultdict(int)
+        overdue_count = 0
+        completed_count = 0
+        checklist_progress_values: list[float] = []
+
+        for task in tasks:
+            by_status[task.status] += 1
+            by_type[task.task_type] += 1
+            by_priority[task.priority] += 1
+
+            if task.status == "completed":
+                completed_count += 1
+
+            # Overdue: not completed + due_date in the past
+            if task.status != "completed" and task.due_date:
+                try:
+                    if str(task.due_date) < today_str:
+                        overdue_count += 1
+                except (TypeError, ValueError):
+                    pass
+
+            # Checklist progress for non-completed tasks
+            if task.status != "completed" and task.checklist:
+                items = task.checklist
+                total_items = len(items)
+                if total_items > 0:
+                    done = sum(
+                        1 for c in items if isinstance(c, dict) and c.get("completed")
+                    )
+                    checklist_progress_values.append(done / total_items * 100)
+
+        avg_checklist_progress: float | None = None
+        if checklist_progress_values:
+            avg_checklist_progress = round(
+                sum(checklist_progress_values) / len(checklist_progress_values), 1
+            )
+
+        return TaskStatsResponse(
+            total=total,
+            by_status=dict(by_status),
+            by_type=dict(by_type),
+            by_priority=dict(by_priority),
+            overdue_count=overdue_count,
+            completed_count=completed_count,
+            avg_checklist_progress=avg_checklist_progress,
+        )
