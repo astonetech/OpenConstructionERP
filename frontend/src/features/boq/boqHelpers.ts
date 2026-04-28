@@ -380,6 +380,39 @@ export const RESOURCE_TYPE_BADGE: Record<string, { bg: string; label: string }> 
   other:         { bg: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',       label: '?' },
 };
 
+/* ── International currency catalogue ────────────────────────────────────
+ * Used by the resource-row currency picker. The list is intentionally
+ * broad: an international estimator may price one resource in USD and
+ * another in EUR even when the project base is GBP, regardless of
+ * whether the BOQ owner has populated `fx_rates` yet. Items chosen with
+ * no FX configured render with a "no FX" warning badge — the value
+ * itself is preserved in the resource's own currency.
+ */
+export const COMMON_CURRENCIES: readonly string[] = [
+  // Most-used global trade currencies first
+  'USD', 'EUR', 'GBP', 'CHF', 'JPY', 'CNY',
+  // Major regional currencies
+  'CAD', 'AUD', 'NZD', 'SGD', 'HKD', 'KRW',
+  // Emerging-market & commodity currencies
+  'INR', 'BRL', 'MXN', 'ZAR', 'TRY', 'RUB',
+  // EU non-euro
+  'PLN', 'CZK', 'HUF', 'SEK', 'NOK', 'DKK', 'RON',
+  // Middle East
+  'AED', 'SAR', 'QAR', 'ILS',
+  // SE Asia
+  'THB', 'IDR', 'MYR', 'PHP', 'VND',
+];
+
+/** ISO 4217 → symbol map for the resource currency badge. */
+export const CURRENCY_SYMBOL: Record<string, string> = {
+  USD: '$', EUR: '€', GBP: '£', CHF: 'Fr', JPY: '¥', CNY: '¥',
+  CAD: '$', AUD: '$', NZD: '$', SGD: '$', HKD: '$', KRW: '₩',
+  INR: '₹', BRL: 'R$', MXN: '$', ZAR: 'R', TRY: '₺', RUB: '₽',
+  PLN: 'zł', CZK: 'Kč', HUF: 'Ft', SEK: 'kr', NOK: 'kr', DKK: 'kr', RON: 'lei',
+  AED: 'د.إ', SAR: '﷼', QAR: '﷼', ILS: '₪',
+  THB: '฿', IDR: 'Rp', MYR: 'RM', PHP: '₱', VND: '₫',
+};
+
 /* ── Shared Interfaces ───────────────────────────────────────────────── */
 
 export interface PositionResource {

@@ -26,7 +26,14 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { RESOURCE_TYPE_BADGE, fmtWithCurrency, getUnitsForLocale, saveCustomUnit } from '../boqHelpers';
+import {
+  COMMON_CURRENCIES,
+  CURRENCY_SYMBOL,
+  RESOURCE_TYPE_BADGE,
+  fmtWithCurrency,
+  getUnitsForLocale,
+  saveCustomUnit,
+} from '../boqHelpers';
 import { RESOURCE_TYPES, getResourceTypeLabel } from '../boqResourceTypes';
 import { countComments } from '../CommentDrawer';
 import { BIMQuantityPicker } from './BIMQuantityPicker';
@@ -1809,9 +1816,123 @@ function InlineUnitInput({
   );
 }
 
+/**
+ * Resource type picker — fit-content badge button with portal popover.
+ *
+ * The native &lt;select&gt; element sizes itself to its longest option, which
+ * left every resource-type badge stretched to the width of "EQUIPMENT".
+ * Replacing it with a button lets the badge fit its own current label
+ * (MATERIAL / LABOR / EQUIPMENT) and gives us a popover we can style.
+ */
+function ResourceTypePicker({
+  value,
+  onChange,
+  t,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  t: (key: string, opts?: Record<string, string>) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const badge = RESOURCE_TYPE_BADGE[value] ?? RESOURCE_TYPE_BADGE.other ?? { bg: 'bg-gray-100 text-gray-600', label: '?' };
+  const label = getResourceTypeLabel(value, t);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (btnRef.current && btnRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const togglePicker = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left });
+    }
+    setOpen(true);
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={togglePicker}
+        className={`shrink-0 inline-flex items-center justify-center h-4 px-1.5 rounded
+                    text-[9px] font-bold uppercase tracking-wider whitespace-nowrap
+                    cursor-pointer outline-none border-0 focus:ring-1 focus:ring-oe-blue ${badge.bg}`}
+        title={t('boq.resource_type', { defaultValue: 'Resource type' })}
+        aria-label={t('boq.resource_type', { defaultValue: 'Resource type' })}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        {label}
+      </button>
+      {open && pos && createPortal(
+        <div
+          role="listbox"
+          className="fixed z-[2000] bg-surface-primary border border-border-light rounded-md
+                     shadow-lg py-1 min-w-[160px] max-h-[260px] overflow-auto"
+          style={{ top: pos.top, left: pos.left }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {RESOURCE_TYPES.map((rt) => {
+            const b = RESOURCE_TYPE_BADGE[rt.value] ?? RESOURCE_TYPE_BADGE.other ?? { bg: 'bg-gray-100 text-gray-600', label: '?' };
+            const selected = rt.value === value;
+            return (
+              <button
+                key={rt.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange(rt.value);
+                  setOpen(false);
+                }}
+                className={`flex items-center gap-2 w-full px-2 py-1.5 text-[11px] text-left
+                            hover:bg-surface-secondary transition-colors
+                            ${selected ? 'bg-oe-blue-subtle/30' : ''}`}
+              >
+                <span className={`inline-flex items-center justify-center h-4 w-4 rounded
+                                  text-[9px] font-bold ${b.bg}`}>
+                  {b.label}
+                </span>
+                <span className="text-content-primary uppercase tracking-wider font-medium">
+                  {getResourceTypeLabel(rt.value, t)}
+                </span>
+                {selected && <span className="ml-auto text-oe-blue text-[10px]">✓</span>}
+              </button>
+            );
+          })}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, unknown>; ctx: FullGridContext; colWidths: ColWidths }) {
   const resourceType = (data._resourceType as string) || 'other';
-  const badge = RESOURCE_TYPE_BADGE[resourceType] ?? RESOURCE_TYPE_BADGE.other ?? { bg: 'bg-gray-100 text-gray-600', label: '?' };
   const qty = (data._resourceQty as number) ?? 0;
   const rate = (data._resourceRate as number) ?? 0;
   const total = qty * rate;
@@ -1831,6 +1952,8 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
 
   const posId = data._parentPositionId as string;
   const resIdx = data._resourceIndex as number;
+  const originalName = (data._resourceName as string) || '';
+  const resourceCode = (data._resourceCode as string | undefined) || '';
 
   const handleQtyChange = useCallback(
     (v: number) => ctx.onUpdateResource?.(posId, resIdx, 'quantity', v),
@@ -1841,9 +1964,21 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
     [ctx, posId, resIdx],
   );
 
+  // When the user edits the resource name, treat it as a customisation:
+  // the linked catalogue code no longer represents this row, so clear it.
+  // The "Save to my catalog" button (BookmarkPlus) then lets the user
+  // persist the customised resource as a brand-new entry in their own
+  // catalogue without overwriting the public CWICR row.
   const handleNameChange = useCallback(
-    (v: string) => ctx.onUpdateResource?.(posId, resIdx, 'name', v),
-    [ctx, posId, resIdx],
+    (v: string) => {
+      const next = v.trim();
+      if (next === originalName.trim()) return;
+      ctx.onUpdateResource?.(posId, resIdx, 'name', v);
+      if (resourceCode) {
+        ctx.onUpdateResource?.(posId, resIdx, 'code', '');
+      }
+    },
+    [ctx, posId, resIdx, originalName, resourceCode],
   );
 
   const handleTypeChange = useCallback(
@@ -1861,26 +1996,39 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
     [ctx, posId, resIdx, baseCurrency],
   );
 
-  // Currency dropdown options: project base + every fx_rates entry, deduped.
-  const currencyOptions = useMemo(() => {
+  // Currency dropdown — three groups, deduped:
+  //   1. Project base + every fx_rates entry the BOQ owner already configured.
+  //   2. The resource's current currency if it's outside both above
+  //      (so the picker can faithfully render whatever was already saved).
+  //   3. COMMON_CURRENCIES — global fallback so an international estimator
+  //      can pick e.g. JPY for an imported component even when the project
+  //      hasn't pre-loaded an FX rate. The "no FX" warning badge on the
+  //      total cell flags missing-rate cases.
+  const { projectGroup, otherGroup } = useMemo(() => {
     const seen = new Set<string>();
-    const out: string[] = [];
+    const project: string[] = [];
+    const other: string[] = [];
     if (baseCurrency) {
-      out.push(baseCurrency);
+      project.push(baseCurrency);
       seen.add(baseCurrency);
     }
     for (const fx of fxRates) {
       if (fx.currency && !seen.has(fx.currency)) {
-        out.push(fx.currency);
+        project.push(fx.currency);
         seen.add(fx.currency);
       }
     }
-    // If the resource currently uses a currency outside the project FX
-    // template, still include it so the picker can show the current value.
     if (resourceCurrency && !seen.has(resourceCurrency)) {
-      out.push(resourceCurrency);
+      project.push(resourceCurrency);
+      seen.add(resourceCurrency);
     }
-    return out;
+    for (const code of COMMON_CURRENCIES) {
+      if (!seen.has(code)) {
+        other.push(code);
+        seen.add(code);
+      }
+    }
+    return { projectGroup: project, otherGroup: other };
   }, [baseCurrency, fxRates, resourceCurrency]);
 
   const totalTitle = (() => {
@@ -1912,35 +2060,37 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
         ctx.onShowContextMenu?.(e, 'resource', data);
       }}
     >
-      {/* Type — editable badge-styled select */}
-      <select
+      {/* Type — fit-content badge picker (portal popover, not a native select
+          — native selects render at the width of the longest option which
+          left every badge stretched to "EQUIPMENT" width). */}
+      <ResourceTypePicker
         value={resourceType}
-        onChange={(e) => handleTypeChange(e.target.value)}
-        onClick={(e) => e.stopPropagation()}
-        className={`shrink-0 h-4 px-1 rounded text-[9px] font-bold uppercase tracking-wider
-                    appearance-none cursor-pointer outline-none border-0
-                    focus:ring-1 focus:ring-oe-blue ${badge.bg}`}
-        title={ctx.t('boq.resource_type', { defaultValue: 'Type' })}
-        aria-label={ctx.t('boq.resource_type', { defaultValue: 'Type' })}
-      >
-        {RESOURCE_TYPES.map((rt) => (
-          <option key={rt.value} value={rt.value}>
-            {getResourceTypeLabel(rt.value, ctx.t)}
-          </option>
-        ))}
-      </select>
+        onChange={handleTypeChange}
+        t={ctx.t}
+      />
 
-      {/* Name — editable */}
-      <span className="truncate min-w-0 flex-1 text-content-secondary font-medium">
-        <InlineTextInput value={data._resourceName as string} onCommit={handleNameChange} className="w-full text-[11px]" />
-      </span>
-
-      {/* Code (small, muted) */}
-      {typeof data._resourceCode === 'string' && data._resourceCode && (
-        <span className="shrink-0 text-[9px] font-mono text-content-quaternary truncate max-w-[60px]" title={data._resourceCode}>
-          {data._resourceCode}
+      {/* Code (small, muted) — moved to the LEFT of the name so the catalogue
+          article number is the first thing the eye lands on. Hidden once
+          the user customises the name (handleNameChange clears it), so a
+          customised row reads as a brand-new entry, not a fork of the
+          original catalogue item. */}
+      {resourceCode && (
+        <span
+          className="shrink-0 text-[9px] font-mono text-content-quaternary truncate max-w-[80px]
+                     px-1 py-0.5 rounded bg-surface-secondary/60"
+          title={ctx.t('boq.resource_catalog_code', { defaultValue: 'Catalogue code: {{code}}', code: resourceCode })}
+        >
+          {resourceCode}
         </span>
       )}
+
+      {/* Name — editable. Committing a different name strips the catalogue
+          code (see handleNameChange) so the row becomes a customised
+          resource, savable to the user's personal catalogue via the
+          BookmarkPlus action. */}
+      <span className="truncate min-w-0 flex-1 text-content-secondary font-medium">
+        <InlineTextInput value={originalName} onCommit={handleNameChange} className="w-full text-[11px]" />
+      </span>
 
       {/* Unit — free-form with datalist autocomplete */}
       <span className="shrink-0 text-center text-content-tertiary" style={{ width: `${colWidths.unit}px` }}>
@@ -1961,7 +2111,10 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
         <InlineNumberInput value={rate} onCommit={handleRateChange} fmt={ctx.fmt} className="w-full text-[11px]" />
       </span>
 
-      {/* Currency — small selector between rate and total */}
+      {/* Currency — grouped picker. Project FX-configured currencies appear
+          first; the global ISO catalogue follows so an international
+          estimator can pick e.g. JPY for an imported component even when
+          the BOQ owner hasn't set up FX rates yet. */}
       <select
         value={resourceCurrency}
         onChange={(e) => handleCurrencyChange(e.target.value)}
@@ -1969,13 +2122,26 @@ function EditableResourceRow({ data, ctx, colWidths }: { data: Record<string, un
         className="shrink-0 h-4 px-1 rounded text-[9px] font-mono uppercase tracking-wide
                    bg-surface-primary border border-border-light text-content-secondary
                    appearance-none cursor-pointer outline-none focus:ring-1 focus:ring-oe-blue"
-        style={{ width: '52px' }}
-        title={ctx.t('boq.resource_currency', { defaultValue: 'Currency' })}
+        style={{ width: '56px' }}
+        title={ctx.t('boq.resource_currency_pick', {
+          defaultValue: 'Currency — {{symbol}} {{code}}',
+          symbol: CURRENCY_SYMBOL[resourceCurrency] ?? '',
+          code: resourceCurrency,
+        })}
         aria-label={ctx.t('boq.resource_currency', { defaultValue: 'Currency' })}
       >
-        {currencyOptions.map((code) => (
-          <option key={code} value={code}>{code}</option>
-        ))}
+        <optgroup label={ctx.t('boq.currency_group_project', { defaultValue: 'Project' })}>
+          {projectGroup.map((code) => (
+            <option key={code} value={code}>{code}</option>
+          ))}
+        </optgroup>
+        {otherGroup.length > 0 && (
+          <optgroup label={ctx.t('boq.currency_group_world', { defaultValue: 'World currencies' })}>
+            {otherGroup.map((code) => (
+              <option key={code} value={code}>{code}</option>
+            ))}
+          </optgroup>
+        )}
       </select>
 
       {/* Total — aligned to grid Total column */}

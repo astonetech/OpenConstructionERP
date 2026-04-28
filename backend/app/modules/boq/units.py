@@ -16,6 +16,7 @@ data use.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 # ── Curated unit catalogue ────────────────────────────────────────────
@@ -48,8 +49,38 @@ APPROVED_UNITS: Final[frozenset[str]] = frozenset(
 )
 
 
+# CWICR and other catalogues commonly price grouped quantities — "100 EA",
+# "1000 m", "10 kg" — meaning "rate per N units".  Treat these as approved
+# when the trailing token is itself an approved unit; normalisation strips
+# the multiplier so downstream stats and GAEB export still see a clean
+# ``ea`` / ``m`` / ``kg``.  The numeric prefix is preserved on the
+# position via ``unit_multiplier`` (carried in metadata by the import flow)
+# so totals stay accurate.
+_MULTI_PREFIX_RE: Final = re.compile(r"^\s*(\d{1,6})\s+([A-Za-z][A-Za-z0-9]{0,9})\s*$")
+
+
+def normalise_unit(unit: str | None) -> str | None:
+    """Return the canonical form of ``unit`` if approved, else None.
+
+    Accepts:
+      - bare units from APPROVED_UNITS (case-insensitive)
+      - CWICR-style multi-prefix forms like "100 EA", "1000 m" — returned
+        as ``"<N> <unit>"`` lower-cased.
+    """
+    if not unit:
+        return None
+    stripped = unit.strip()
+    lower = stripped.lower()
+    if lower in APPROVED_UNITS:
+        return lower
+    m = _MULTI_PREFIX_RE.match(stripped)
+    if m:
+        n, base = m.group(1), m.group(2).lower()
+        if base in APPROVED_UNITS:
+            return f"{n} {base}"
+    return None
+
+
 def is_approved_unit(unit: str | None) -> bool:
     """Return True when ``unit`` is in the approved catalogue (case-insensitive)."""
-    if not unit:
-        return False
-    return unit.strip().lower() in APPROVED_UNITS
+    return normalise_unit(unit) is not None

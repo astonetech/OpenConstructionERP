@@ -5,6 +5,17 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.17] — 2026-04-28
+
+### Fixed
+- **BOQ unit catalogue** — `'100 EA'`, `'1000 m'`, and other CWICR multi-prefix forms (rate-per-N units) were rejected by `PositionCreate` / `PositionUpdate`. New `normalise_unit()` helper accepts `<N> <approved_unit>` patterns with up to 6-digit multipliers and lowercases the trailing token. Bare units behave as before.
+
+### Changed
+- **Resource row UX** in BOQ inline editor:
+  - Resource-type badge replaced with a fit-content portal-popover picker. Native `<select>` rendered every badge at "EQUIPMENT" width regardless of label; each badge now sizes to its own content (MATERIAL / LABOR / EQUIPMENT / SUBCONTRACTOR / OTHER).
+  - Catalogue code chip moved from the right of the name to the **left**, so the article number is the first thing the eye lands on. Auto-clears when the user commits a different name — the row then represents a customised resource saveable to the user's personal catalogue via the existing BookmarkPlus action.
+  - Currency dropdown grouped: project-FX-configured codes first, then a 33-currency global ISO 4217 list (USD/EUR/GBP/CHF/JPY/CNY/RUB/INR/CAD/AUD/NZD/SGD/HKD/KRW/BRL/MXN/ZAR/TRY/PLN/CZK/HUF/SEK/NOK/DKK/RON/AED/SAR/QAR/ILS/THB/IDR/MYR/PHP/VND). Picking a currency without a configured FX rate still flags the total cell with the existing "no FX" amber badge.
+
 ## [2.6.16] — 2026-04-28
 
 ### Added

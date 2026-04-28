@@ -222,10 +222,10 @@ class PositionCreate(BaseModel):
     @field_validator("unit", mode="after")
     @classmethod
     def _check_unit(cls, v: str) -> str:
-        from app.modules.boq.units import APPROVED_UNITS
+        from app.modules.boq.units import APPROVED_UNITS, normalise_unit
 
-        normalised = v.strip().lower()
-        if normalised not in APPROVED_UNITS:
+        normalised = normalise_unit(v)
+        if normalised is None:
             raise ValueError(
                 f"unit '{v}' is not in the approved BOQ unit catalogue "
                 f"({', '.join(sorted(APPROVED_UNITS))})"
@@ -301,10 +301,10 @@ class PositionUpdate(BaseModel):
     def _check_unit(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        from app.modules.boq.units import APPROVED_UNITS
+        from app.modules.boq.units import APPROVED_UNITS, normalise_unit
 
-        normalised = v.strip().lower()
-        if normalised not in APPROVED_UNITS:
+        normalised = normalise_unit(v)
+        if normalised is None:
             raise ValueError(
                 f"unit '{v}' is not in the approved BOQ unit catalogue "
                 f"({', '.join(sorted(APPROVED_UNITS))})"
