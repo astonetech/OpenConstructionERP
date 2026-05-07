@@ -5,6 +5,27 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.26] — 2026-05-07
+
+### Fixed
+
+- **BOQ horizontal overflow when 4+ regional-preset columns were added.** Custom columns had a 80 px `minWidth` and no `flex` — `sizeColumnsToFit` couldn't shrink them, so adding the GAEB EP-split (4 columns) or AIQS preset (5 columns) pushed the right edge past the viewport on a 1366-1440 px laptop. Description column also had a 260 px floor that compounded the problem. Lowered custom-column `minWidth` to 56 px (~3 letters of header + padding), gave each custom col `flex: 1`, and set the description column to `flex: 3` with a 180 px floor — the BOQ now redistributes width evenly across all visible columns instead of overflowing.
+- **GAEB EP-split no longer added up to less than `unit_rate` when a position carried operator / subcontractor resources.** `Sonstiges-EP` was wired with `resource_role: 'other'`, so the catch-all column ignored `operator` and `subcontractor` resources entirely — `Lohn + Material + Geräte + Sonstiges` came out short by the operator/subcontractor share. Widened `resource_role` to accept either a single role or a list (backend Pydantic + frontend column-def types), normalised matching through a `Set` membership check, and updated the GAEB preset to `['other', 'operator', 'subcontractor']`. The badge in `CustomColumnsDialog` renders the multi-role hint as `other / operator / subcontractor`.
+
+### Changed
+
+- **`/settings → Advanced` redesigned for clearer block layout.** `BackupRestore` now renders Export and Restore side-by-side on desktop instead of stacking — the import dropzone no longer sits below an empty stretch of Export-card whitespace. The two single-button maintenance cards (Databases & Resources, Setup Wizard) collapsed into a single `Maintenance & Setup` card with two action-rows (icon + title + description + Open button) so the lower part of the tab no longer reads as two stranded half-cards.
+- **`/costs` now mirrors the BOQ "From Database" classification tree.** Added a 260 px sticky sidebar on desktop that fetches the full 4-level classification (collection → department → section → subsection) via `/v1/costs/category-tree/?depth=4` and drives the search via the `classification_path` filter. Click selects, the chevron toggles expand independently, and the in-tree filter input keeps deep matches reachable. The legacy flat `category` dropdown is retained as a secondary filter.
+- **Dashboard "developed by" hint above the DDC logo** is now lower-cased, smaller (`9px`), tracking-normal, with a left indent — was reading too loud as small-caps.
+
+### Cleanup
+
+- **Local dev DB**: 6 732 polluted contact rows from earlier CRM-import smoke runs were deleted; one well-described example (`Patricia Martinez @ Downtown Health System`) is retained. FK columns in `oe_finance_invoice`, `oe_correspondence_correspondence`, and `oe_procurement_po` were already null / pointed at the survivor — no operational data nulled. VACUUM ran clean.
+
+### Verified
+
+- **Issue #113** (`[BUG] can't get any IFC or Revit file to be viewed in the 3D viewer`) — closed. End-to-end check on a fresh `pip install openconstructionerp==2.9.25` venv: IFC upload → conversion `status=ready` (289 elements, 4 storeys), `/elements/` returns finite bboxes for 37/50 sampled rows, `/geometry/` returns 302 KB `model/vnd.collada+xml`. Likely fixed by v2.9.21 (IFC conversion regression) + v2.9.22 (`ORJSONResponse` removed — orjson rejects `NaN` in bbox coords).
+
 ## [2.9.25] — 2026-05-07
 
 ### Fixed

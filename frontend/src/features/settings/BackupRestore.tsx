@@ -299,9 +299,9 @@ export function BackupRestore() {
           })}
         />
         <CardContent>
-          <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
             {/* ── Export Section ──────────────────────────────────────────── */}
-            <div className="rounded-xl border border-border-light bg-surface-secondary/30 p-5">
+            <div className="rounded-xl border border-border-light bg-surface-secondary/30 p-5 h-full">
               <div className="flex items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-oe-blue/10 text-oe-blue">
                   <HardDrive size={20} />
@@ -316,7 +316,7 @@ export function BackupRestore() {
                         'Export all your projects, BOQ data, cost databases, and settings as a ZIP file.',
                     })}
                   </p>
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
                     <Button
                       variant="primary"
                       size="md"
@@ -341,7 +341,7 @@ export function BackupRestore() {
             </div>
 
             {/* ── Import Section ──────────────────────────────────────────── */}
-            <div className="rounded-xl border border-border-light bg-surface-secondary/30 p-5">
+            <div className="rounded-xl border border-border-light bg-surface-secondary/30 p-5 h-full">
               <div className="flex items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
                   <Shield size={20} />

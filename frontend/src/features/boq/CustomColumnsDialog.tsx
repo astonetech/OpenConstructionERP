@@ -534,7 +534,13 @@ export function CustomColumnsDialog({
                           {isDerived && (
                             <Badge variant="blue" size="sm">
                               {t('boq.column_auto', { defaultValue: 'auto' })}
-                              {col.resource_role ? ` · ${col.resource_role}` : ''}
+                              {col.resource_role
+                                ? ` · ${
+                                    Array.isArray(col.resource_role)
+                                      ? col.resource_role.join(' / ')
+                                      : col.resource_role
+                                  }`
+                                : ''}
                             </Badge>
                           )}
                           {col.column_type === 'select' && col.options && col.options.length > 0 && (

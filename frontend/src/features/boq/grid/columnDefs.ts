@@ -155,8 +155,13 @@ export function getColumnDefs(context: BOQColumnContext): ColDef[] {
     {
       headerName: t('boq.description', { defaultValue: 'Description‌⁠‍' }),
       field: 'description',
-      minWidth: 260,
-      flex: 1,
+      // Description gets a heavier flex weight so it absorbs ~20% of viewport
+      // even when 6+ regional-preset columns are visible. Keep a non-zero
+      // minWidth so a flood of custom cols doesn't squeeze the BOQ text into
+      // an unreadable sliver — but well below the previous 260 px floor that
+      // forced horizontal overflow once 4–5 custom columns were added.
+      minWidth: 180,
+      flex: 3,
       editable: true,
       cellEditor: 'agTextCellEditor',
       cellRenderer: 'descriptionCellRenderer',
@@ -410,9 +415,19 @@ export interface CustomColumnDef {
    * Resource type filter for `derived` columns. Matches the `type` field
    * on `position.metadata.resources[]` (one of: 'material' | 'labor' |
    * 'equipment' | 'operator' | 'subcontractor' | 'other'). Ignored when
-   * `derived` is unset.
+   * `derived` is unset. Accepts either a single role or a list — the
+   * GAEB Sonstiges-EP preset uses ``['other', 'operator', 'subcontractor']``
+   * to keep Lohn + Material + Geräte + Sonstiges = unit_rate when a
+   * position carries operator / subcontractor resources.
    */
-  resource_role?: 'material' | 'labor' | 'equipment' | 'operator' | 'subcontractor' | 'other';
+  resource_role?:
+    | 'material'
+    | 'labor'
+    | 'equipment'
+    | 'operator'
+    | 'subcontractor'
+    | 'other'
+    | Array<'material' | 'labor' | 'equipment' | 'operator' | 'subcontractor' | 'other'>;
 }
 
 /**
@@ -558,9 +573,14 @@ export function getCustomColumnDefs(
         // once, so each one needs to fit on a normal laptop without
         // pushing standard columns off-screen. Users can still drag the
         // column edge wider thanks to `resizable: true` (defaultColDef).
-        width: colType === 'text' ? 130 : 110,
-        minWidth: 80,
+        // ``flex: 1`` lets sizeColumnsToFit shrink each custom col evenly
+        // when 4-6 of them are added — combined with the heavier flex
+        // weight on the description column the BOQ no longer overflows
+        // horizontally on a normal laptop screen.
+        width: colType === 'text' ? 110 : 90,
+        minWidth: 56,  // ~3 chars header + padding (per UX spec)
         maxWidth: 320,
+        flex: 1,
         // Derived columns are computed from position.metadata.resources —
         // never editable. Marking them readOnly lines them up visually
         // with the existing read-only "Total" column.
@@ -625,6 +645,12 @@ export function getCustomColumnDefs(
       // edits on a non-editable cell, so the field is simply display.
       if (isDerived) {
         const role = col.resource_role;
+        // Normalize role to a Set so single / array forms match identically
+        // (Sonstiges-EP carries ``['other', 'operator', 'subcontractor']``).
+        const roleSet: Set<string> | null = role
+          ? new Set(Array.isArray(role) ? role : [role])
+          : null;
+        const matchesRole = (t: string): boolean => !roleSet || roleSet.has(t);
         const dec = Math.max(0, Math.min(6, col.decimals ?? 2));
         base.valueGetter = (params) => {
           const data = params.data;
@@ -640,7 +666,7 @@ export function getCustomColumnDefs(
           // contribution to the right resource.
           if (data._isResource) {
             const t = typeof data._resourceType === 'string' ? data._resourceType : 'other';
-            if (role && t !== role) return '';
+            if (!matchesRole(t)) return '';
             const q = typeof data._resourceQty === 'number'
               ? data._resourceQty
               : parseFloat(String(data._resourceQty ?? '0')) || 0;
@@ -687,7 +713,7 @@ export function getCustomColumnDefs(
             const r = typeof res.unit_rate === 'number' ? res.unit_rate : parseFloat(String(res.unit_rate ?? '0')) || 0;
             const contribution = q * r;
             allSum += contribution;
-            if (role && t === role) matched += contribution;
+            if (matchesRole(t)) matched += contribution;
           }
           if (col.derived === 'percentage_of_unit_rate') {
             if (allSum <= 0) return '';
@@ -697,11 +723,12 @@ export function getCustomColumnDefs(
           // resource_sum
           return matched.toFixed(dec);
         };
+        const roleLabel = roleSet ? Array.from(roleSet).join(' / ') : 'matching';
         base.tooltipValueGetter = () => {
           if (col.derived === 'percentage_of_unit_rate') {
-            return `${col.display_name} — share of unit rate from ${role ?? 'matching'} resources (auto-computed; edit resources to change)`;
+            return `${col.display_name} — share of unit rate from ${roleLabel} resources (auto-computed; edit resources to change)`;
           }
-          return `${col.display_name} — sum of ${role ?? 'matching'} resources for this position (auto-computed; edit resources to change)`;
+          return `${col.display_name} — sum of ${roleLabel} resources for this position (auto-computed; edit resources to change)`;
         };
         return base;
       }

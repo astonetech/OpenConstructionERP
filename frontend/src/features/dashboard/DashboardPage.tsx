@@ -1591,11 +1591,16 @@ export function DashboardPage() {
             className="flex items-center gap-3 mt-2.5 animate-stagger-in group/ddc"
             style={{ animationDelay: '100ms' }}
           >
-            <img
-              src="/brand/ddc-logo.webp"
-              alt="DataDrivenConstruction"
-              className="h-[34px] w-auto opacity-75 group-hover/ddc:opacity-100 transition-opacity shrink-0"
-            />
+            <div className="flex flex-col items-start gap-0.5 shrink-0">
+              <span className="text-[9px] lowercase tracking-normal text-content-quaternary font-normal pl-2">
+                {t('dashboard.developed_by', { defaultValue: 'Developed by' })}
+              </span>
+              <img
+                src="/brand/ddc-logo.webp"
+                alt="DataDrivenConstruction"
+                className="h-[34px] w-auto opacity-75 group-hover/ddc:opacity-100 transition-opacity"
+              />
+            </div>
             <div className="flex flex-col leading-tight">
               <span className="text-xs font-semibold text-content-secondary">
                 {t('dashboard.subtitle')}

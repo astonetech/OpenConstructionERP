@@ -5722,8 +5722,17 @@ class CustomColumnCreate(BaseModel):
     # the hint (rather than a precomputed value) keeps section subtotals
     # and live-editing of resources working without an invalidation step.
     derived: Literal["resource_sum", "percentage_of_unit_rate"] | None = None
+    # `resource_role` filters which `metadata.resources[]` entries a derived
+    # column aggregates. Accept either a single role or a list — the GAEB
+    # "Sonstiges-EP" preset sweeps everything that isn't labor / material /
+    # equipment, so it stores ``["other", "operator", "subcontractor"]`` to
+    # keep Lohn + Material + Geräte + Sonstiges = unit_rate.
     resource_role: (
-        Literal["material", "labor", "equipment", "operator", "subcontractor", "other"] | None
+        Literal["material", "labor", "equipment", "operator", "subcontractor", "other"]
+        | list[
+            Literal["material", "labor", "equipment", "operator", "subcontractor", "other"]
+        ]
+        | None
     ) = None
 
 

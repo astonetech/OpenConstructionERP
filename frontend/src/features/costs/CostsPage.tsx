@@ -41,6 +41,8 @@ import { useCostDatabaseStore, REGION_MAP } from '@/stores/useCostDatabaseStore'
 import { useAuthStore } from '@/stores/useAuthStore';
 import type { CostItemMetadata } from './api';
 import { EscalationCalculator } from './EscalationCalculator';
+import { CostCategoryTree } from '@/features/boq/CostCategoryTree';
+import { fetchCategoryTree, type CategoryTreeNode } from '@/features/boq/api';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
@@ -422,6 +424,7 @@ function buildSearchUrl(
   region: string,
   offset: number,
   category?: string,
+  classificationPath?: string,
 ): string {
   const params = new URLSearchParams();
   if (query) params.set('q', query);
@@ -429,6 +432,7 @@ function buildSearchUrl(
   if (source) params.set('source', source);
   if (region) params.set('region', region);
   if (category) params.set('category', category);
+  if (classificationPath) params.set('classification_path', classificationPath);
   params.set('limit', String(PAGE_SIZE));
   params.set('offset', String(offset));
   // Slim payload — CWICR rows can be 38 KB each (31 KB components + 6.6 KB
@@ -463,6 +467,7 @@ export function CostsPage() {
   const [unit, setUnit] = useState('');
   const [source, setSource] = useState('');
   const [category, setCategory] = useState('');
+  const [classificationPath, setClassificationPath] = useState('');
   const [region, setRegion] = useState<string>(regionFromUrl || activeRegion);
   const [offset, setOffset] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -545,16 +550,27 @@ export function CostsPage() {
     staleTime: 5 * 60_000,
   });
 
+  // Fetch full classification tree (collection → department → section →
+  // subsection) so the sidebar mirrors the BOQ "From Database" modal.
+  // depth=4 gives the deepest drill-in; the backend's /category-tree/
+  // endpoint has a 5-min cache so this is cheap on hot calls.
+  const { data: categoryTree } = useQuery<CategoryTreeNode[]>({
+    queryKey: ['costs', 'category-tree', region],
+    queryFn: () => fetchCategoryTree(region || undefined, 4),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
   // Debounce search query (300ms)
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 300);
     return () => clearTimeout(timer);
   }, [query]);
 
-  const searchUrl = buildSearchUrl(debouncedQuery, unit, source, region, offset, category);
+  const searchUrl = buildSearchUrl(debouncedQuery, unit, source, region, offset, category, classificationPath);
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['costs', debouncedQuery, unit, source, category, region, offset, semanticSearch],
+    queryKey: ['costs', debouncedQuery, unit, source, category, classificationPath, region, offset, semanticSearch],
     queryFn: async () => {
       // Use vector semantic search when toggled and query is present
       if (semanticSearch && debouncedQuery.length >= 2) {
@@ -877,6 +893,36 @@ export function CostsPage() {
         </button>
       </div>
 
+      <div className="lg:grid lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-5">
+
+      {/* Category sidebar (desktop) — mirrors the BOQ "From Database" modal */}
+      <aside className="hidden lg:block lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)]">
+        <Card padding="none" className="overflow-hidden">
+          <div className="px-3 py-2.5 border-b border-border-light bg-surface-secondary/40">
+            <span className="text-xs font-semibold text-content-secondary">
+              {t('costs.categories_title', { defaultValue: 'Categories' })}
+            </span>
+          </div>
+          <div className="max-h-[calc(100vh-8rem)] min-h-[400px] flex flex-col">
+            <CostCategoryTree
+              tree={categoryTree ?? []}
+              selectedPath={classificationPath}
+              onSelect={(path) => {
+                setClassificationPath(path);
+                setOffset(0);
+                // Clearing the legacy `category` dropdown when a tree path is
+                // chosen avoids double-filtering (collection match in both).
+                if (path) setCategory('');
+              }}
+              t={t}
+              searchInputId="costs-category-tree-search"
+            />
+          </div>
+        </Card>
+      </aside>
+
+      <div className="min-w-0">
+
       {/* Search & Filters */}
       <Card padding="none" className="mb-6">
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
@@ -1177,6 +1223,9 @@ export function CostsPage() {
           })()}
         </>
       )}
+
+      </div>{/* end .min-w-0 */}
+      </div>{/* end lg:grid */}
 
       {/* ── Floating Selection Bar ───────────────────────────────────────── */}
       {selectedIds.size > 0 && (

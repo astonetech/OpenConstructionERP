@@ -863,7 +863,7 @@ export const boqApi = {
         created_at: string;
       }>;
       total: number;
-    }>(`/v1/boq/boqs/${boqId}/activity`);
+    }>(`/v1/boq/boqs/${boqId}/activity/`);
     return {
       activities: (raw.items ?? []).map((item) => ({
         id: item.id,
@@ -1075,7 +1075,17 @@ export interface CustomColumnDef {
    *   - `percentage_of_unit_rate`— labor/material/etc share of unit_rate as %
    */
   derived?: 'resource_sum' | 'percentage_of_unit_rate';
-  resource_role?: 'material' | 'labor' | 'equipment' | 'operator' | 'subcontractor' | 'other';
+  /** Single role or a list — array form lets a column sum several resource
+   *  types (e.g. GAEB Sonstiges-EP = `other + operator + subcontractor`)
+   *  so the EP-split adds up to ``unit_rate``. */
+  resource_role?:
+    | 'material'
+    | 'labor'
+    | 'equipment'
+    | 'operator'
+    | 'subcontractor'
+    | 'other'
+    | Array<'material' | 'labor' | 'equipment' | 'operator' | 'subcontractor' | 'other'>;
 }
 
 /**

@@ -232,7 +232,9 @@ const REGIONAL_PRESETS: ColumnPreset[] = [
         display_name: 'Sonstiges-EP',
         column_type: 'number',
         derived: 'resource_sum',
-        resource_role: 'other',
+        // Catch-all bucket so Lohn + Material + Geräte + Sonstiges = unit_rate
+        // even when the position carries operator / subcontractor resources.
+        resource_role: ['other', 'operator', 'subcontractor'],
       },
       { name: 'wagnis_pct', display_name: 'Wagnis %', column_type: 'number' },
     ],
