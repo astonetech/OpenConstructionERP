@@ -545,6 +545,71 @@ CWICR_V3_CATALOGUES: tuple[CwicrV3Catalogue, ...] = (
         size_mb=420,
         available=False,
     ),
+    # ── Newly published on HF 2026-05-14 ────────────────────────────────
+    # All six rows below are flipped to ``available=True`` via the
+    # ``_HF_PUBLISHED`` mapping after construction, so the ``ddc_path``
+    # here is the legacy GitHub path used for documentation only.
+    CwicrV3Catalogue(
+        region="MN_ULAANBAATAR",
+        country_iso="MN",
+        city="Ulaanbaatar",
+        language="mn",
+        currency="MNT",
+        ddc_path="MN___DDC_CWICR/MN_ULAANBAATAR_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=916,
+        available=False,
+    ),
+    CwicrV3Catalogue(
+        region="BG_SOFIA",
+        country_iso="BG",
+        city="Sofia",
+        language="bg",
+        currency="BGN",
+        ddc_path="BG___DDC_CWICR/BG_SOFIA_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=420,
+        available=False,
+    ),
+    CwicrV3Catalogue(
+        region="HR_ZAGREB",
+        country_iso="HR",
+        city="Zagreb",
+        language="hr",
+        currency="EUR",
+        ddc_path="HR___DDC_CWICR/HR_ZAGREB_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=420,
+        available=False,
+    ),
+    CwicrV3Catalogue(
+        region="NZ_AUCKLAND",
+        country_iso="NZ",
+        city="Auckland",
+        language="en",
+        currency="NZD",
+        ddc_path="NZ___DDC_CWICR/NZ_AUCKLAND_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=420,
+        available=False,
+        default_classification_standard="nrm",
+    ),
+    CwicrV3Catalogue(
+        region="TH_BANGKOK",
+        country_iso="TH",
+        city="Bangkok",
+        language="th",
+        currency="THB",
+        ddc_path="TH___DDC_CWICR/TH_BANGKOK_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=420,
+        available=False,
+    ),
+    CwicrV3Catalogue(
+        region="VI_HANOI",
+        country_iso="VN",
+        city="Hanoi",
+        language="vi",
+        currency="VND",
+        ddc_path="VI___DDC_CWICR/VI_HANOI_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot",
+        size_mb=420,
+        available=False,
+    ),
 )
 
 
@@ -608,6 +673,13 @@ _HF_PUBLISHED: dict[str, tuple[str, str]] = {
     "USA_USD": ("US", "USA_USD"),
     "ZA_JOHANNESBURG": ("ZA", "ZA_JOHANNESBURG"),
     "CN_SHANGHAI": ("ZH", "ZH_SHANGHAI"),
+    # Newly published 2026-05-14 — folder/stem match the HF tree directly.
+    "MN_ULAANBAATAR": ("MN", "MN_ULAANBAATAR"),
+    "BG_SOFIA": ("BG", "BG_SOFIA"),
+    "HR_ZAGREB": ("HR", "HR_ZAGREB"),
+    "NZ_AUCKLAND": ("NZ", "NZ_AUCKLAND"),
+    "TH_BANGKOK": ("TH", "TH_BANGKOK"),
+    "VI_HANOI": ("VI", "VI_HANOI"),
 }
 
 
@@ -628,6 +700,11 @@ def _apply_hf_overrides(
             out.append(cat)
             continue
         folder, stem = hf
+        # MN ships a far larger snapshot (~916 MB) than the average
+        # 415 MB row; honour the per-region size declared in the
+        # registry when it's been set above the default, otherwise
+        # fall back to the HF-typical 415 MB.
+        size_mb = cat.size_mb if cat.size_mb > 415 else 415
         out.append(
             dataclasses.replace(
                 cat,
@@ -636,7 +713,7 @@ def _apply_hf_overrides(
                     "_workitems_costs_resources_EMBEDDINGS_BGEM3_V3_DDC_CWICR.snapshot"
                 ),
                 available=True,
-                size_mb=415,
+                size_mb=size_mb,
             )
         )
     return tuple(out)

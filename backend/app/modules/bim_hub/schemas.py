@@ -127,6 +127,14 @@ class BIMModelResponse(BaseModel):
     # disk-usage tooltip.  Pre-v2.6.29 rows in the DB still report this
     # field; the value just reflects the present state of the storage.
     has_original: bool | None = None
+    # ``True`` iff geometry (GLB or DAE) is available for this model.
+    # Derived at response time from ``canonical_file_path`` (set by the
+    # background converter when DDC produced a usable mesh) — the
+    # frontend BIM viewer uses this to decide whether to mount the 3D
+    # canvas vs. show the "data only" element list. Defaults to False
+    # so the field is always present in the JSON response (frontend
+    # treats undefined as false, which is correct but noisy).
+    has_geometry: bool = False
     created_by: UUID | None = None
     metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
     created_at: datetime

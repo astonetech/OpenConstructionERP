@@ -5,6 +5,23 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.6] — 2026-05-14 · DWG upload responsiveness + 6 new HF regions + sidebar branding
+
+### Fixed (DWG upload — root cause)
+
+- **One stuck DDC conversion no longer poisons the next 5+ uploads.** `_handle_dwg()` was awaited inline in the upload request handler, so a 60–120 s DDC binary call (or a crash on an R16/R17 file) pinned a uvicorn worker; subsequent uploads queued behind it and timed out on the client side with `HTTP 500 "Unable to upload drawing"` or `ReadTimeout`. The upload row is now committed first and DDC conversion runs on a detached task with its own `AsyncSession` (`_run_dwg_conversion_in_background`), so the HTTP request returns immediately with `status=uploaded` and status transitions are polled normally.
+- **DWG version floor dropped R18 → R14.** Previously the pre-emptive `_dwg_version_too_old` check refused AutoCAD 2004/2007 (R16/R17) before handing them to DDC. The 2026-05-14 bench showed several R16/R17 files DO convert successfully with the installed binary — let DDC have a go and surface its real error when it can't.
+- **DDC DwgExporter rolled back v18.2.0 → v17.1.1 (penultimate stable).** Verified upstream regression: v18.2.0 crashes with `Error: converter crashed.` on DDC's own sample `architectural_example-imperial.dwg`, while v17.1.1 converts the same file to a 443 KB Excel at 100 %. IFC/RVT/DGN keep the v18.2.0 inner binaries (no observed regression there) — only the DWG path is reverted.
+
+### Added
+
+- **6 new CWICR v3 catalogues** (registry grows 42 → 48): `MN_ULAANBAATAR` (Mongolian, MNT, 916 MB), `BG_SOFIA`, `HR_ZAGREB`, `NZ_AUCKLAND` (NRM), `TH_BANGKOK`, `VI_HANOI`. All flipped to `available=True` via the `_HF_PUBLISHED` mapping after DDC published the snapshots on the `cwicr-vector-db-bgem3-v3` HF dataset on 2026-05-14.
+- **Sidebar white-label branding** — new edit button above the platform name opens a chooser to upload a logo OR type a company name. When set, the user's brand shows large in the sidebar header; `by OpenConstructionERP` sits below as a small AGPL-3.0 attribution. Persisted in localStorage, no backend round-trip.
+
+### Changed
+
+- Default sidebar wordmark shrunk 15 px → 13 px so it no longer crowds the always-visible edit button at the 248 px sidebar width.
+
 ## [3.0.5] — 2026-05-14 · Match-elements correctness pass + full Mongolian translation
 
 ### Fixed (match-elements — root-cause sweep)

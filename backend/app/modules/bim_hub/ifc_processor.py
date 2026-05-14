@@ -324,11 +324,37 @@ def _try_cad2data(ifc_path: Path, output_dir: Path, *, conversion_depth: str = "
                     })
 
         has_geometry = dae_path.exists()
+        # Validate the DAE file BEFORE the expensive trimesh GLB conversion.
+        # If the converter (DDC cad2data or our text-IFC fallback) produced a
+        # malformed COLLADA, both the GLB conversion AND the frontend
+        # ColladaLoader/GLTFLoader will explode with the unhelpful
+        # ``getAttribute`` JS error. Detect that here, drop the path, and
+        # downgrade ``geometry_type`` to ``placeholder`` so the viewer falls
+        # back to the bbox-only render instead of crashing.
+        if has_geometry:
+            ok, reason = _validate_geometry_file(dae_path)
+            if not ok:
+                logger.warning(
+                    "Produced DAE failed validation (%s): %s — dropping geometry path",
+                    dae_path.name, reason,
+                )
+                has_geometry = False
 
         # DAE → GLB post-processing
         glb_path: Path | None = None
         if has_geometry:
             glb_path = _convert_dae_to_glb(dae_path, output_dir)
+            # Sanity-check the converter's output. trimesh occasionally
+            # writes a header-only GLB on degenerate inputs; serving it
+            # to the frontend would only confuse the loader.
+            if glb_path is not None:
+                ok, reason = _validate_geometry_file(glb_path)
+                if not ok:
+                    logger.warning(
+                        "Produced GLB failed validation (%s): %s — dropping GLB path",
+                        glb_path.name, reason,
+                    )
+                    glb_path = None
 
         return {
             "elements": elements,
@@ -710,9 +736,35 @@ def _excel_elements_to_bim_result(
     # GLB JSON chunk using the original DAE node IDs (0.09s overhead).
     glb_path: Path | None = None
     if geometry_path and geometry_path.exists():
-        glb_path = _convert_dae_to_glb(geometry_path, output_dir)
+        # Pre-validate the DAE before conversion. A broken DAE (missing
+        # <visual_scene>, malformed XML, etc.) produces a broken GLB and
+        # a broken frontend load. Drop the geometry path and let the
+        # viewer render the bbox placeholders instead.
+        ok, reason = _validate_geometry_file(geometry_path)
+        if not ok:
+            logger.warning(
+                "Generated DAE failed validation (%s): %s — dropping geometry path",
+                geometry_path.name, reason,
+            )
+            geometry_path = None
+        else:
+            glb_path = _convert_dae_to_glb(geometry_path, output_dir)
+            if glb_path is not None:
+                ok, reason = _validate_geometry_file(glb_path)
+                if not ok:
+                    logger.warning(
+                        "Generated GLB failed validation (%s): %s — dropping GLB path",
+                        glb_path.name, reason,
+                    )
+                    glb_path = None
 
-    is_real = bool(real_dae_path and real_dae_path.exists())
+    # Re-check the real-dae flag after validation dropped invalid files.
+    # If validation nuked the real DAE path above, ``geometry_path`` will
+    # be None even though ``real_dae_path`` originally existed, so we
+    # treat that as placeholder for the purpose of the metadata flag.
+    is_real = bool(
+        real_dae_path and real_dae_path.exists() and geometry_path == real_dae_path
+    )
     if not is_real:
         # When DDC produced an Excel pass but no real .dae, we generated
         # placeholder boxes — tag the elements so downstream consumers can
@@ -811,8 +863,82 @@ def _dae_element_bboxes(
     return element_bboxes, element_to_shape
 
 
+def _validate_geometry_file(geom_path: Path) -> tuple[bool, str]:
+    """Sanity-check a DAE or GLB file produced by the pipeline.
+
+    Returns ``(ok, reason)``. When ``ok`` is False the caller should
+    treat the file as corrupt and drop the path before returning it to
+    the frontend — surfacing a broken file to the BIM viewer manifests
+    as an opaque ``Cannot read properties of undefined (reading
+    'getAttribute')`` JS error deep inside Three.js's loader, which the
+    user cannot diagnose. We re-parse the file's surface structure here
+    so that failure becomes a server-side ``geometry_type=placeholder``
+    fallback instead.
+
+    Checks (cheap, file-shape only — no full mesh re-parse):
+
+    - File exists and size > 200 bytes (smaller than any legal output)
+    - GLB: starts with the 4-byte magic ``glTF`` (0x67 0x6c 0x54 0x46)
+      and the version field is 2
+    - DAE: parses as XML via defusedxml and has a ``<COLLADA>`` root tag
+      with at least one ``<visual_scene>`` descendant
+    """
+    if not geom_path.exists():
+        return False, "file does not exist"
+    size = geom_path.stat().st_size
+    if size < 200:
+        return False, f"file suspiciously small ({size} bytes)"
+
+    ext = geom_path.suffix.lower()
+    if ext == ".glb":
+        try:
+            with geom_path.open("rb") as fh:
+                head = fh.read(12)
+            if len(head) < 12:
+                return False, "GLB header truncated"
+            if head[:4] != b"glTF":
+                return False, f"GLB magic mismatch (got {head[:4]!r})"
+            import struct
+            version = struct.unpack("<I", head[4:8])[0]
+            if version != 2:
+                return False, f"unsupported GLB version {version}"
+            return True, "ok"
+        except Exception as exc:
+            return False, f"GLB inspect failed: {exc}"
+
+    if ext == ".dae":
+        try:
+            # defusedxml protects against XXE/billion-laughs.
+            tree = safe_ET.parse(str(geom_path))
+            root = tree.getroot()
+        except Exception as exc:
+            return False, f"DAE not well-formed XML: {exc}"
+        # COLLADA's root tag is namespaced. Compare the local-name only so
+        # we tolerate any prefix and any schema version.
+        local = root.tag.rsplit("}", 1)[-1].lower()
+        if local != "collada":
+            return False, f"root tag is <{local}>, expected <COLLADA>"
+        # Require at least one visual_scene — a COLLADA with only
+        # libraries and no scene is renderable as nothing.
+        ns = {"c": _COLLADA_NS}
+        if root.find(".//c:visual_scene", ns) is None:
+            # Some exporters drop the namespace; check without it too.
+            if root.find(".//visual_scene") is None:
+                return False, "no <visual_scene> in DAE"
+        return True, "ok"
+
+    return True, "unknown extension; skipped checks"
+
+
 def _convert_dae_to_glb(dae_path: Path, output_dir: Path) -> Path | None:
     """Convert a COLLADA .dae file to binary glTF (.glb) using trimesh.
+
+    For DAE files larger than ``MAX_DAE_FOR_GLB_BYTES`` (default 250 MB)
+    we skip the conversion entirely: trimesh loads the whole mesh into
+    Python memory and routinely OOMs on a 200+ MB DAE produced from a
+    large Revit model (Hugo Lee / Glodon, 204MB RVT). The browser can
+    still load the raw DAE — it's ~3x larger over the wire but parses
+    fine in ColladaLoader on a modern desktop.
 
     Returns the GLB path on success, ``None`` on failure.  Failure is
     non-fatal — the DAE file remains available as a fallback.
@@ -833,6 +959,25 @@ def _convert_dae_to_glb(dae_path: Path, output_dir: Path) -> Path | None:
     chain.  Bounding boxes survive trimesh's vertex-deduplication /
     primitive-splitting unchanged, making them a robust fingerprint.
     """
+    # Hard size guard — trimesh.load() materialises the entire mesh
+    # graph into Python memory; on a 200+ MB DAE (typical for a 200+ MB
+    # RVT through DDC) it routinely OOMs or thrashes for 5+ minutes.
+    # Skip the conversion and let the frontend ColladaLoader stream the
+    # DAE directly — slower over the wire, but it actually works.
+    MAX_DAE_FOR_GLB_BYTES = 250 * 1024 * 1024  # 250 MB
+    try:
+        dae_size = dae_path.stat().st_size
+    except OSError:
+        dae_size = 0
+    if dae_size > MAX_DAE_FOR_GLB_BYTES:
+        logger.info(
+            "DAE is %d MB (>%d MB threshold) — skipping GLB conversion "
+            "and serving DAE directly to avoid trimesh OOM",
+            dae_size // (1024 * 1024),
+            MAX_DAE_FOR_GLB_BYTES // (1024 * 1024),
+        )
+        return None
+
     glb_target = (output_dir / "geometry.glb").resolve()
     try:
         import trimesh

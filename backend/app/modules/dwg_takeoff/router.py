@@ -28,7 +28,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.rate_limiter import approval_limiter
+from app.core.rate_limiter import approval_limiter, upload_limiter
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep
 from app.modules.dwg_takeoff.schemas import (
     BoqLinkRequest,
@@ -141,12 +141,16 @@ async def upload_drawing(
     service: DwgTakeoffService = Depends(_get_service),
 ) -> DwgDrawingResponse:
     """Upload a DWG/DXF file and trigger processing."""
-    # Rate-limit uploads
-    allowed, _ = approval_limiter.is_allowed(str(user_id))
+    # Use upload_limiter (30/min — matches BIM / documents / takeoff)
+    # rather than approval_limiter (20/min, intended for financial
+    # mutations). Bench-driven fix: 30-file batch uploads were tripping
+    # the wrong limit and surfacing 429s on legitimate workflows.
+    allowed, _ = upload_limiter.is_allowed(str(user_id))
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded. Try again later.",
+            headers={"Retry-After": "60"},
         )
 
     # Validate file extension

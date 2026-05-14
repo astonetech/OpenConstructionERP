@@ -2028,6 +2028,7 @@ async def list_models(
     async def _enrich(model_obj):  # type: ignore[no-untyped-def]
         size_bytes = 0
         has_orig = False
+        has_geom = bool(model_obj.canonical_file_path)
         try:
             size_bytes = await bim_file_storage.compute_artifact_size_bytes(
                 model_obj.project_id, model_obj.id,
@@ -2042,17 +2043,33 @@ async def list_models(
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("has_original probe failed for model=%s", model_obj.id)
-        return size_bytes, has_orig
+        # Tie-break for historical rows where canonical_file_path was
+        # missed but the GLB/DAE is still on disk. Without this probe
+        # the frontend's 3D-viewer mount condition is wrong for 30+ of
+        # 36 successful models (issue surfaced by 57-file bench
+        # 2026-05-14).
+        if not has_geom:
+            try:
+                has_geom = (
+                    await bim_file_storage.find_geometry_key(
+                        project_id=str(model_obj.project_id),
+                        model_id=str(model_obj.id),
+                    )
+                ) is not None
+            except Exception:  # noqa: BLE001
+                logger.exception("has_geometry probe failed for model=%s", model_obj.id)
+        return size_bytes, has_orig, has_geom
 
     enriched = await _asyncio.gather(*[_enrich(m) for m in items], return_exceptions=False)
 
     item_responses: list[BIMModelResponse] = []
     total_artifact_bytes = 0
     total_original_bytes = 0
-    for model_obj, (size_bytes, has_orig) in zip(items, enriched, strict=True):
+    for model_obj, (size_bytes, has_orig, has_geom) in zip(items, enriched, strict=True):
         resp = BIMModelResponse.model_validate(model_obj)
         resp.conversion_artifact_size_mb = round(size_bytes / (1024 * 1024), 3)
         resp.has_original = has_orig
+        resp.has_geometry = has_geom
         meta = model_obj.metadata_ or {}
         if isinstance(meta, dict):
             err_code = meta.get("error_code")
@@ -2198,6 +2215,19 @@ async def get_model(
             )
         except Exception:  # noqa: BLE001
             logger.exception("has_original probe failed for model=%s", model.id)
+    # has_geometry is true when the background converter saved a GLB/DAE
+    # (``canonical_file_path`` set). Probing storage as a tie-breaker for
+    # historical rows where the column was missed.
+    resp.has_geometry = bool(model.canonical_file_path)
+    if not resp.has_geometry:
+        try:
+            resp.has_geometry = (
+                await bim_file_storage.find_geometry_key(
+                    project_id=str(model.project_id), model_id=str(model.id),
+                )
+            ) is not None
+        except Exception:  # noqa: BLE001
+            logger.exception("has_geometry probe failed for model=%s", model.id)
     meta = model.metadata_ or {}
     if isinstance(meta, dict):
         err_code = meta.get("error_code")

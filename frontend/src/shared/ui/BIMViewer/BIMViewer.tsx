@@ -486,6 +486,12 @@ export function BIMViewer({
    *  all. Now we surface a banner with the message + a Retry button.
    *  Cleared whenever a fresh load is kicked off. */
   const [geometryError, setGeometryError] = useState<string | null>(null);
+  /** Top-3 frames of the captured ``err.stack`` for the most recent
+   *  geometry load failure. Surfaced in a collapsible block under the
+   *  banner so a user can paste the stack on a bug report without
+   *  opening DevTools. ``null`` when the error had no stack (rare —
+   *  some loaders throw plain strings) or no error is active. */
+  const [geometryErrorStack, setGeometryErrorStack] = useState<string | null>(null);
   /** Bumped to force the geometry-load effect to re-run when the user
    *  clicks Retry. Doesn't change ``geometryUrl`` so we can't simply
    *  re-set state to the same value — a discriminating dep is needed. */
@@ -924,6 +930,14 @@ export function BIMViewer({
           // canvas with no signal at all. The banner exposes the
           // failure mode (network 401/404, malformed GLB/DAE, etc.) and
           // offers a retry without forcing a full page reload.
+          //
+          // We now also capture the top 3 stack frames so a user can
+          // include them on a bug report without opening DevTools —
+          // the deep stack tells us whether the error came from inside
+          // GLTFLoader, ColladaLoader, or our processLoadedScene path,
+          // which previously required reproducing the failure locally
+          // to diagnose. Truncated to 3 frames so we don't dump a 50-
+          // line wall of text into the UI for a parse error.
           // eslint-disable-next-line no-console
           console.warn('[BIM] Geometry load failed:', err);
           const message =
@@ -932,7 +946,15 @@ export function BIMViewer({
               : typeof err === 'string'
                 ? err
                 : 'Unknown error';
+          const stackText =
+            err instanceof Error && err.stack
+              ? err.stack
+                  .split('\n')
+                  .slice(0, 4) // first line is the message; next 3 are frames
+                  .join('\n')
+              : null;
           setGeometryError(message);
+          setGeometryErrorStack(stackText);
           setGeometryProgress(null);
         });
     }
@@ -1959,13 +1981,18 @@ export function BIMViewer({
                     />
                   </div>
                   <span className="text-[11px] text-content-tertiary text-center">
-                    {geometryProgress >= 0.95
-                      ? t('bim.loading_finalising', {
-                          defaultValue: 'Finalising scene…',
+                    {geometryProgress >= 0.97
+                      ? t('bim.loading_parsing', {
+                          defaultValue:
+                            'Parsing 3D geometry — for large models (>50 MB) this can take 20-60s; do not refresh',
                         })
-                      : t('bim.loading_streaming', {
-                          defaultValue: 'Streaming geometry from server…',
-                        })}
+                      : geometryProgress >= 0.95
+                        ? t('bim.loading_finalising', {
+                            defaultValue: 'Finalising scene…',
+                          })
+                        : t('bim.loading_streaming', {
+                            defaultValue: 'Streaming geometry from server…',
+                          })}
                   </span>
                   <span className="text-[10px] text-content-quaternary text-center mt-1">
                     {t('bim.loading_navigate_hint', {
@@ -2029,6 +2056,18 @@ export function BIMViewer({
                 <div className="mt-1 text-[12px] text-amber-800 dark:text-amber-200 break-words">
                   {geometryError}
                 </div>
+                {geometryErrorStack && (
+                  <details className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-100/70">
+                    <summary className="cursor-pointer select-none hover:text-amber-900 dark:hover:text-amber-100">
+                      {t('bim.geometry_show_diagnostic', {
+                        defaultValue: 'Show diagnostic',
+                      })}
+                    </summary>
+                    <pre className="mt-1 max-h-32 overflow-auto rounded bg-amber-100/60 dark:bg-amber-900/40 p-2 text-[10px] whitespace-pre-wrap break-all font-mono">
+                      {geometryErrorStack}
+                    </pre>
+                  </details>
+                )}
                 <div className="mt-2 flex items-center gap-3">
                   <button
                     type="button"
@@ -2036,6 +2075,7 @@ export function BIMViewer({
                       const mgr = elementMgrRef.current;
                       if (mgr) mgr.resetGeometryLoadFlag();
                       setGeometryError(null);
+                      setGeometryErrorStack(null);
                       setGeometryRetryNonce((n) => n + 1);
                     }}
                     className="inline-flex items-center gap-1 rounded-md border border-amber-400 dark:border-amber-700 bg-white dark:bg-amber-800/40 hover:bg-amber-100 dark:hover:bg-amber-700/60 px-2.5 py-1 text-xs font-medium text-amber-900 dark:text-amber-100 transition-colors"
@@ -2044,7 +2084,39 @@ export function BIMViewer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setGeometryError(null)}
+                    onClick={() => {
+                      // Build a one-shot diagnostic blob the user can
+                      // paste into a bug report. Includes the geometry
+                      // URL, message, top stack frames, browser UA, and
+                      // app version — everything a triage engineer needs
+                      // to reproduce without asking follow-ups.
+                      const blob = {
+                        bim_geometry_url: geometryUrl ?? null,
+                        message: geometryError,
+                        stack: geometryErrorStack,
+                        user_agent: navigator.userAgent,
+                        time: new Date().toISOString(),
+                      };
+                      try {
+                        navigator.clipboard?.writeText(
+                          JSON.stringify(blob, null, 2),
+                        );
+                      } catch {
+                        /* clipboard blocked — silent */
+                      }
+                    }}
+                    className="text-[11px] text-amber-700/80 dark:text-amber-300/80 hover:text-amber-900 dark:hover:text-amber-100 underline-offset-2 hover:underline"
+                  >
+                    {t('bim.geometry_copy_diagnostic', {
+                      defaultValue: 'Copy diagnostic',
+                    })}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGeometryError(null);
+                      setGeometryErrorStack(null);
+                    }}
                     className="text-[11px] text-amber-700/80 dark:text-amber-300/80 hover:text-amber-900 dark:hover:text-amber-100"
                   >
                     {t('bim.geometry_dismiss', { defaultValue: 'Dismiss' })}

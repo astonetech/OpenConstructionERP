@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import async_session_factory
 from app.modules.dwg_takeoff.models import (
     DwgAnnotation,
     DwgDrawing,
@@ -41,11 +42,14 @@ logger = logging.getLogger(__name__)
 # ── DWG version sniff & gating (Indian-user stability ticket 2026-05-13) ────
 
 
-# AutoCAD R18 (2010) is the oldest format DDC's DwgExporter is
-# regression-tested against. Older versions sometimes work, sometimes
-# silently produce empty Excel — we'd rather refuse upfront with a
-# clear "upgrade to AutoCAD 2010+" message.
-_DWG_MIN_SUPPORTED_VERSION_CODE = "AC1024"
+# AutoCAD R14 (1997) is the oldest format we will hand to DDC. Older
+# versions are exotic and DDC genuinely cannot read them. Anything
+# between R14 and R18 sometimes works and sometimes does not — we
+# used to pre-emptively reject R14-R17 to spare users a misleading
+# "empty output" error, but the 2026-05-14 bench showed several
+# R16/R17 files DO convert successfully, so we now let DDC have a
+# go and surface its real error if it fails.
+_DWG_MIN_SUPPORTED_VERSION_CODE = "AC1014"
 
 # Human-readable labels for the DWG magic-byte version codes we care
 # about. The mapping comes from Open Design Alliance's specs.
@@ -348,11 +352,30 @@ class DwgTakeoffService:
         except Exception as exc:
             logger.warning("Failed to cross-link DWG to documents hub: %s", exc)
 
-        # Trigger processing
+        # Trigger processing.
+        #
+        # DXF: parsed locally with ezdxf — fast (<2 s for typical
+        # drawings), runs inline so the response carries final
+        # status=ready / entity counts.
+        #
+        # DWG: handed to the DDC DwgExporter binary which can take
+        # 30-120 s and occasionally hangs / crashes. Awaiting it
+        # inline used to exhaust the uvicorn worker pool — a single
+        # stuck conversion would queue subsequent uploads behind it
+        # until they hit the client's read timeout (observed
+        # 2026-05-14: one R16 crash poisoned the next 5+ uploads with
+        # HTTP 500 / ReadTimeout). We commit the upload row first so
+        # a fresh AsyncSession in the background task can see it,
+        # then fire-and-forget the conversion. The frontend already
+        # polls /drawings/{id} to observe status transition
+        # uploaded → processing → ready/error.
         if file_format == "dxf":
             await self._process_drawing(drawing_id, file_path)
         elif file_format == "dwg":
-            await self._handle_dwg(drawing_id, file_path)
+            await self.session.commit()
+            asyncio.create_task(
+                _run_dwg_conversion_in_background(drawing_id, file_path),
+            )
 
         await self.session.refresh(drawing)
         return drawing
@@ -372,15 +395,25 @@ class DwgTakeoffService:
 
             # Create drawing version
             version_number = await self.version_repo.get_next_version_number(drawing_id)
+            # Treat 0-entity DXFs as a user-visible failure rather than a
+            # silent ``ready`` row. Without this the frontend mounts the
+            # canvas, sees an empty entity list, and shows an indefinite
+            # loading spinner — there's nothing to render and no banner to
+            # explain. Surfaced as ``empty`` so an explicit message is
+            # shown ("This DXF contains no entities"). DDC- and ezdxf-
+            # generated empty files (e.g. mozman/ezdxf empty_handles.dxf
+            # fixture, 1.3 KB) both land here.
+            entity_count_val = int(result.get("entity_count") or 0)
+            is_empty = entity_count_val == 0
             version = DwgDrawingVersion(
                 drawing_id=drawing_id,
                 version_number=version_number,
                 layers=result["layers"],
                 entities_key=entities_key,
-                entity_count=result["entity_count"],
+                entity_count=entity_count_val,
                 extents=result["extents"],
                 units=result["units"],
-                status="ready",
+                status="empty" if is_empty else "ready",
                 metadata_={},
             )
             await self.version_repo.create(version)
@@ -388,16 +421,28 @@ class DwgTakeoffService:
             # Update drawing status
             await self.drawing_repo.update_fields(
                 drawing_id,
-                status="ready",
+                status="empty" if is_empty else "ready",
                 thumbnail_key=thumbnail_key,
+                error_message=(
+                    "This DXF/DWG contains no drawable entities — "
+                    "the file is empty or contains only metadata."
+                    if is_empty else None
+                ),
             )
 
-            logger.info(
-                "Drawing processed: %s — %d entities, %d layers",
-                drawing_id,
-                result["entity_count"],
-                len(result["layers"]),
-            )
+            if is_empty:
+                logger.warning(
+                    "Drawing %s parsed as empty (0 entities, %d layers) — "
+                    "surfacing status=empty to the user",
+                    drawing_id, len(result["layers"]),
+                )
+            else:
+                logger.info(
+                    "Drawing processed: %s — %d entities, %d layers",
+                    drawing_id,
+                    result["entity_count"],
+                    len(result["layers"]),
+                )
 
         except ImportError:
             await self.drawing_repo.update_fields(
@@ -493,10 +538,24 @@ class DwgTakeoffService:
             )
             if not os.path.exists(xlsx_path) or os.path.getsize(xlsx_path) < 100:
                 stderr_msg = proc.stderr.decode(errors="replace")[:300] if proc.stderr else ""
+                # "Error: converter crashed." is the DDC binary's generic
+                # catch-all when it can't initialise (missing runtime,
+                # incompatible DWG version DDC's parser doesn't yet
+                # support, or an internal exception). Surface an actionable
+                # alternative — DXF upload via ezdxf works without DDC.
+                if "converter crashed" in stderr_msg.lower():
+                    nice_msg = (
+                        "The DWG converter could not process this file. "
+                        "Try saving the drawing as DXF (AutoCAD → File → "
+                        "Save As → AutoCAD DXF) and upload that instead — "
+                        "DXF is handled directly without requiring DDC."
+                    )
+                else:
+                    nice_msg = f"DDC DwgExporter produced no output: {stderr_msg}".strip()
                 await self.drawing_repo.update_fields(
                     drawing_id,
                     status="error",
-                    error_message=f"DDC DwgExporter produced no output: {stderr_msg}".strip()[:500],
+                    error_message=nice_msg[:500],
                 )
                 return
         except subprocess.TimeoutExpired:
@@ -958,3 +1017,33 @@ class DwgTakeoffService:
             "version": version,
             "message": "DWG conversion runs locally on this machine.",
         }
+
+
+async def _run_dwg_conversion_in_background(
+    drawing_id: uuid.UUID, file_path: str,
+) -> None:
+    """Detached DDC conversion task with its own DB session.
+
+    Decouples the slow / occasionally-hanging DDC DwgExporter
+    subprocess from the HTTP upload request. The request returns
+    immediately with status=uploaded and the conversion progresses
+    in the background, persisting status transitions (uploaded →
+    processing → ready/error) on a fresh AsyncSession.
+
+    Without this isolation, a single DDC crash or timeout pinned a
+    uvicorn worker for up to 120 s and the next 5+ DWG uploads
+    queued behind it eventually 500-d on the client side. The
+    upload row is committed before this task is spawned so the
+    fresh session here can find the row.
+    """
+    async with async_session_factory() as session:
+        try:
+            svc = DwgTakeoffService(session)
+            await svc._handle_dwg(drawing_id, file_path)
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "Background DDC conversion failed for drawing %s",
+                drawing_id,
+            )

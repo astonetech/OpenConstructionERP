@@ -26,6 +26,34 @@ const inFlightGeometryFetches = new Map<
   Promise<{ buffer: ArrayBuffer; format: 'glb' | 'dae' }>
 >();
 
+/**
+ * Inspect the first few bytes of a geometry buffer and return what kind
+ * of file it actually is, regardless of what the server's Content-Type
+ * header claimed. Returns ``null`` if neither GLB magic nor a COLLADA
+ * root tag is found — used as the trigger for an early-fail diagnostic.
+ *
+ * - GLB: bytes 0..3 == ASCII 'glTF' (0x67 0x6c 0x54 0x46)
+ * - DAE: first 4 KiB (after optional UTF-8 BOM + XML decl) contains
+ *   ``<COLLADA`` somewhere; case-insensitive because some exporters
+ *   write ``<Collada``.
+ */
+function detectGeometryKind(buffer: ArrayBuffer): 'glb' | 'dae' | null {
+  if (buffer.byteLength < 12) return null;
+  const view = new Uint8Array(buffer);
+  if (view[0] === 0x67 && view[1] === 0x6c && view[2] === 0x54 && view[3] === 0x46) {
+    return 'glb';
+  }
+  // Decode up to first 4 KiB as UTF-8 and look for the COLLADA root.
+  // We slice rather than decode the whole buffer (large DAEs can be 30+ MB).
+  const head = new TextDecoder('utf-8', { fatal: false }).decode(
+    view.subarray(0, Math.min(4096, view.byteLength)),
+  );
+  // Strip BOM for the check.
+  const stripped = head.charCodeAt(0) === 0xfeff ? head.slice(1) : head;
+  if (/<COLLADA[\s>]/i.test(stripped)) return 'dae';
+  return null;
+}
+
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
 export interface BIMBoundingBox {
@@ -543,6 +571,13 @@ export class ElementManager {
       }
     }
 
+    // Nudge progress from 95% → 97% the moment fetch finishes so the UX
+    // makes it obvious that we left the network phase. The 97 → 100
+    // jump happens after the (synchronous, main-thread) parse settles.
+    // Hugo Lee's report (Glodon, 204MB RVT) flagged that the bar
+    // "stuck at 95%" — it wasn't stuck, GLTFLoader.parse was just
+    // burning 20-40s on a fat GLB while the bar didn't move.
+    onProgress?.(0.97);
     await this.parseGeometryBuffer(buffer, format);
     cache?.store(geometryUrl, buffer, format);
   }
@@ -550,43 +585,97 @@ export class ElementManager {
   /**
    * Parse an in-memory geometry buffer and bind it to elements.
    * Used by both the cache-hit fast-path and the post-fetch slow-path.
+   *
+   * Robust to a hint mismatch: if the server said ``dae`` but the bytes
+   * start with the GLB magic ``glTF``, we try GLB first; same in reverse.
+   * Bytes that match neither GLB magic nor a COLLADA ``<COLLADA`` root tag
+   * fail fast with a clear message instead of crashing inside the loader.
    */
   private async parseGeometryBuffer(
     buffer: ArrayBuffer,
     format: 'glb' | 'dae',
   ): Promise<void> {
-    if (format === 'glb') {
+    if (buffer.byteLength === 0) {
+      throw new Error('Geometry buffer is empty (0 bytes)');
+    }
+    const detected = detectGeometryKind(buffer);
+    // If we can detect from bytes, prefer that over the server hint —
+    // Content-Type headers lie often enough to be untrustworthy.
+    const order: Array<'glb' | 'dae'> =
+      detected === 'glb' ? ['glb', 'dae']
+      : detected === 'dae' ? ['dae', 'glb']
+      : [format, format === 'glb' ? 'dae' : 'glb'];
+
+    const errors: Error[] = [];
+    for (const kind of order) {
       try {
-        await this.parseGLBBuffer(buffer);
-        return;
+        if (kind === 'glb') await this.parseGLBBuffer(buffer);
+        else await this.parseDAEBuffer(buffer);
+        return; // success
       } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        errors.push(new Error(`${kind.toUpperCase()} parse: ${e.message}`));
         if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-          console.warn('[BIM] GLB parse failed, falling back to DAE:', err);
+          console.warn(`[BIM] ${kind.toUpperCase()} parse failed:`, e);
         }
-        // Fallthrough to DAE parsing.
       }
     }
-    await this.parseDAEBuffer(buffer);
+    // Both parsers failed — surface the first few bytes (hex) so the
+    // user / bug report has a fingerprint of what the server returned
+    // even when the file is no longer available (cache eviction, etc.).
+    const head = Array.from(new Uint8Array(buffer.slice(0, 8)))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    const aggregate = errors.map((e) => e.message).join(' | ');
+    throw new Error(
+      `Geometry parse failed (${buffer.byteLength} bytes, head=${head}): ${aggregate}`,
+    );
   }
 
   /** Parse a GLB ArrayBuffer using GLTFLoader.parse() (no network). */
   private parseGLBBuffer(buffer: ArrayBuffer): Promise<void> {
     return new Promise((resolve, reject) => {
+      // Pre-validate GLB magic header before handing to GLTFLoader.parse —
+      // when bytes are not a real GLB, the loader can throw deep internal
+      // errors ("Cannot read properties of undefined (reading
+      // 'getAttribute')") that bubble up unhelpfully. A 4-byte check
+      // returns a clear message instead.
+      if (buffer.byteLength < 12) {
+        reject(new Error(`GLB buffer too small (${buffer.byteLength} bytes; need ≥12)`));
+        return;
+      }
+      const magic = new Uint32Array(buffer.slice(0, 4))[0] ?? 0;
+      // ASCII 'glTF' little-endian = 0x46546C67
+      if (magic !== 0x46546c67) {
+        reject(new Error(`Not a GLB file (magic=0x${magic.toString(16)}, expected 0x46546c67)`));
+        return;
+      }
       const loader = new GLTFLoader();
-      // GLTFLoader.parse signature: (data, path, onLoad, onError)
-      loader.parse(
-        buffer,
-        '',
-        (gltf) => {
-          if (!gltf || !gltf.scene) {
-            reject(new Error('GLTFLoader returned empty result'));
-            return;
-          }
-          this.processLoadedScene(gltf.scene, undefined, true);
-          resolve();
-        },
-        (error) => reject(error instanceof Error ? error : new Error(String(error))),
-      );
+      try {
+        loader.parse(
+          buffer,
+          '',
+          (gltf) => {
+            try {
+              if (!gltf || !gltf.scene) {
+                reject(new Error('GLTFLoader returned empty result'));
+                return;
+              }
+              this.processLoadedScene(gltf.scene, undefined, true);
+              resolve();
+            } catch (sceneErr) {
+              reject(sceneErr instanceof Error ? sceneErr : new Error(String(sceneErr)));
+            }
+          },
+          (error) => reject(error instanceof Error ? error : new Error(String(error))),
+        );
+      } catch (syncErr) {
+        // GLTFLoader.parse usually reports via the onError callback, but
+        // a corrupt JSON chunk can throw synchronously from inside the
+        // top-level header walker before any callback fires. Catch that
+        // here so it doesn't escape as an unhandled exception.
+        reject(syncErr instanceof Error ? syncErr : new Error(String(syncErr)));
+      }
     });
   }
 
@@ -595,16 +684,47 @@ export class ElementManager {
     return new Promise((resolve, reject) => {
       try {
         const loader = new ColladaLoader();
-        const text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+        // Strip UTF-8 BOM (some Revit exports prepend one) — leaving it
+        // in confuses ColladaLoader's XML parser on some platforms.
+        let text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+        if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+
+        // Cheap structural pre-check: every legal COLLADA document must
+        // contain a "<COLLADA" root tag. If it doesn't, the loader's XML
+        // walker explodes with the unhelpful "reading 'getAttribute'"
+        // error somewhere inside the parser instead of telling us it's
+        // not COLLADA. Bail out early with a clear message.
+        if (!/<COLLADA[\s>]/i.test(text.slice(0, 4096))) {
+          reject(new Error('Not a COLLADA document — <COLLADA> root tag not found in first 4096 chars'));
+          return;
+        }
+
         const collada = loader.parse(text, '');
         if (!collada || !collada.scene) {
           reject(new Error('ColladaLoader returned empty result'));
           return;
         }
-        this.processLoadedScene(collada.scene);
+        try {
+          this.processLoadedScene(collada.scene);
+        } catch (sceneErr) {
+          reject(sceneErr instanceof Error ? sceneErr : new Error(String(sceneErr)));
+          return;
+        }
         resolve();
       } catch (err) {
-        reject(err instanceof Error ? err : new Error(String(err)));
+        // ColladaLoader's known failure mode on malformed DAE: throws
+        // ``Cannot read properties of undefined (reading 'getAttribute')``
+        // from somewhere inside its XML walker because a referenced
+        // ``<source>`` / ``<input>`` / ``<sampler>`` id wasn't found.
+        // Annotate the error with that context so the user banner
+        // shows the actual cause instead of the cryptic JS message.
+        const baseMessage = err instanceof Error ? err.message : String(err);
+        const hint = baseMessage.includes("reading 'getAttribute'")
+          ? ' — DAE contains broken cross-references (a node referenced an id that does not exist)'
+          : '';
+        const wrapped = new Error(`COLLADA parse: ${baseMessage}${hint}`);
+        if (err instanceof Error && err.stack) wrapped.stack = err.stack;
+        reject(wrapped);
       }
     });
   }
@@ -742,8 +862,30 @@ export class ElementManager {
     // ships with real per-element materials. We only touch the material
     // when an explicit colour-by mode is on, and we cache the original
     // on `userData.originalMaterial` so `resetColors()` can restore it.
+    let skippedMalformedMeshes = 0;
     scene.traverse((child) => {
       if (child instanceof THREE.Mesh) {
+        // Defensive: a malformed DAE/GLB can yield Mesh objects with
+        // null/undefined ``geometry`` or a geometry without a position
+        // attribute. Every downstream call (computeBoundingSphere,
+        // BatchedMesh.addGeometry, raycast) crashes on these with the
+        // unhelpful "Cannot read properties of undefined (reading
+        // 'getAttribute' / 'attributes')" error that previously bubbled
+        // up to the user. Skip them — better to render N-k meshes than
+        // none.
+        const geom = child.geometry as THREE.BufferGeometry | undefined;
+        if (
+          !geom ||
+          !geom.attributes ||
+          !geom.attributes.position ||
+          (geom.attributes.position as THREE.BufferAttribute).count === 0
+        ) {
+          skippedMalformedMeshes++;
+          // Mark for removal after traverse — mutating the tree mid-
+          // traversal is unsafe in Three.js.
+          (child.userData as { _drop?: boolean })._drop = true;
+          return;
+        }
         // Collect the ancestor chain: [mesh.name, parent.name, grandparent.name, …]
         // from innermost (mesh) to outermost (scene root). We stop at the
         // loaded scene root so patched `scene.name` (the DAE filename or
@@ -812,8 +954,17 @@ export class ElementManager {
         child.matrixAutoUpdate = false;
         child.updateMatrix();
         // Pre-compute bounding sphere so Three.js frustum culling works
-        // correctly even with matrixAutoUpdate = false.
-        child.geometry.computeBoundingSphere();
+        // correctly even with matrixAutoUpdate = false. Wrapped so a
+        // single malformed mesh (e.g. infinite/NaN coords from a broken
+        // exporter) does not abort the whole load — mark it for removal
+        // and continue.
+        try {
+          child.geometry.computeBoundingSphere();
+        } catch {
+          skippedMalformedMeshes++;
+          (child.userData as { _drop?: boolean })._drop = true;
+          return;
+        }
 
         const originalMaterial = child.material;
 
@@ -863,6 +1014,28 @@ export class ElementManager {
         this.allDaeMeshes.push(child);
       }
     });
+
+    // Drop meshes flagged during traversal (no geometry / no position
+    // attribute / boundingSphere computation threw). We do this AFTER
+    // the traverse() finishes so we never mutate the tree mid-walk —
+    // that would skip siblings and confuse Three.js's depth-first
+    // traversal cursor. Removed meshes are also dropped from
+    // ``allDaeMeshes`` so later passes (BatchedMesh, raycast, fallback
+    // matching) never see them again.
+    if (skippedMalformedMeshes > 0) {
+      const malformed: THREE.Object3D[] = [];
+      scene.traverse((obj) => {
+        if ((obj.userData as { _drop?: boolean })?._drop) malformed.push(obj);
+      });
+      for (const obj of malformed) {
+        if (obj.parent) obj.parent.remove(obj);
+      }
+      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+        console.warn(
+          `[BIM] skipped ${skippedMalformedMeshes} malformed mesh(es) from loaded scene`,
+        );
+      }
+    }
 
     if (strippedLights > 0 && typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
       console.info(`[BIM] stripped ${strippedLights} lights/cameras from loaded scene`);
@@ -1097,9 +1270,15 @@ export class ElementManager {
     for (const mesh of this.allDaeMeshes) {
       const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
       if (!mat) continue;
+      // Skip any mesh whose geometry was disposed or arrived without a
+      // position attribute (defense in depth — these should have been
+      // dropped in processLoadedScene, but a later code path could have
+      // disposed the geometry in the interim).
+      const geom = mesh.geometry as THREE.BufferGeometry | undefined;
+      if (!geom || !geom.attributes || !geom.attributes.position) continue;
       const key = mat.uuid;
-      const posCount = (mesh.geometry.attributes.position as THREE.BufferAttribute | undefined)?.count ?? 0;
-      const idxCount = mesh.geometry.index?.count ?? posCount;
+      const posCount = (geom.attributes.position as THREE.BufferAttribute).count;
+      const idxCount = geom.index?.count ?? posCount;
       let g = groups.get(key);
       if (!g) {
         g = { material: mat, meshes: [], totalVertices: 0, totalIndices: 0 };

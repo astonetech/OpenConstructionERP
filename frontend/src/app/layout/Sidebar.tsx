@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { Logo, LogoWithText } from '@/shared/ui';
+import { CustomBranding } from './CustomBranding';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
 import {
@@ -641,15 +641,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           iconified ? 'justify-center px-0' : 'justify-between',
         )}
       >
-        <a
-          href="https://openconstructionerp.com/?utm_source=app"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:opacity-80 transition-opacity"
-          title={iconified ? 'OpenConstructionERP' : undefined}
-        >
-          {iconified ? <Logo size="sm" /> : <LogoWithText size="xs" />}
-        </a>
+        {/* Brand block — white-labellable. When the user has set a
+            custom logo or company name (via the pencil-on-hover edit
+            affordance), this renders their brand large with a small
+            "powered by OpenConstructionERP" attribution beneath. */}
+        <CustomBranding iconified={iconified} />
         {!iconified && onClose && (
           <button
             onClick={onClose}
