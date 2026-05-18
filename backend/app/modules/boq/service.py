@@ -5064,12 +5064,24 @@ class BOQService:
                 r_code = str(r.get("code") or "").strip()
                 if not r_code or r_code.casefold() != norm_cf:
                     continue
+                # Issue #133 — a coded resource imported from a catalogue /
+                # variant / match flow often stores its human label under
+                # ``description`` (or a composed variant name) with a blank
+                # ``name``. Fall back through those, and finally to the code
+                # itself, so the "insert existing" path always receives a
+                # usable name and never silently drops the resource.
+                _disp = (
+                    str(r.get("name") or "").strip()
+                    or str(r.get("description") or "").strip()
+                    or str(r.get("resource_name") or "").strip()
+                    or r_code
+                )
                 return ResourceCodeLookupResponse(
                     found=True,
                     code=r_code,
                     match=ResourceCodeMatch(
                         code=r_code,
-                        name=str(r.get("name") or r.get("description") or ""),
+                        name=_disp,
                         type=str(r.get("type") or ""),
                         unit=str(r.get("unit") or ""),
                         unit_rate=_str_to_float(r.get("unit_rate")),

@@ -15,6 +15,7 @@ import {
   boqApi,
   groupPositionsIntoSections,
   isSection,
+  getPositionDepth,
   normalizePositions,
   normalizePosition,
   type Position,
@@ -85,6 +86,36 @@ import { LinkedPositionsModal } from './LinkedPositionsModal';
 
 export { getVatRate, getLocaleForRegion, getCurrencySymbol, computeQualityScore };
 export type { QualityBreakdown };
+
+/**
+ * Issue #136 — next collision-free ordinal for a sub-section nested under
+ * ``parentOrdinal``. The previous logic only looked at *direct children*
+ * and stepped +10 from their max numeric suffix, which collided with any
+ * pre-existing ordinal sharing the prefix (e.g. a stray ``01.14`` left
+ * behind by an older backend that dropped ``parent_id``) → backend 409,
+ * and the user's "Add sub-section" silently did nothing. We now scan
+ * EVERY ordinal under the prefix, jump to the next clean multiple of 10,
+ * and keep stepping until the candidate is globally unique in the BOQ.
+ */
+function computeNextSubOrdinal(all: Position[], parentOrdinal: string): string {
+  const prefix = `${parentOrdinal}.`;
+  const used = new Set(all.map((p) => p.ordinal));
+  let maxSuffix = 0;
+  for (const p of all) {
+    if (!p.ordinal?.startsWith(prefix)) continue;
+    const m = p.ordinal.slice(prefix.length).match(/^\d+/);
+    if (!m) continue;
+    const n = parseInt(m[0], 10);
+    if (!Number.isNaN(n) && n > maxSuffix) maxSuffix = n;
+  }
+  let next = (Math.floor(maxSuffix / 10) + 1) * 10;
+  let candidate = `${parentOrdinal}.${String(next).padStart(2, '0')}`;
+  while (used.has(candidate)) {
+    next += 10;
+    candidate = `${parentOrdinal}.${String(next).padStart(2, '0')}`;
+  }
+  return candidate;
+}
 
 /* ══════════════════════════════════════════════════════════════════════ */
 /*  BOQEditorPage                                                        */
@@ -1616,15 +1647,7 @@ export function BOQEditorPage() {
       const all = boq?.positions ?? [];
       const parent = all.find((p) => p.id === parentSectionId);
       const parentOrdinal = parent?.ordinal ?? '01';
-      const prefix = `${parentOrdinal}.`;
-      let maxSuffix = 0;
-      for (const p of all) {
-        if (p.parent_id !== parentSectionId) continue;
-        if (!p.ordinal?.startsWith(prefix)) continue;
-        const suffix = parseInt(p.ordinal.slice(prefix.length), 10);
-        if (!isNaN(suffix) && suffix > maxSuffix) maxSuffix = suffix;
-      }
-      const ordinal = `${parentOrdinal}.${String(maxSuffix + 10).padStart(2, '0')}`;
+      const ordinal = computeNextSubOrdinal(all, parentOrdinal);
       sectionMutation.mutate({ ordinal, description: '', parent_id: parentSectionId });
     },
     [boqId, boq?.positions, sectionMutation],
@@ -1633,20 +1656,80 @@ export function BOQEditorPage() {
   /** Section name modal */
   const [showSectionModal, setShowSectionModal] = useState(false);
   const [sectionNameInput, setSectionNameInput] = useState('');
+  /**
+   * Issue #136 — chosen parent for the new section ('' = top level).
+   * Pre-fillable so the section row's "Add sub-section" action can open
+   * this same modal with the parent already selected.
+   */
+  const [sectionParentInput, setSectionParentInput] = useState<string>('');
 
-  const handleAddSection = useCallback(() => {
-    if (!boqId) return;
-    setSectionNameInput('');
-    setShowSectionModal(true);
-  }, [boqId]);
+  /**
+   * Issue #136 — every existing section offered as a parent, indented by
+   * its depth so the hierarchy is obvious, and disabled when a child under
+   * it would breach ``maxNestingDepth`` (server-enforced too).
+   */
+  const sectionParentChoices = useMemo(() => {
+    const all = boq?.positions ?? [];
+    const map = new Map(all.map((p) => [p.id, p]));
+    return all
+      .filter((p) => isSection(p))
+      .sort((a, b) =>
+        (a.ordinal || '').localeCompare(b.ordinal || '', undefined, { numeric: true }),
+      )
+      .map((p) => {
+        const depth0 = getPositionDepth(p, map); // 0-based ancestor count
+        const childTier = depth0 + 2; // parent tier (depth0+1) + 1 for the child
+        const name = (
+          p.description ||
+          t('boq.untitled_section', { defaultValue: 'Untitled section' })
+        ).slice(0, 48);
+        return {
+          id: p.id,
+          disabled: childTier > maxNestingDepth,
+          label: `${'  '.repeat(Math.min(depth0, 7))}${p.ordinal || ''}  ${name}`,
+        };
+      });
+  }, [boq?.positions, maxNestingDepth, t]);
+
+  const handleAddSection = useCallback(
+    (parentSectionId?: unknown) => {
+      if (!boqId) return;
+      // Callers wired as onClick={onAddSection} pass a MouseEvent — only a
+      // real string id preselects a parent; anything else = top level.
+      const pid = typeof parentSectionId === 'string' ? parentSectionId : '';
+      setSectionNameInput('');
+      setSectionParentInput(pid);
+      setShowSectionModal(true);
+    },
+    [boqId],
+  );
 
   const handleConfirmAddSection = useCallback(() => {
     if (!boqId) return;
-    const ordinal = String(grouped.sections.length + 1).padStart(2, '0');
-    sectionMutation.mutate({ ordinal, description: sectionNameInput || '' });
+    const pid = sectionParentInput || '';
+    if (pid) {
+      // Nested section — collision-free ordinal under the parent
+      // (shared with handleAddSubSection).
+      const all = boq?.positions ?? [];
+      const parent = all.find((p) => p.id === pid);
+      const parentOrdinal = parent?.ordinal ?? '01';
+      const ordinal = computeNextSubOrdinal(all, parentOrdinal);
+      sectionMutation.mutate({ ordinal, description: sectionNameInput || '', parent_id: pid });
+    } else {
+      const ordinal = String(grouped.sections.length + 1).padStart(2, '0');
+      sectionMutation.mutate({ ordinal, description: sectionNameInput || '' });
+    }
     setShowSectionModal(false);
     setSectionNameInput('');
-  }, [boqId, grouped.sections.length, sectionMutation, sectionNameInput]);
+    setSectionParentInput('');
+  }, [
+    boqId,
+    boq?.positions,
+    grouped.sections.length,
+    sectionMutation,
+    sectionNameInput,
+    sectionParentInput,
+  ]);
 
   const handleAddPosition = useCallback(
     (parentId?: string) => {
@@ -4053,6 +4136,39 @@ export function BOQEditorPage() {
               placeholder={t('boq.section_name_placeholder', { defaultValue: 'e.g. Structural Works, MEP, Finishes...' })}
               autoFocus
             />
+            {/* Issue #136 — explicit parent picker so a sub-section at any
+                level (up to the {{max}} cap) can be created right here,
+                without hunting for the row right-click menu. */}
+            <label className="block text-[11px] font-medium text-content-secondary mt-3 mb-1">
+              {t('boq.section_parent', { defaultValue: 'Parent section' })}
+              <span className="text-content-tertiary font-normal ml-1">
+                ({t('common.optional', { defaultValue: 'optional' })})
+              </span>
+            </label>
+            <select
+              value={sectionParentInput}
+              onChange={(e) => setSectionParentInput(e.target.value)}
+              className="w-full rounded-lg border border-border-light bg-surface-primary px-3 py-2 text-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-oe-blue/30 focus:border-oe-blue"
+            >
+              <option value="">
+                {t('boq.section_parent_top', { defaultValue: '— Top level (no parent) —' })}
+              </option>
+              {sectionParentChoices.map((c) => (
+                <option key={c.id} value={c.id} disabled={c.disabled}>
+                  {c.label}
+                  {c.disabled
+                    ? ` · ${t('boq.section_parent_max', { defaultValue: 'max depth' })}`
+                    : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-content-tertiary mt-1">
+              {t('boq.section_parent_hint', {
+                defaultValue:
+                  'Leave empty for a top-level section, or pick a parent to nest it (up to {{max}} levels).',
+                max: maxNestingDepth,
+              })}
+            </p>
             <div className="flex justify-end gap-2 mt-3">
               <button
                 onClick={() => setShowSectionModal(false)}

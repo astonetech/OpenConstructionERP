@@ -85,6 +85,12 @@ import {
   SIDEBAR_WIDTH_ICON,
 } from '@/stores/useSidebarCollapseStore';
 import { RequestCustomModuleDialog } from '@/features/modules/RequestCustomModuleDialog';
+import {
+  PHASE_GROUPS,
+  PHASED_ROUTES,
+  useActiveProjectProfile,
+  buildModuleGate,
+} from '@/features/projects/useProjectProfile';
 
 
 interface NavItem {
@@ -583,6 +589,32 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   // string down to every `SidebarItem` so only one row lights up.
   const activeRoute = pickActiveRoute(location, Object.keys(ALL_NAV_ITEMS));
 
+  // ── Slice 3 — numbered phase-grouped "route line" ───────────────────
+  // When the active project has a setup profile with focus mode ON, the
+  // sidebar shows a numbered execution-phase rail (1 Estimation → 2
+  // Planning → 3 Execution → 4 Quality & Closure) with off-scope
+  // modules greyed and in-phase ordering driven by ProjectModule
+  // .ordinal. No active project / no profile / focus mode OFF →
+  // `gate.active` is false and the legacy flat layout below renders
+  // unchanged (the "this mode can be turned off" requirement).
+  const { profile: activeProfile } = useActiveProjectProfile();
+  const gate = buildModuleGate(activeProfile);
+  // Current lifecycle phase highlight: derive a phase index from the
+  // most-active module's phase if the profile exposes one; otherwise
+  // every enabled phase is "active" and nothing is force-greyed.
+  const currentPhaseId: string | null = (() => {
+    if (!gate.active || !activeProfile) return null;
+    const phases = activeProfile.profile.phases ?? [];
+    // Map a profile lifecycle phase onto a sidebar phase group.
+    if (phases.includes('construction') || phases.includes('procurement'))
+      return 'phase_execution';
+    if (phases.includes('handover')) return 'phase_closure';
+    if (phases.includes('tender')) return 'phase_planning';
+    if (phases.includes('design') || phases.includes('concept'))
+      return 'phase_estimation';
+    return null;
+  })();
+
   return (
     <aside
       data-tour="sidebar"
@@ -796,6 +828,109 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             )}
           </div>
         )}
+        {/* Numbered phase rail (Slice 3) — only when a project profile
+            with focus mode is active. Renders a stepper-style vertical
+            "route line" connecting phases 1..N. Phased routes are
+            removed from the flat groups below so nothing is duplicated;
+            everything not in a phase still renders flat afterwards so
+            global nav never breaks. */}
+        {gate.active && !iconified && (
+          <div className="mb-2">
+            <div className="mt-2 mb-1 flex items-center gap-1.5 px-2.5">
+              <span className="text-2xs font-medium uppercase tracking-wider text-content-tertiary">
+                {t('nav.project_route', { defaultValue: 'Project route' })}
+              </span>
+            </div>
+            <ol className="relative space-y-0.5">
+              {/* the route line — a single vertical rail down the badges */}
+              <span
+                aria-hidden
+                className="absolute left-[19px] top-3 bottom-3 w-px bg-border-light"
+              />
+              {PHASE_GROUPS.map((phase, pi) => {
+                // Resolve the phase's routes into real NavItems, apply
+                // the per-project enabled gate, and order by ordinal.
+                const rows = phase.routes
+                  .map((r) => {
+                    const nav = ALL_NAV_ITEMS[r];
+                    if (!nav) return null;
+                    const g = gate.byRoute(r);
+                    return {
+                      item: nav,
+                      greyed: g ? !g.enabled : false,
+                      ordinal: g?.ordinal ?? null,
+                    };
+                  })
+                  .filter(
+                    (x): x is {
+                      item: NavItem;
+                      greyed: boolean;
+                      ordinal: number | null;
+                    } => x !== null,
+                  )
+                  .filter(
+                    (x) =>
+                      (!x.item.moduleKey ||
+                        isModuleEnabled(x.item.moduleKey)) &&
+                      (!x.item.advancedOnly || isAdvanced),
+                  )
+                  .sort((a, b) => {
+                    if (a.ordinal == null && b.ordinal == null) return 0;
+                    if (a.ordinal == null) return 1;
+                    if (b.ordinal == null) return -1;
+                    return a.ordinal - b.ordinal;
+                  });
+                if (rows.length === 0) return null;
+                const isCurrent =
+                  currentPhaseId === null || currentPhaseId === phase.id;
+                return (
+                  <li key={phase.id} className="relative">
+                    {/* phase header: number badge + label */}
+                    <div className="flex items-center gap-2 px-2.5 py-1">
+                      <span
+                        className={clsx(
+                          'relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ring-4 ring-surface-primary transition-colors',
+                          isCurrent
+                            ? 'bg-oe-blue text-white'
+                            : 'bg-surface-secondary text-content-tertiary border border-border-light',
+                        )}
+                      >
+                        {pi + 1}
+                      </span>
+                      <span
+                        className={clsx(
+                          'text-2xs font-semibold uppercase tracking-wider',
+                          isCurrent
+                            ? 'text-content-secondary'
+                            : 'text-content-quaternary',
+                        )}
+                      >
+                        {t(phase.labelKey, { defaultValue: phase.labelEn })}
+                      </span>
+                    </div>
+                    <ul className="ms-[26px] space-y-0.5">
+                      {rows.map(({ item, greyed }) => (
+                        <li key={item.to} className={greyed ? 'opacity-40' : ''}>
+                          <SidebarItem
+                            item={item}
+                            label={t(item.labelKey)}
+                            onClick={onClose}
+                            badge={badgeMap[item.to]}
+                            isPinned={pinned.includes(item.to)}
+                            onTogglePin={togglePin}
+                            activeRoute={activeRoute}
+                            iconified={iconified}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ol>
+            <div className="my-2 mx-3 h-px bg-border-light/60" aria-hidden />
+          </div>
+        )}
         {navGroups.map((group) => {
           // Hide entire group in simple mode if flagged
           if (group.hideInSimple && !isAdvanced) return null;
@@ -814,12 +949,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               advancedOnly: mi.advancedOnly,
             }));
 
-          // Filter items by module enabled and advanced mode
+          // Filter items by module enabled and advanced mode. When the
+          // numbered phase rail is active it already renders every
+          // phased route, so drop those here to avoid duplication —
+          // routes NOT in any phase still render flat as before.
           const allItems = [...group.items, ...dynamicItems];
           const visibleItems = allItems.filter(
             (item) =>
               (!item.moduleKey || isModuleEnabled(item.moduleKey)) &&
-              (!item.advancedOnly || isAdvanced),
+              (!item.advancedOnly || isAdvanced) &&
+              !(gate.active && PHASED_ROUTES.has(item.to)),
           );
 
           // Skip group if no visible items

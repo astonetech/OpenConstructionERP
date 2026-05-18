@@ -5,6 +5,25 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] — 2026-05-18 · BOQ hierarchy visible + nesting fixes + project-focus sidebar
+
+### Fixed
+
+- BOQ grid now renders the true nested section tree: sub-sections (sections-in-sections) are no longer dropped — each level is indented with a depth accent, subtotals roll up recursively, collapse works per level (#136).
+- "Add sub-section" no longer silently fails on an ordinal collision (e.g. a stray sibling): the nested ordinal is now globally collision-free (#136).
+- Resource-expand control made clearly visible (persistent tinted chip + count) — it was too faint and read as missing (#133).
+- PDF export no longer crashes (`float += Decimal`) on a BOQ containing ungrouped positions.
+
+### Added
+
+- Section rows show their ordinal and a discoverable "+ Sub" button to create a nested sub-section inline.
+- Project-focus sidebar: needed modules prominent, not-needed small+grey inline, with This-project / All-modules toggle; Guided setup shows Required/Recommended/Optional module tiers.
+- /files: document-type cards redesigned — smaller, more data, modern.
+
+### Changed
+
+- CLI entrypoint label is now `openconstructionerp` (matches the PyPI package name).
+
 ## [3.6.0] — 2026-05-18 · Multi-level BOQ hierarchy + resource-code dedup + match-pipeline restore
 
 ### Added

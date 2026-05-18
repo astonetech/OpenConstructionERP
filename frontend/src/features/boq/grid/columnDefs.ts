@@ -116,9 +116,9 @@ export function getColumnDefs(context: BOQColumnContext): ColDef[] {
       headerName: '',
       colId: '_expand',
       field: '_expand',
-      width: 28,
-      minWidth: 28,
-      maxWidth: 28,
+      width: 32,
+      minWidth: 32,
+      maxWidth: 32,
       editable: false,
       sortable: false,
       filter: false,
@@ -182,6 +182,21 @@ export function getColumnDefs(context: BOQColumnContext): ColDef[] {
         const ctx = params.context as { expandedPositions?: Set<string> } | undefined;
         const isExpanded = !!params.data?.id && (ctx?.expandedPositions?.has(params.data.id) ?? false);
         return isExpanded ? 'text-xs font-bold !pl-1 !pr-1' : 'text-xs !pl-1 !pr-1';
+      },
+      // Issue #136 — positions nested under a SUB-section get a left
+      // indent proportional to their depth so the hierarchy is legible.
+      // depth 0 (ungrouped) and depth 1 (under a top-level section) keep
+      // the flush-left look; each deeper level shifts 18px right.
+      cellStyle: (params) => {
+        const d = params.data as Record<string, unknown> | undefined;
+        if (
+          !d || d._isSection || d._isFooter || d._isResource ||
+          d._isAddResource || d._isVariantHeader
+        ) {
+          return null;
+        }
+        const depth = typeof d._depth === 'number' ? d._depth : 0;
+        return depth > 1 ? { paddingLeft: `${(depth - 1) * 18}px` } : null;
       },
     },
     {

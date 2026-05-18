@@ -50,7 +50,7 @@ import {
   type UpdatePositionData,
   type CostAutocompleteItem,
   type ResourceCodeMatch,
-  groupPositionsIntoSections,
+  isSection,
   getPositionDepth,
   DEFAULT_MAX_NESTING_DEPTH,
 } from './api';
@@ -174,6 +174,13 @@ interface SectionRow {
   _isSection: true;
   _childCount: number;
   _subtotal: number;
+  /**
+   * Issue #136 — nesting level of this row in the section tree.
+   * 0 = top-level. Drives left-indentation so sections-within-sections
+   * and their child positions read as a real hierarchy in the grid.
+   * Present on section rows AND on the position rows beneath them.
+   */
+  _depth?: number;
 }
 
 interface ResourceRow {
@@ -861,6 +868,7 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
       collapsedSections,
       onToggleSection,
       onAddPosition,
+      onAddSubSection,
       expandedPositions,
       onToggleResources: toggleResources,
       onRemoveResource: onRemoveResource ?? (() => {}),
@@ -906,7 +914,7 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
       positions,
       customColumns,
     }) as FullGridContext,
-    [currencySymbol, currencyCode, fxRates, displayCurrency, onOpenFxRateSettings, locale, fmt, t, collapsedSections, onToggleSection, onAddPosition,
+    [currencySymbol, currencyCode, fxRates, displayCurrency, onOpenFxRateSettings, locale, fmt, t, collapsedSections, onToggleSection, onAddPosition, onAddSubSection,
      expandedPositions, toggleResources, onRemoveResource, onUpdateResource, onUpdateResourceFields,
      onSaveResourceToCatalog, onSaveVariantHeaderToCatalog, onOpenCostDbForPosition, onOpenCatalogForPosition, onRepickResourceVariant,
      openVariantPickerSignal, openVariantPickerFor, clearOpenVariantPicker, openPositionVariantPicker, onUpdateVariantHeader,
@@ -1004,8 +1012,10 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
   }, [displayCurrency?.code, displayCurrency?.rate]);
 
   /* ── Helper: insert resource sub-rows after an expanded position ── */
-  const insertResourceRows = useCallback((rows: GridRow[], pos: Position) => {
-    rows.push(pos);
+  const insertResourceRows = useCallback((rows: GridRow[], pos: Position, depth = 0) => {
+    // Shallow-copy so attaching the tree-depth marker never mutates the
+    // React Query-cached Position object (Issue #136).
+    rows.push({ ...pos, _depth: depth } as GridRow);
 
     if (!expandedPositions.has(pos.id)) return;
 
@@ -1198,42 +1208,86 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
 
   /* ── Build row data from positions ────────────────────────────── */
   const rowData: GridRow[] = useMemo(() => {
-    // Issue #111 — section subtotals must rebase per-position currencies
-    // into the project base before summing. Pass the active project FX
-    // table; ``groupPositionsIntoSections`` falls back to raw totals when
-    // no FX is supplied so non-multi-currency BOQs see no behaviour change.
-    const { sections, ungrouped } = groupPositionsIntoSections(positions, {
-      baseCurrency: currencyCode,
-      fxRates: fxRates ?? [],
-    });
-    const rows: GridRow[] = [];
+    const num = (v: unknown): number => {
+      const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+      return Number.isFinite(n) ? n : 0;
+    };
 
-    // Ungrouped positions first
-    for (const pos of ungrouped) {
-      insertResourceRows(rows, pos);
+    // Issue #111 — rebase a position's total from its own currency into
+    // the project base before it contributes to any (possibly nested)
+    // subtotal. Mirrors the old ``groupPositionsIntoSections`` FX path.
+    const rebase = (pos: Position): number => {
+      const total = num(pos.total);
+      if (!currencyCode) return total;
+      const meta = ((pos as { metadata?: Record<string, unknown> }).metadata
+        ?? {}) as Record<string, unknown>;
+      const src = (meta.currency as string | undefined) || currencyCode;
+      if (src === currencyCode || !fxRates) return total;
+      const fx = fxRates.find((r) => r.currency === src);
+      const rate = fx ? Number(fx.rate) : NaN;
+      if (!fx || !Number.isFinite(rate) || rate <= 0) return total;
+      return total * rate;
+    };
+
+    // Issue #136 — render the TRUE section tree. The previous flat grouping
+    // only ever attached non-section positions to a single section level, so
+    // a section nested under another section (sub-section) was dropped from
+    // the tree entirely — it surfaced only as a stray row and the hierarchy
+    // was invisible. We now walk parent_id recursively. A position whose
+    // parent_id is missing or dangling is treated as a root so nothing can
+    // silently vanish from the смета.
+    const byId = new Map<string, Position>();
+    for (const p of positions) byId.set(p.id, p);
+    const childrenOf = new Map<string | null, Position[]>();
+    for (const p of positions) {
+      const pid = p.parent_id && byId.has(p.parent_id) ? p.parent_id : null;
+      const arr = childrenOf.get(pid) ?? [];
+      arr.push(p);
+      childrenOf.set(pid, arr);
     }
+    const sortSiblings = (arr: Position[]): Position[] =>
+      [...arr].sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+        return a.ordinal.localeCompare(b.ordinal, undefined, { numeric: true });
+      });
 
-    // Then sections with their children
-    for (const group of sections) {
-      const sectionRow: GridRow = {
-        ...group.section,
-        _isSection: true,
-        _childCount: group.children.length,
-        _subtotal: group.subtotal,
-        total: group.subtotal,
-      };
-      rows.push(sectionRow);
-
-      const isCollapsed = collapsedSections.has(group.section.id);
-      if (!isCollapsed) {
-        for (const child of group.children) {
-          insertResourceRows(rows, child);
-        }
+    // Section subtotal = Σ rebased line totals of every descendant
+    // position, recursing through any number of nested sub-sections.
+    const subtotalCache = new Map<string, number>();
+    const subtotalOf = (sec: Position): number => {
+      const cached = subtotalCache.get(sec.id);
+      if (cached !== undefined) return cached;
+      let sum = 0;
+      for (const child of childrenOf.get(sec.id) ?? []) {
+        sum += isSection(child) ? subtotalOf(child) : rebase(child);
       }
-    }
+      subtotalCache.set(sec.id, sum);
+      return sum;
+    };
 
+    const rows: GridRow[] = [];
+    const emit = (pos: Position, depth: number): void => {
+      if (isSection(pos)) {
+        const kids = sortSiblings(childrenOf.get(pos.id) ?? []);
+        const subtotal = subtotalOf(pos);
+        rows.push({
+          ...pos,
+          _isSection: true,
+          _depth: depth,
+          _childCount: kids.length,
+          _subtotal: subtotal,
+          total: subtotal,
+        } as GridRow);
+        if (collapsedSections.has(pos.id)) return;
+        for (const child of kids) emit(child, depth + 1);
+      } else {
+        insertResourceRows(rows, pos, depth);
+      }
+    };
+
+    for (const root of sortSiblings(childrenOf.get(null) ?? [])) emit(root, 0);
     return rows;
-  }, [positions, collapsedSections, insertResourceRows]);
+  }, [positions, collapsedSections, insertResourceRows, currencyCode, fxRates]);
 
   /* ── Pinned bottom rows (footer) ──────────────────────────────── */
   const pinnedBottomRowData = useMemo(() => footerRows, [footerRows]);
@@ -1897,15 +1951,21 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
       if (!manualResourceDialog) return;
       const { positionId, name, type, unit, quantity, unitRate, currency, code } =
         manualResourceDialog;
-      const effName = (override?.name ?? name).trim();
-      if (!effName) return;
-      const qty = parseFloat(quantity.replace(',', '.')) || 1;
-      const rate =
-        override?.unit_rate ?? (parseFloat(unitRate.replace(',', '.')) || 0);
       const effType = override?.type ?? type;
       const effUnit = (override?.unit ?? unit).trim();
       const effCurrency = override?.currency ?? currency;
       const effCode = (override?.code ?? code).trim();
+      // Issue #133 — when reusing an existing code the user typically types
+      // ONLY the code (that is the whole point of "insert existing"), and a
+      // catalogue/variant-imported master can itself carry a blank ``name``.
+      // Never silently drop the resource: fall back to the code, then the
+      // unit, so it always lands in the смета.
+      const effName =
+        (override?.name ?? name).trim() || effCode || effUnit;
+      if (!effName) return;
+      const qty = parseFloat(quantity.replace(',', '.')) || 1;
+      const rate =
+        override?.unit_rate ?? (parseFloat(unitRate.replace(',', '.')) || 0);
       // Persist user-typed units so they show up next time app-wide.
       if (effUnit) saveCustomUnit(effUnit);
       onAddManualResource?.(positionId, {
@@ -1966,7 +2026,7 @@ const BOQGrid = forwardRef<BOQGridHandle, BOQGridProps>(function BOQGrid({
     const m = manualResourceDialog?.collision;
     if (!m) return;
     finalizeManualResource({
-      name: m.name,
+      name: m.name || m.code,
       type: m.type || manualResourceDialog!.type,
       unit: m.unit,
       unit_rate: m.unit_rate,
