@@ -204,7 +204,7 @@ export class MeasureTool {
    *  `SNAP_PX` of the click in screen-space, return it; else null. */
   private maybeSnapToVertex(
     hit: THREE.Intersection,
-    raw: THREE.Vector3,
+    _raw: THREE.Vector3,
     rect: DOMRect,
   ): THREE.Vector3 | null {
     const face = hit.face;
@@ -218,7 +218,7 @@ export class MeasureTool {
     let bestVertex: THREE.Vector3 | null = null;
     let bestPxDist = Infinity;
     const clickPx = new THREE.Vector2(
-      (raw.x - raw.x) + (rect.width * (this.mouseNdc.x + 1)) / 2,
+      (rect.width * (this.mouseNdc.x + 1)) / 2,
       (rect.height * (1 - this.mouseNdc.y)) / 2,
     );
 

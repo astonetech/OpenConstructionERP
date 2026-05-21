@@ -18,6 +18,7 @@ the count queries on every tick.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -605,12 +606,26 @@ class CoordinationHubService:
                     return payload
 
         now = datetime.now(UTC)
-        federations = await self._federation_stats(project_id)
-        clashes = await self._clash_stats(project_id)
-        rule_packs = await self._rule_pack_stats(project_id)
-        smart_views = await self._smart_view_stats(project_id)
-        bcf = await self._bcf_activity_stats(project_id)
-        cost_total = await self._open_cost_impact_total(project_id)
+        # Per-counter errors are already swallowed inside _safe_count; the
+        # outer sub-aggregators only raise on truly unexpected failures.
+        # Run them concurrently — keeping the default return_exceptions=False
+        # so any genuinely unexpected error still surfaces as a 500 rather
+        # than silently turning the whole dashboard into zeros.
+        (
+            federations,
+            clashes,
+            rule_packs,
+            smart_views,
+            bcf,
+            cost_total,
+        ) = await asyncio.gather(
+            self._federation_stats(project_id),
+            self._clash_stats(project_id),
+            self._rule_pack_stats(project_id),
+            self._smart_view_stats(project_id),
+            self._bcf_activity_stats(project_id),
+            self._open_cost_impact_total(project_id),
+        )
 
         payload = CoordinationDashboardResponse(
             project_id=project_id,

@@ -35,6 +35,7 @@ from app.dependencies import (
     RequirePermission,
     RequireRole,
     SessionDep,
+    verify_project_access,
 )
 from app.modules.costs.matcher import (
     MatchResult,
@@ -4207,6 +4208,16 @@ async def record_cost_item_usage(
         except (TypeError, ValueError):
             # Anonymous / demo-token id may be non-UUID — silently drop.
             used_by = None
+
+    # IDOR guard: when the caller is authenticated, verify they can see the
+    # target project before we record a usage row attributed to it. Without
+    # this check, any authenticated user could attribute apply-events to any
+    # project UUID they happen to know. Anonymous callers (no usable sub)
+    # skip the check — the demo / pre-auth analytics path is preserved
+    # (the unauth ledger row has ``used_by = NULL`` so it can't be used to
+    # forge an identity-attributed history).
+    if used_by is not None:
+        await verify_project_access(body.project_id, str(used_by), session)
 
     row = await recorder.record(
         item_id,

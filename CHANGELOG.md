@@ -5,6 +5,21 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] — 2026-05-21 · Security & correctness hotfix
+
+### Fixed
+
+- **IDOR closures across legacy modules.** Added `_verify_boq_owner()` to BOQ `get_boq_structured`, `get_boq_activity`, `create_revision`; added `verify_project_access()` to Equipment GET/PATCH/DELETE `/equipment/{id}`, Punchlist `/items/{id}/transition/` + `/pin-to-sheet/`, Meetings `/{meeting_id}/complete/`, and Costs `/v1/costs/{item_id}/record-usage/`. Surfaced by the v4.2.0 20-wave QA sweep.
+- **Coordination Hub serial KPI fetch.** Replaced 6 sequential `await` calls in `coordination_hub.service.build_dashboard()` with a single `asyncio.gather(...)` — dashboard load time now matches the slowest single counter rather than their sum. 37 backend tests still green.
+- **MeasureTool snap-to-vertex X axis.** Removed dead `(raw.x - raw.x)` term in `frontend/src/shared/ui/BIMViewer/MeasureTool.ts:221`. Snapping now reads the correct X coordinate; 9 vitest specs green including the 8-pixel snap test.
+- **Hardcoded currency fallbacks removed.** `'USD'` fallbacks in `CwicrMatchPanel`, `VariantPicker`, `MultiVariantPicker`, and the `'EUR'` literals in `CostsPage` (`handleCreateAssembly`, `INITIAL_COST_ITEM_FORM`, totals badge) now resolve from the project context via `useProjectContextStore` + `/v1/projects/` query, matching how `AddToBOQModal` / `FinancePage` / `MatchWizardFlow` already do it. Empty fallback when no project context — explicit user choice required.
+- **Change Orders float-in-money → Decimal-validated `str`.** Every monetary field in `changeorders.schemas` (`cost_impact`, `cost_delta`, `original_quantity`, `new_quantity`, `original_rate`, `new_rate`, summary totals) now serialises as `str` with a Decimal coercer mirroring `finance.schemas`. Router conversions updated. No DB column change.
+- **Punchlist photo upload — magic-byte validation.** Removed spoof-able content-type-only check from `/items/{id}/photo`; now uses `app.core.file_signature.require_signature()` (jpeg/png/gif/webp/heic/heif/tiff; SVG/XML/PDF/scripts rejected with 415). The cross-linked `Document.mime_type` now uses the detected MIME, not the client-supplied header.
+
+### Notes
+
+Cumulative test count this release: 21 backend unit + 37 coordination_hub + 47 changeorders/punchlist + 24 costs frontend + 9 MeasureTool. AGPL-3.0 compliance unchanged.
+
 ## [4.2.0] — 2026-05-21 · Coordination · Smart Views · Permissions · Sidebar restructure
 
 ### Added
