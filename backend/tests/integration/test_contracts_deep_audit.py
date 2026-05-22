@@ -325,7 +325,9 @@ async def test_release_retention_rejects_duplicate_event() -> None:
             contract_id, "substantial_completion", actor_id="qs",
         )
     assert exc.value.status_code == 409
-    assert "already released" in str(exc.value.detail).lower()
+    # Structured error payload — caller code keys off ``error`` not the prose.
+    assert exc.value.detail["error"] == "retention_event_already_released"
+    assert exc.value.detail["event"] == "substantial_completion"
 
 
 @pytest.mark.asyncio

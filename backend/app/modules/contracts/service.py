@@ -1164,14 +1164,64 @@ class ContractsService:
         # Sum outstanding retention from claim repo (less anything already released).
         held = await self.claim_repo.outstanding_retention(contract_id)
         meta = dict(contract.metadata_ or {})
+        prior_releases = list(meta.get("retention_releases", []) or [])
+        # Idempotency / audit-trail integrity: the same event must not be
+        # released twice. Pre-fix the audit log was append-only but never
+        # consulted to dedupe, so each call would compute net_held = held -
+        # already_released and re-release the configured percentage of
+        # whatever was left — asymptotically draining retention to zero
+        # regardless of the schedule's stated intent.
+        if any(r.get("event") == event for r in prior_releases):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "retention_event_already_released",
+                    "message": (
+                        f"Retention has already been released for event "
+                        f"{event!r}. Use a different event key or a custom "
+                        "schedule entry to make a further release."
+                    ),
+                    "event": event,
+                },
+            )
         already_released = sum(
             (Decimal(str(r.get("amount_released", 0) or 0))
-             for r in meta.get("retention_releases", []) or []),
+             for r in prior_releases),
             DEC_ZERO,
         )
         net_held = held - already_released
         if net_held < DEC_ZERO:
             net_held = DEC_ZERO
+
+        # Validate custom_schedule values up-front so a configuration
+        # mistake (negative, > 100, or non-numeric percentage) fails
+        # loudly instead of being silently clamped by plan_retention_release.
+        if custom_schedule is not None:
+            for key, val in custom_schedule.items():
+                try:
+                    pct = Decimal(str(val))
+                except (ArithmeticError, ValueError):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_custom_schedule",
+                            "message": (
+                                f"custom_schedule[{key!r}] must be numeric, "
+                                f"got {val!r}"
+                            ),
+                        },
+                    ) from None
+                if pct < DEC_ZERO or pct > DEC_HUNDRED:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_custom_schedule",
+                            "message": (
+                                f"custom_schedule[{key!r}] must be between "
+                                f"0 and 100, got {val!r}"
+                            ),
+                        },
+                    )
 
         result = plan_retention_release(
             net_held, event, schedule=custom_schedule,
