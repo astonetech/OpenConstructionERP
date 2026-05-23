@@ -29,6 +29,7 @@ import { useToastStore } from '@/stores/useToastStore';
 import { getErrorMessage } from '@/shared/lib/api';
 
 import {
+  listAnchors,
   listRasterOverlays,
   rasterOverlayImageUrl,
   updateRasterOverlay,
@@ -40,6 +41,47 @@ import type {
 } from './types';
 
 import type { OverlayEditMode } from './OverlayPanel';
+
+// Minimum bbox dimension (in radians) below which Cesium's
+// ``Rectangle.fromCartographicArray`` throws DeveloperError. ~1e-6 rad
+// is ~10 cm at the equator — well below any sane raster footprint.
+const MIN_BBOX_DIM_RAD = 1e-6;
+// 200 m default fallback square when the overlay has no usable corners
+// but the project does have a geo anchor.
+const FALLBACK_HALF_SIZE_M = 100;
+const METERS_PER_DEGREE = 111_320;
+
+/**
+ * Validate that an overlay's four corners can produce a non-degenerate
+ * Cesium ``Rectangle``. Exposed so OverlayPanel can surface a soft
+ * "Needs corners" badge without trying to render the layer.
+ */
+export function isOverlayDegenerate(o: GeoRasterOverlay): boolean {
+  const corners = o.corners_geojson;
+  if (!Array.isArray(corners) || corners.length !== 4) return true;
+  for (const p of corners) {
+    if (
+      !Array.isArray(p) ||
+      p.length !== 2 ||
+      !Number.isFinite(p[0]) ||
+      !Number.isFinite(p[1])
+    ) {
+      return true;
+    }
+  }
+  // All four corners must be pairwise distinct.
+  const seen = new Set<string>();
+  for (const p of corners) {
+    const key = `${p[0].toFixed(8)},${p[1].toFixed(8)}`;
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  const lons = corners.map((p) => p[0]);
+  const lats = corners.map((p) => p[1]);
+  const dLon = ((Math.max(...lons) - Math.min(...lons)) * Math.PI) / 180;
+  const dLat = ((Math.max(...lats) - Math.min(...lats)) * Math.PI) / 180;
+  return dLon < MIN_BBOX_DIM_RAD || dLat < MIN_BBOX_DIM_RAD;
+}
 
 interface OverlayLayerProps {
   projectId: string;
@@ -72,6 +114,17 @@ export function OverlayLayer({
   });
   const overlays = overlaysQuery.data ?? [];
 
+  // Project anchor — only used to synthesise a 200 m × 200 m fallback
+  // rectangle when an overlay has no usable corners. Cheap query; reuses
+  // the same key as the rest of the geo-hub surface.
+  const anchorsQuery = useQuery({
+    queryKey: ['geo-hub', 'anchors', projectId],
+    queryFn: () => listAnchors(projectId),
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+  });
+  const projectAnchor = anchorsQuery.data?.[0] ?? null;
+
   const patchMutation = useMutation({
     mutationFn: ({
       id,
@@ -99,7 +152,18 @@ export function OverlayLayer({
   const layerMapRef = useRef<Map<string, any>>(new Map());
   const cornerEntitiesRef = useRef<any[]>([]);
   const cropEntityRef = useRef<any | null>(null);
-  const [cropPoints, setCropPoints] = useState<[number, number][]>([]);
+  // Ref not state — each polygon vertex comes from a Cesium event
+  // handler that fires outside React's scheduling. Storing the array in
+  // a ref avoids the render → effect → setState → render loop that
+  // caused the "Maximum update depth exceeded" warning. The light
+  // ``cropCount`` state is the ONLY render trigger and is only read by
+  // the data-* attribute below (Playwright assertion + future UI badge).
+  const cropPointsRef = useRef<[number, number][]>([]);
+  const [cropCount, setCropCount] = useState(0);
+  // One warn per overlay-id per session — Cesium DeveloperErrors get
+  // re-thrown every render until the corners are fixed, so without
+  // deduping the console fills with the same message hundreds of times.
+  const loggedLayerErrorsRef = useRef<Set<string>>(new Set());
 
   // ── Imagery layer sync ───────────────────────────────────────────────
   useEffect(() => {
@@ -129,12 +193,20 @@ export function OverlayLayer({
         continue;
       }
       let layer = layerMapRef.current.get(o.id);
-      const rect = makeRectangle(c, o);
+      // Degenerate corners → soft skip (no Cesium DeveloperError). If
+      // the project has a geo anchor we synthesise a 200 m × 200 m
+      // fallback rectangle so the user still sees the raster on the
+      // globe; the OverlayPanel surfaces a "Needs corners" badge.
+      const degenerate = isOverlayDegenerate(o);
+      const rect = degenerate
+        ? makeFallbackRectangle(c, projectAnchor)
+        : makeRectangle(c, o);
       if (!rect) continue;
 
       // Re-create the layer when its signature changes (url, corners,
-      // crop). Cesium ImageryLayer is immutable on those axes.
-      const signature = layerSignature(o);
+      // crop, fallback-vs-real). Cesium ImageryLayer is immutable on
+      // those axes.
+      const signature = `${layerSignature(o)}|fb:${degenerate ? '1' : '0'}`;
       if (layer && layer._oeSignature !== signature) {
         try {
           imageryLayers.remove(layer, false);
@@ -157,9 +229,15 @@ export function OverlayLayer({
           // crop polygon is set on this overlay.
           applyCrop(c, layer, o.crop_polygon_geojson);
           layerMapRef.current.set(o.id, layer);
+          // Successful add — drop the log-once flag so a later
+          // regression on this same overlay will warn once again.
+          loggedLayerErrorsRef.current.delete(o.id);
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn('[geo_hub] overlay layer add failed', o.id, err);
+          if (!loggedLayerErrorsRef.current.has(o.id)) {
+            loggedLayerErrorsRef.current.add(o.id);
+            // eslint-disable-next-line no-console
+            console.warn('[geo_hub] overlay layer add failed', o.id, err);
+          }
           continue;
         }
       }
@@ -176,9 +254,10 @@ export function OverlayLayer({
           /* already removed */
         }
         layerMapRef.current.delete(id);
+        loggedLayerErrorsRef.current.delete(id);
       }
     }
-  }, [overlays, cesium, viewer]);
+  }, [overlays, cesium, viewer, projectAnchor]);
 
   // Final cleanup: drop all overlay layers on unmount / viewer teardown.
   useEffect(() => {
@@ -319,9 +398,22 @@ export function OverlayLayer({
   }, [active, editMode, cesium, viewer, patchMutation]);
 
   // ── Edit crop polygon ────────────────────────────────────────────────
+  // NB: ``patchMutation`` is deliberately EXCLUDED from the dep array
+  // — react-query rebuilds the mutation object every render, which used
+  // to re-attach the keydown listener on every keystroke and (with the
+  // old setCropPoints-driven re-renders) was the original culprit for
+  // the "Maximum update depth exceeded" warning. The handler reads the
+  // current mutation via a closure-captured ref so it stays fresh
+  // without re-subscribing.
+  const patchMutationRef = useRef(patchMutation);
+  useEffect(() => {
+    patchMutationRef.current = patchMutation;
+  }, [patchMutation]);
+
   useEffect(() => {
     if (!cesium || !viewer || editMode !== 'crop' || !active) {
-      setCropPoints([]);
+      cropPointsRef.current = [];
+      setCropCount(0);
       // Clear any preview entity left behind from a previous session.
       if (cropEntityRef.current) {
         try {
@@ -371,11 +463,13 @@ export function OverlayLayer({
         const cart = c.Cartographic.fromCartesian(hit);
         const lon = c.Math.toDegrees(cart.longitude);
         const lat = c.Math.toDegrees(cart.latitude);
-        setCropPoints((prev) => {
-          const next: [number, number][] = [...prev, [lon, lat]];
-          refreshPreview(next);
-          return next;
-        });
+        // Mutate the ref — NOT React state — so the Cesium event
+        // handler doesn't trigger a render on every click.
+        cropPointsRef.current = [...cropPointsRef.current, [lon, lat]];
+        refreshPreview(cropPointsRef.current);
+        // Light counter so JSX `data-crop-points` (Playwright probe)
+        // stays in sync. One render per click, no loop.
+        setCropCount(cropPointsRef.current.length);
       }, c.ScreenSpaceEventType.LEFT_CLICK);
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -384,36 +478,40 @@ export function OverlayLayer({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setCropPoints([]);
+        cropPointsRef.current = [];
+        setCropCount(0);
         refreshPreview([]);
         onChangeEditMode('idle');
       }
       if (e.key === 'Enter') {
-        setCropPoints((pts) => {
-          if (pts.length < 3) {
-            useToastStore.getState().addToast({
-              type: 'warning',
-              title: t('geo.overlays.crop_too_few', {
-                defaultValue: 'Crop needs at least 3 points',
-              }),
-            });
-            return pts;
-          }
-          const first = pts[0];
-          if (!first) return pts;
-          const closed: [number, number][] = [...pts, first];
-          const polygon: CropPolygon = {
-            type: 'Polygon',
-            coordinates: [closed],
-          };
-          patchMutation.mutate({
-            id: active.id,
-            body: { crop_polygon_geojson: polygon },
+        const pts = cropPointsRef.current;
+        if (pts.length < 3) {
+          useToastStore.getState().addToast({
+            type: 'warning',
+            title: t('geo.overlays.crop_too_few', {
+              defaultValue: 'Crop needs at least 3 points',
+            }),
           });
-          refreshPreview([]);
-          onChangeEditMode('idle');
-          return [];
+          return;
+        }
+        const first = pts[0];
+        if (!first) return;
+        const closed: [number, number][] = [...pts, first];
+        const polygon: CropPolygon = {
+          type: 'Polygon',
+          coordinates: [closed],
+        };
+        // PATCH is fired ONLY on ENTER (the "finish crop" action),
+        // never on individual vertex clicks — matches the task brief
+        // and stops a burst of in-flight requests.
+        patchMutationRef.current.mutate({
+          id: active.id,
+          body: { crop_polygon_geojson: polygon },
         });
+        cropPointsRef.current = [];
+        setCropCount(0);
+        refreshPreview([]);
+        onChangeEditMode('idle');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -434,7 +532,9 @@ export function OverlayLayer({
         cropEntityRef.current = null;
       }
     };
-  }, [active, editMode, cesium, viewer, patchMutation, onChangeEditMode, t]);
+    // Intentionally excludes patchMutation (see ref above) — keeps the
+    // effect stable across every render.
+  }, [active, editMode, cesium, viewer, onChangeEditMode, t]);
 
   // Render nothing visible — every change is a Cesium primitive.
   // The hidden node carries data-testid so Playwright can confirm the
@@ -445,7 +545,7 @@ export function OverlayLayer({
       data-testid="geo-overlay-layer-marker"
       data-overlay-count={overlays.length}
       data-edit-mode={editMode}
-      data-crop-points={cropPoints.length}
+      data-crop-points={cropCount}
       className="sr-only"
     />
   );
@@ -473,6 +573,34 @@ function makeRectangle(c: any, o: GeoRasterOverlay): any | null {
   }
   try {
     return c.Rectangle.fromDegrees(west, south, east, north);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synthesise a 200 m × 200 m square Rectangle centred on the project
+ * anchor. Used as the "Center on globe" fallback when an overlay has no
+ * usable corners but the project does have a geo anchor — preferable to
+ * dropping the overlay silently.
+ */
+function makeFallbackRectangle(
+  c: any,
+  anchor: { lat: string; lon: string } | null,
+): any | null {
+  if (!anchor) return null;
+  const lat = Number(anchor.lat);
+  const lon = Number(anchor.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const dLat = FALLBACK_HALF_SIZE_M / METERS_PER_DEGREE;
+  // Cos(lat) shrinks degrees of longitude towards the poles — without
+  // this the fallback square would distort into a wide rectangle at
+  // high latitudes.
+  const dLon =
+    FALLBACK_HALF_SIZE_M /
+    (METERS_PER_DEGREE * Math.max(Math.cos((lat * Math.PI) / 180), 1e-6));
+  try {
+    return c.Rectangle.fromDegrees(lon - dLon, lat - dLat, lon + dLon, lat + dLat);
   } catch {
     return null;
   }

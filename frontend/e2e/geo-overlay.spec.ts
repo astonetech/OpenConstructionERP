@@ -86,16 +86,36 @@ test.describe('Geo Hub raster overlays', () => {
   test('PDF overlay full lifecycle on /geo', async ({ page }) => {
     test.setTimeout(180_000);
 
+    // Console-noise capture — used at the end of the test to assert on
+    // the two regressions this run is fixing.
+    const consoleMessages: { type: string; text: string }[] = [];
+    const developerErrorCounts = new Map<string, number>();
+    let maximumUpdateDepthCount = 0;
     page.on('console', (msg) => {
       const t = msg.type();
+      const text = msg.text();
       if (t === 'error' || t === 'warning') {
+        consoleMessages.push({ type: t, text });
         // eslint-disable-next-line no-console
-        console.log(`[browser ${t}] ${msg.text().slice(0, 200)}`);
+        console.log(`[browser ${t}] ${text.slice(0, 200)}`);
+      }
+      if (text.includes('Maximum update depth exceeded')) {
+        maximumUpdateDepthCount += 1;
+      }
+      // Cesium DeveloperError lines we used to emit one per render —
+      // count occurrences per overlay id so the log-once fix is
+      // measurable. Match either the soft-skip warn or the raw error.
+      if (text.includes('DeveloperError') || text.includes('overlay layer add failed')) {
+        const key = text.slice(0, 120);
+        developerErrorCounts.set(key, (developerErrorCounts.get(key) ?? 0) + 1);
       }
     });
     page.on('pageerror', (err) => {
       // eslint-disable-next-line no-console
       console.log(`[browser pageerror] ${err.message}`);
+      if (err.message.includes('Maximum update depth exceeded')) {
+        maximumUpdateDepthCount += 1;
+      }
     });
 
     const token = await demoLogin(page);
@@ -266,5 +286,29 @@ test.describe('Geo Hub raster overlays', () => {
       path: path.join(SCREENSHOT_DIR, '08-visible-again.png'),
       fullPage: true,
     });
+
+    // ── Console regression assertions ─────────────────────────────────
+    // Issue 1: zero "Maximum update depth exceeded" warnings or errors.
+    expect(
+      maximumUpdateDepthCount,
+      `Expected zero "Maximum update depth" warnings; saw ${maximumUpdateDepthCount}.\n` +
+        `Recent messages:\n${consoleMessages
+          .filter((m) => m.text.includes('Maximum update depth'))
+          .slice(0, 5)
+          .map((m) => `  [${m.type}] ${m.text.slice(0, 160)}`)
+          .join('\n')}`,
+    ).toBe(0);
+    // Issue 2: no overlay-layer error is logged more than once per
+    // overlay-id (log-once Set in OverlayLayer).
+    const repeated = Array.from(developerErrorCounts.entries()).filter(
+      ([, count]) => count > 1,
+    );
+    expect(
+      repeated.length,
+      `Expected each overlay-layer DeveloperError to log at most once; ` +
+        `saw repeats:\n${repeated
+          .map(([key, count]) => `  x${count}  ${key}`)
+          .join('\n')}`,
+    ).toBe(0);
   });
 });

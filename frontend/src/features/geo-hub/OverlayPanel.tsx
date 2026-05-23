@@ -43,6 +43,9 @@ import {
   uploadImageRasterOverlay,
   uploadPdfRasterOverlay,
 } from './api';
+// Reuse the validator from OverlayLayer so the panel + layer agree on
+// what "degenerate" means — single source of truth.
+import { isOverlayDegenerate } from './OverlayLayer';
 
 const PANEL_COLLAPSED_LS_KEY = 'oe.geo_hub.overlay_panel_collapsed.v1';
 
@@ -244,11 +247,13 @@ export function OverlayPanel({
           <ul className="m-2 space-y-1">
             {overlays.map((o) => {
               const isActive = activeOverlayId === o.id;
+              const degenerate = isOverlayDegenerate(o);
               return (
                 <li
                   key={o.id}
                   data-testid="geo-overlay-row"
                   data-overlay-id={o.id}
+                  data-overlay-degenerate={degenerate ? 'true' : 'false'}
                   className={[
                     'rounded-md border px-2 py-2 transition-colors',
                     isActive
@@ -329,6 +334,38 @@ export function OverlayPanel({
                       </span>
                     </label>
                   </div>
+                  {degenerate && (
+                    <div
+                      className="ml-9 mt-1.5 flex flex-wrap items-center gap-1.5"
+                      data-testid="geo-overlay-needs-corners"
+                    >
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-50 px-1.5 py-0.5 text-2xs font-medium text-amber-800 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-200"
+                        role="status"
+                        title={t('geo.overlays.needs_corners_hint', {
+                          defaultValue:
+                            'Overlay has no valid corners — showing fallback square at project anchor.',
+                        })}
+                      >
+                        {t('geo.overlays.needs_corners', {
+                          defaultValue: 'Needs corners',
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectOverlay(o.id);
+                          onChangeEditMode('corners');
+                        }}
+                        data-testid="geo-overlay-fix-corners-cta"
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300/70 px-1.5 py-0.5 text-2xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-950/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      >
+                        {t('geo.overlays.edit_corners', {
+                          defaultValue: 'Edit corners',
+                        })}
+                      </button>
+                    </div>
+                  )}
                   {isActive && (
                     <div className="ml-9 mt-1.5 flex flex-wrap items-center gap-1">
                       <button
