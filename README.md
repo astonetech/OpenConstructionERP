@@ -328,9 +328,13 @@ Each block below is a short GIF cut from the full walkthrough above — same ord
 
 ---
 
-### Complete Estimation Workflow
+## Key Features
 
-OpenConstructionERP covers the full lifecycle — from first sketch to final tender submission:
+### 📊 Bill of Quantities (BOQ) Management
+
+<img src="docs/screenshots/feature-boq.jpg" alt="BOQ Editor — Create, manage and analyze Bills of Quantities" width="800" />
+
+Build professional cost estimates with a powerful BOQ editor. The full lifecycle — from first sketch to final tender submission:
 
 ```
   Upload              Convert            Validate           Estimate           Tender
@@ -347,16 +351,6 @@ OpenConstructionERP covers the full lifecycle — from first sketch to final ten
                                                          │ Reports    │
                                                          └────────────┘
 ```
-
----
-
-## Key Features
-
-### 📊 Bill of Quantities (BOQ) Management
-
-<img src="docs/screenshots/feature-boq.jpg" alt="BOQ Editor — Create, manage and analyze Bills of Quantities" width="800" />
-
-Build professional cost estimates with a powerful BOQ editor:
 
 - **Hierarchical BOQ structure** — Sections, positions, sub-positions with drag-and-drop reordering
 - **Inline editing** — Click any cell to edit. Tab between fields. Undo/redo with Ctrl+Z
@@ -384,6 +378,22 @@ Access the world's construction pricing data:
 
 Extract quantities from any source — drawings, models, text, or photos:
 
+```
+  Source              DDC cad2data         Canonical            Match              BOQ
+ ┌────────┐         ┌──────────────┐    ┌──────────┐       ┌──────────┐      ┌──────────┐
+ │.rvt    │         │ Element      │    │ Elements │       │ Classify │      │ Positions│
+ │.ifc    │────────▶│ extraction   │───▶│ + Quants │──────▶│ (DIN/NRM)│─────▶│ + Linked │
+ │.dwg    │         │ (no IFC OS)  │    │ + Props  │       │ + Costs  │      │ geometry │
+ │.dgn    │         └──────────────┘    └──────────┘       └──────────┘      └──────────┘
+ │.pdf    │                                                                         │
+ │photo   │         ┌──────────────┐                                          ┌─────┴────┐
+ │text    │────────▶│ CV / OCR / AI│──────────────────────────────────────▶  │ BIM Pick │
+ └────────┘         │ (PaddleOCR + │                                          │ area/vol │
+                    │  YOLOv11)    │                                          │ /length  │
+                    └──────────────┘                                          └──────────┘
+```
+
+
 - **CAD/BIM takeoff** — Upload Revit (.rvt), IFC, AutoCAD (.dwg), or MicroStation (.dgn) files. DDC converters extract elements with volumes, areas, and lengths automatically
 - **Interactive QTO** — Choose how to group extracted data: by Category, Type, Level, Family. Format-specific presets for Revit and IFC
 - **Linked geometry preview** — Click the BIM link badge on any BOQ position to see a 3D preview of linked elements with interactive rotate/zoom/pan controls
@@ -397,6 +407,21 @@ Extract quantities from any source — drawings, models, text, or photos:
 ### 🌍 Geo Hub (3D Globe)
 
 Anchor every project on a real spherical earth — Cesium 3D Tiles 1.1 with live HUD and pin layers:
+
+```
+   Anchor              Globe                Mode               Deeplink            Fly-to
+ ┌──────────┐       ┌──────────┐       ┌───────────┐       ┌────────────┐      ┌──────────┐
+ │ Project  │       │ Cesium   │       │  Global   │       │ ?model=…   │      │ BIM scene│
+ │ Plot     │──────▶│ 3D Tiles │──────▶│  Project  │──────▶│ ?plot=…    │─────▶│ PropDev  │
+ │ CAD model│       │ live HUD │       │ Developm. │       │ ?dev_id=…  │      │ Daily Diary│
+ └──────────┘       └──────────┘       └───────────┘       └────────────┘      └──────────┘
+       ▲                  │                                                          │
+       │                  ▼                                                          │
+       │           ┌──────────────┐                                                  │
+       └───────────│ Pin layers   │ ◀────── HSE · Punchlist · Daily Diary ◀──────────┘
+                   └──────────────┘
+```
+
 
 - **Three-mode picker** — Global (planet-wide portfolio), Project (job-site scale), Development (plot-level masterplan)
 - **Live HUD** — Cursor latitude / longitude, terrain altitude, dynamic scale bar, north arrow
@@ -412,6 +437,25 @@ Anchor every project on a real spherical earth — Cesium 3D Tiles 1.1 with live
 
 End-to-end real-estate developer workflow — from first lead to handover snags to warranty close-out:
 
+```
+   Lead          Reservation         SPA              Handover           Warranty
+ ┌────────┐    ┌──────────┐     ┌──────────┐      ┌───────────┐      ┌──────────┐
+ │ CRM    │───▶│ Hold +   │────▶│ Contract │─────▶│ Snags     │─────▶│ Defects  │
+ │ inbox  │    │ deposit  │     │ + Escrow │      │ + Photos  │      │ liability│
+ │ Broker │    │ schedule │     │ schedule │      │ + Sign-off│      │ + Promote│
+ └────────┘    └──────────┘     └──────────┘      └───────────┘      └──────────┘
+      │              │                │                  │                  │
+      └──────────────┴────────────────┴──── Contact bridge (idempotent tags) ┘
+                                              ▼
+                                     ┌────────────────┐
+                                     │ Price Matrix   │
+                                     │ Phases · Blocks│
+                                     │ House Types    │
+                                     │ Brokers · Plots│
+                                     └────────────────┘
+```
+
+
 - **Lead → Reservation → SPA → Handover → Warranty** — Full lifecycle FSM with auto-creation of ContractParty on SPA conversion, Payment Schedule state machine, idempotent stage transitions
 - **Sub-entity tabs** — Phases · Blocks · Brokers · Price Matrix · Escrow — one screen for every dev operation, no page hops
 - **House Type catalogue** — ISO 3166-1 picker covering 180+ countries plus Custom region; CountryCombobox + HouseTypeEditModal share the same backend taxonomy as catalog & costs
@@ -425,6 +469,23 @@ End-to-end real-estate developer workflow — from first lead to handover snags 
 ### 🤝 Coordination Hub & Clash AI
 
 Multi-disciplinary BIM coordination with AI-assisted issue triage:
+
+```
+  Federation         Raw clashes        Smart Issues       AI Triage         BCF 3.0
+ ┌──────────┐      ┌────────────┐     ┌────────────┐    ┌────────────┐    ┌──────────┐
+ │ ARC ·STR │      │ thousands  │     │ clustered  │    │ severity   │    │ Solibri  │
+ │ MEP ·HSE │─────▶│ raw pairs  │────▶│ by zone +  │───▶│ rework $   │───▶│ Navisw.  │
+ │ models   │      │ + distance │     │ disciplines│    │ confidence │    │ BIMcollab│
+ └──────────┘      └────────────┘     └────────────┘    └────────────┘    └──────────┘
+                                            │                                  ▲
+                                            ▼                                  │
+                                    ┌─────────────┐                            │
+                                    │ Smart Views │  IDS + COBie owner drops ──┘
+                                    │ RFI · Tasks │
+                                    │ Cost Impact │
+                                    └─────────────┘
+```
+
 
 - **Coordination Hub** — Single dashboard fusing clashes, RFIs, submittals, action items per model federation
 - **Smart Views v1** — Saved filters across the federation (e.g. "MEP-vs-STR clashes > 50mm in Level 03")
@@ -447,6 +508,22 @@ Plan your project timeline and track costs over time:
 ### 📋 Tendering, Risk & Reporting
 
 Complete your estimation workflow:
+
+```
+   BOQ           Bid Package        Distribute         Compare           Award
+ ┌────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐    ┌──────────┐
+ │ priced │───▶│ subset +   │───▶│ Subs (mail │───▶│ side-by-   │───▶│ winner   │
+ │ sections    │ instructions    │ + portal)  │    │ side mirror│    │ + change │
+ │        │    │ + scope    │    │            │    │ + anomalies│    │   orders │
+ └────────┘    └────────────┘    └────────────┘    └────────────┘    └──────────┘
+                                                          │                │
+                                                          ▼                ▼
+                                                   ┌─────────────────────────┐
+                                                   │ Reports · GAEB X83      │
+                                                   │ Risk Register · EAC     │
+                                                   └─────────────────────────┘
+```
+
 
 - **Tendering** — Create bid packages, distribute to subcontractors, collect and compare bids with side-by-side price mirror
 - **Change orders** — Track scope changes with cost and schedule impact analysis
