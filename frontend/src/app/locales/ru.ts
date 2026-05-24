@@ -3966,6 +3966,7 @@ const resource = {
     "users.modules.takeoff": "Подсчёт объёмов",
     "users.modules.reporting": "Отчётность",
     "users.modules.risk": "Реестр рисков",
+    "users.presets": "Пресеты",
     "users.presets.all": "Полный доступ",
     "users.presets.viewer": "Только просмотр",
     "users.presets.minimal": "Минимальный",

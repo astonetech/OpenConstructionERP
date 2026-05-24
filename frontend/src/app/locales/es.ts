@@ -3148,6 +3148,7 @@ const resource = {
     "users.modules.takeoff": "Mediciones",
     "users.modules.reporting": "Informes",
     "users.modules.risk": "Registro de riesgos",
+    "users.presets": "Preajustes",
     "users.presets.all": "Acceso completo",
     "users.presets.viewer": "Solo lectura",
     "users.presets.minimal": "Mínimo",

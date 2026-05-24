@@ -3947,6 +3947,7 @@ const resource = {
     "users.modules.takeoff": "Mengenermittlung",
     "users.modules.reporting": "Berichtswesen",
     "users.modules.risk": "Risikoregister",
+    "users.presets": "Voreinstellungen",
     "users.presets.all": "Vollzugriff",
     "users.presets.viewer": "Nur ansehen",
     "users.presets.minimal": "Minimal",

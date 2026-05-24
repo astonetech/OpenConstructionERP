@@ -5151,6 +5151,7 @@ const resource = {
     "users.modules.takeoff": "حصر الكميات",
     "users.modules.reporting": "التقارير",
     "users.modules.risk": "سجل المخاطر",
+    "users.presets": "الإعدادات المسبقة",
     "users.presets.all": "وصول كامل",
     "users.presets.viewer": "عرض فقط",
     "users.presets.minimal": "الحد الأدنى",

@@ -3009,6 +3009,7 @@ const resource = {
     "users.modules.takeoff": "Computo (takeoff)",
     "users.modules.reporting": "Reportistica",
     "users.modules.risk": "Registro dei rischi",
+    "users.presets": "Preimpostazioni",
     "users.presets.all": "Accesso completo",
     "users.presets.viewer": "Sola lettura",
     "users.presets.minimal": "Minimo",

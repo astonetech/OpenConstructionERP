@@ -3047,6 +3047,7 @@ const resource = {
     "users.modules.takeoff": "Métré",
     "users.modules.reporting": "Reporting",
     "users.modules.risk": "Registre des risques",
+    "users.presets": "Préréglages",
     "users.presets.all": "Accès complet",
     "users.presets.viewer": "Lecture seule",
     "users.presets.minimal": "Minimal",
