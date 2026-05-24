@@ -222,6 +222,53 @@ export function deleteOverlay(id: string): Promise<void> {
   return apiDelete(`${BASE}/overlays/${id}`);
 }
 
+/* ── Auto-anchor (from project address) ──────────────────────────────── */
+
+export interface AnchorFromAddressResult {
+  anchor: GeoAnchor;
+  precision: 'address' | 'street' | 'city' | 'region' | 'country';
+  source: 'nominatim' | 'cache' | 'manual';
+  display_name: string | null;
+}
+
+export interface BulkAnchorResultRow {
+  project_id: string;
+  project_name: string | null;
+  status: 'ok' | 'skipped' | 'failed';
+  reason: string | null;
+  anchor_id: string | null;
+  precision: string | null;
+}
+
+export interface BulkAnchorSummary {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  results: BulkAnchorResultRow[];
+}
+
+/** Auto-anchor a project from its stored address.
+ *
+ * 422 → address missing (UI should prompt for project address).
+ * 409 → anchor already exists (UI offers "Re-geocode" toggling `force`).
+ * 502 → geocoder unavailable.
+ */
+export function autoAnchorFromAddress(
+  projectId: string,
+  options?: { force?: boolean },
+): Promise<AnchorFromAddressResult> {
+  const qs = options?.force ? '?force=true' : '';
+  return apiPost<AnchorFromAddressResult>(
+    `${BASE}/anchors/from-address/${qs}`,
+    { project_id: projectId },
+  );
+}
+
+/** Bulk auto-anchor every caller-accessible un-anchored project. */
+export function bulkAutoAnchorFromAddress(): Promise<BulkAnchorSummary> {
+  return apiPost<BulkAnchorSummary>(`${BASE}/anchors/from-address/bulk/`, {});
+}
+
 /* ── Anchored projects (Global Geo Hub pin layer) ───────────────────── */
 
 export function fetchAnchoredProjects(

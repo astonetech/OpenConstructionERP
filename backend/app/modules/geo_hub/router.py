@@ -17,7 +17,10 @@ from app.core.i18n import get_locale
 from app.core.validation.messages import translate
 from app.dependencies import CurrentUserPayload, RequirePermission, SessionDep
 from app.modules.geo_hub.schemas import (
+    AnchorFromAddressRequest,
+    AnchorFromAddressResponse,
     AnchoredProjectResponse,
+    BulkAnchorFromAddressResponse,
     CanonicalToTilesetRequest,
     DiaryPhotoPinResponse,
     GeoAnchorCreate,
@@ -114,6 +117,62 @@ async def update_anchor(
 ) -> GeoAnchorResponse:
     obj = await service.update_anchor(anchor_id, data, payload=payload)
     return GeoAnchorResponse.model_validate(obj)
+
+
+@router.post(
+    "/anchors/from-address/",
+    response_model=AnchorFromAddressResponse,
+    status_code=201,
+)
+async def anchor_from_address(
+    data: AnchorFromAddressRequest,
+    force: bool = Query(default=False),
+    service: GeoHubService = Depends(_svc),
+    payload: CurrentUserPayload = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("geo_hub.write")),
+) -> AnchorFromAddressResponse:
+    """Auto-anchor a project from its stored address.
+
+    Behaviour:
+
+    * 404 if project missing / cross-tenant.
+    * 409 if an anchor already exists and ``force=false`` (the existing
+      anchor id is returned in the detail so the UI can prompt the user
+      to re-geocode).
+    * 422 if the project address has no country.
+    * 502 if the geocoder couldn't resolve the address and no cached
+      fallback exists.
+    * 201 with the new anchor + precision + source on success.
+    """
+    anchor, precision, source, display_name = await service.anchor_from_address(
+        data.project_id, payload=payload, force=force,
+    )
+    return AnchorFromAddressResponse(
+        anchor=GeoAnchorResponse.model_validate(anchor),
+        precision=precision,
+        source=source,
+        display_name=display_name or None,
+    )
+
+
+@router.post(
+    "/anchors/from-address/bulk/",
+    response_model=BulkAnchorFromAddressResponse,
+    status_code=200,
+)
+async def bulk_anchor_from_address(
+    service: GeoHubService = Depends(_svc),
+    payload: CurrentUserPayload = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("geo_hub.write")),
+) -> BulkAnchorFromAddressResponse:
+    """Run auto-anchor across every caller-accessible un-anchored project.
+
+    Returns aggregate counts (succeeded / skipped / failed) plus a
+    per-project breakdown so the UI can highlight which projects need
+    an address filled in.
+    """
+    summary = await service.bulk_anchor_from_address(payload=payload)
+    return BulkAnchorFromAddressResponse.model_validate(summary)
 
 
 @router.delete("/anchors/{anchor_id}", status_code=204)

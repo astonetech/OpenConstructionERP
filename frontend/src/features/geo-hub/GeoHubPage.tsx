@@ -44,8 +44,9 @@ import {
 import { ApiError } from '@/shared/lib/api';
 import { ModuleHelpButton } from '@/shared/ui';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
+import { useToastStore } from '@/stores/useToastStore';
 
-import { fetchAnchoredProjects } from './api';
+import { bulkAutoAnchorFromAddress, fetchAnchoredProjects } from './api';
 import type { GeoCameraState, GeoCursorCoords } from './CesiumViewer';
 import { GeoModePicker } from './GeoModePicker';
 import { GeoOverlayHud } from './GeoOverlayHud';
@@ -64,8 +65,81 @@ const CesiumViewer = lazy(() =>
  * this file because it's only used by the global view and needs to
  * compose with the left rail of the global layout.
  */
-function GlobalNoProjectsEmpty() {
+function GlobalNoProjectsEmpty({
+  onAnchored,
+}: {
+  onAnchored?: () => void;
+}) {
   const { t } = useTranslation();
+  const addToast = useToastStore((s) => s.addToast);
+  const [isBulking, setIsBulking] = useState(false);
+
+  async function bulkAnchor() {
+    if (isBulking) return;
+    setIsBulking(true);
+    try {
+      const summary = await bulkAutoAnchorFromAddress();
+      if (summary.succeeded === 0 && summary.skipped === 0 && summary.failed === 0) {
+        addToast({
+          type: 'info',
+          title: t('geo_hub.empty.bulk_no_projects', {
+            defaultValue: 'No projects with addresses to anchor',
+          }),
+          message: t('geo_hub.empty.bulk_no_projects_hint', {
+            defaultValue:
+              'Add an address (country required) to a project, then try again.',
+          }),
+        });
+      } else if (summary.succeeded > 0) {
+        addToast({
+          type: 'success',
+          title: t('geo_hub.empty.bulk_success_title', {
+            defaultValue: '{{count}} projects anchored',
+            count: summary.succeeded,
+          }),
+          message: t('geo_hub.empty.bulk_success_message', {
+            defaultValue:
+              'Skipped {{skipped}}, failed {{failed}}. Refreshing the map.',
+            skipped: summary.skipped,
+            failed: summary.failed,
+          }),
+        });
+      } else {
+        addToast({
+          type: 'warning',
+          title: t('geo_hub.empty.bulk_no_success_title', {
+            defaultValue: 'No projects could be auto-anchored',
+          }),
+          message: t('geo_hub.empty.bulk_no_success_message', {
+            defaultValue:
+              'Skipped {{skipped}}, failed {{failed}}. Add a country to your project addresses and try again.',
+            skipped: summary.skipped,
+            failed: summary.failed,
+          }),
+        });
+      }
+      onAnchored?.();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        addToast({
+          type: 'error',
+          title: t('geo_hub.empty.bulk_auth_required', {
+            defaultValue: 'Please log in to auto-anchor your projects',
+          }),
+        });
+      } else {
+        addToast({
+          type: 'error',
+          title: t('geo_hub.empty.bulk_error', {
+            defaultValue: 'Bulk auto-anchor failed',
+          }),
+        });
+      }
+    } finally {
+      setIsBulking(false);
+    }
+  }
+
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
       <div
@@ -99,25 +173,55 @@ function GlobalNoProjectsEmpty() {
             })}
           </h3>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-300">
-            {t('geo_hub.empty.global_no_projects_description', {
+            {t('geo_hub.empty.global_no_projects_description_v2', {
               defaultValue:
-                'Anchor a project to a real-world coordinate to see it here. From any project page open the Geo tab and click Set project anchor.',
+                'If your projects have addresses we can place them on the globe automatically. Otherwise open a project and anchor it manually.',
             })}
           </p>
-          <Link
-            to="/projects"
-            className={[
-              'mt-5 inline-flex items-center gap-1.5 rounded-md',
-              'bg-white px-3 py-1.5 text-xs font-semibold text-slate-900',
-              'shadow-sm transition hover:bg-slate-100',
-              'focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
-            ].join(' ')}
-          >
-            {t('geo_hub.empty.global_no_projects_cta', {
-              defaultValue: 'Browse projects',
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={bulkAnchor}
+              disabled={isBulking}
+              data-testid="geo-empty-bulk-anchor"
+              className={[
+                'inline-flex items-center gap-1.5 rounded-md',
+                'bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white',
+                'shadow-sm transition hover:bg-emerald-400',
+                'disabled:cursor-wait disabled:opacity-70',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70',
+              ].join(' ')}
+            >
+              {isBulking ? (
+                <Loader2 size={13} strokeWidth={2.25} className="animate-spin" />
+              ) : (
+                <MapPin size={13} strokeWidth={2.25} />
+              )}
+              {t('geo_hub.empty.bulk_cta', {
+                defaultValue: 'Auto-anchor all my projects',
+              })}
+            </button>
+            <Link
+              to="/projects"
+              className={[
+                'inline-flex items-center gap-1.5 rounded-md',
+                'border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white',
+                'shadow-sm transition hover:bg-white/10',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60',
+              ].join(' ')}
+            >
+              {t('geo_hub.empty.global_no_projects_manual_cta', {
+                defaultValue: 'Anchor a project manually',
+              })}
+              <ArrowUpRight size={13} strokeWidth={2.25} />
+            </Link>
+          </div>
+          <p className="mt-3 text-2xs text-slate-400">
+            {t('geo_hub.empty.bulk_attribution', {
+              defaultValue:
+                'Auto-anchor uses OpenStreetMap Nominatim (1 req/sec, cached 30 days).',
             })}
-            <ArrowUpRight size={13} strokeWidth={2.25} />
-          </Link>
+          </p>
         </div>
       </div>
     </div>
@@ -663,7 +767,11 @@ export function GeoHubPage() {
                     error, never while loading. */}
                 {!projectsQuery.isLoading &&
                   !projectsQuery.isError &&
-                  projects.length === 0 && <GlobalNoProjectsEmpty />}
+                  projects.length === 0 && (
+                    <GlobalNoProjectsEmpty
+                      onAnchored={() => projectsQuery.refetch()}
+                    />
+                  )}
               </>
             }
           />

@@ -255,6 +255,21 @@ class ProjectService:
             source_module="oe_projects",
         )
 
+        # If the new project ships with a non-empty address (likely from
+        # the wizard), fire ``projects.address_set`` so the geo_hub
+        # subscriber can geocode it asynchronously and drop a globe pin
+        # before the user even opens /geo. Safe-publish so a downstream
+        # error never breaks the create.
+        if isinstance(project.address, dict) and project.address.get("country"):
+            await _safe_publish(
+                "projects.address_set",
+                {
+                    "project_id": str(project.id),
+                    "address": dict(project.address),
+                },
+                source_module="oe_projects",
+            )
+
         # Auto-create a default team for the new project
         try:
             from app.modules.teams.models import Team, TeamMembership
@@ -413,10 +428,44 @@ class ProjectService:
                     ),
                 )
 
+        # Snapshot the prior address so we can detect a meaningful change
+        # after the update (and notify the geo_hub auto-anchor subscriber
+        # only when the user actually changed it).
+        prior_address = (
+            dict(project.address) if isinstance(project.address, dict) else None
+        )
+
         await self.repo.update_fields(project_id, **fields)
 
         # Refresh the project object
         await self.session.refresh(project)
+
+        # Fire ``projects.address_set`` only when:
+        #   * the PATCH actually included ``address``;
+        #   * the new value is a dict with a non-empty country;
+        #   * the value differs from the pre-update snapshot.
+        # The geo_hub subscriber will skip if an anchor already exists,
+        # so this is idempotent in practice — but we still guard against
+        # spamming the event bus on a no-op PATCH.
+        if "address" in fields:
+            new_address = (
+                dict(project.address)
+                if isinstance(project.address, dict)
+                else None
+            )
+            if (
+                new_address
+                and new_address.get("country")
+                and new_address != prior_address
+            ):
+                await _safe_publish(
+                    "projects.address_set",
+                    {
+                        "project_id": str(project_id),
+                        "address": new_address,
+                    },
+                    source_module="oe_projects",
+                )
 
         # If the region changed, drop it from the match-service region
         # cache so the boost layer sees the new value on the very next

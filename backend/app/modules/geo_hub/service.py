@@ -183,6 +183,273 @@ class GeoHubService:
                 status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail,
             )
 
+    # ── Auto-anchor from address ────────────────────────────────────────
+
+    async def anchor_from_address(
+        self,
+        project_id: uuid.UUID,
+        *,
+        payload: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> tuple[GeoAnchor, str, str, str]:
+        """Resolve ``project.address`` -> ``GeoAnchor``.
+
+        Returns ``(anchor, precision, source, display_name)``.
+
+        Raises ``HTTPException`` with explicit status codes:
+
+        * 404 — project not found or cross-tenant access.
+        * 409 — anchor already exists and ``force`` is False.
+        * 422 — project address missing or has no country.
+        * 502 — geocoder unavailable + no cached fallback.
+        """
+        from app.modules.geo_hub.geocoder import (
+            geocode_address,
+            project_address_from_jsonb,
+        )
+        from app.modules.projects.repository import ProjectRepository
+
+        await self._verify_project_owner(
+            project_id, payload,
+            not_found_detail=translate(
+                "errors.project_not_found", locale=get_locale(),
+            ),
+        )
+        project = await ProjectRepository(self.session).get_by_id(project_id)
+        if project is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=translate(
+                    "errors.project_not_found", locale=get_locale(),
+                ),
+            )
+
+        existing = await self.anchors.get_by_project(project_id)
+        if existing is not None and not force:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "anchor_exists",
+                    "message": "Project already has an anchor",
+                    "anchor_id": str(existing.id),
+                },
+            )
+
+        address = project_address_from_jsonb(project.address)
+        if address is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "address_missing",
+                    "message": (
+                        "Project address is empty or missing a country — "
+                        "fill in at least the country before auto-anchoring."
+                    ),
+                },
+            )
+
+        result = await geocode_address(address, session=self.session)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "code": "geocoder_unavailable",
+                    "message": (
+                        "Geocoder did not return a usable result. "
+                        "Try again later or anchor manually."
+                    ),
+                },
+            )
+
+        address_line = ", ".join(
+            part for part in (
+                address.street,
+                address.house_number,
+                address.postal_code,
+                address.city,
+                address.country,
+            )
+            if part
+        )
+
+        if existing is not None:
+            # Overwrite in place (force=True path).
+            existing.lat = result.lat
+            existing.lon = result.lon
+            existing.epsg_code = 4326
+            existing.address = address_line or existing.address
+            metadata = dict(existing.metadata_ or {})
+            metadata.update(
+                {
+                    "geocoded_from": "project_address",
+                    "geocode_precision": result.precision,
+                    "geocode_source": result.source,
+                    "geocode_display_name": result.display_name,
+                    "geocoded_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            existing.metadata_ = metadata
+            await self.session.flush()
+            await self.session.refresh(existing)
+            anchor = existing
+        else:
+            anchor = GeoAnchor(
+                project_id=project_id,
+                lat=result.lat,
+                lon=result.lon,
+                alt=Decimal("0"),
+                epsg_code=4326,
+                address=address_line or None,
+                metadata_={
+                    "geocoded_from": "project_address",
+                    "geocode_precision": result.precision,
+                    "geocode_source": result.source,
+                    "geocode_display_name": result.display_name,
+                    "geocoded_at": datetime.now(UTC).isoformat(),
+                },
+            )
+            anchor = await self.anchors.create(anchor)
+
+        await event_bus.publish(
+            "geo_hub.anchor.auto_geocoded",
+            {
+                "anchor_id": str(anchor.id),
+                "project_id": str(project_id),
+                "lat": str(result.lat),
+                "lon": str(result.lon),
+                "precision": result.precision,
+                "source": result.source,
+            },
+            source_module="geo_hub",
+        )
+        return anchor, result.precision, result.source, result.display_name
+
+    async def bulk_anchor_from_address(
+        self,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Auto-anchor every accessible project that lacks an anchor.
+
+        Iterates the caller's projects (admins see every non-archived
+        project, regular users see only their own), skips ones that
+        already have an anchor or have no address, and runs the same
+        geocode-and-persist flow per project. Returns a structured
+        summary the UI can render as a toast / progress card.
+        """
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
+        from sqlalchemy import select
+
+        from app.modules.projects.models import Project
+
+        is_admin = payload.get("role") == "admin"
+        user_id = payload.get("sub") or payload.get("user_id")
+        if user_id is None and not is_admin:
+            return {
+                "succeeded": 0,
+                "skipped": 0,
+                "failed": 0,
+                "results": [],
+            }
+
+        stmt = (
+            select(Project)
+            .where(Project.status != "archived")
+            .where(Project.address.is_not(None))
+        )
+        if not is_admin:
+            stmt = stmt.where(Project.owner_id == user_id)
+        # Hard cap so a runaway admin doesn't pin Nominatim for hours;
+        # callers can re-run if they need more.
+        stmt = stmt.limit(200)
+        rows = (await self.session.execute(stmt)).scalars().all()
+
+        results: list[dict[str, Any]] = []
+        succeeded = skipped = failed = 0
+        for project in rows:
+            existing = await self.anchors.get_by_project(project.id)
+            # Treat (0, 0) placeholder anchors (created by the
+            # ``projects.created`` subscriber before the user filled in
+            # an address) as "no real anchor" so the bulk sweep actually
+            # geocodes them. Otherwise the first bulk run after a fresh
+            # ``project.created`` event silently skips every project.
+            is_placeholder = bool(
+                existing is not None
+                and existing.lat == Decimal("0")
+                and existing.lon == Decimal("0")
+            )
+            if existing is not None and not is_placeholder:
+                skipped += 1
+                results.append(
+                    {
+                        "project_id": project.id,
+                        "project_name": project.name,
+                        "status": "skipped",
+                        "reason": "anchor_exists",
+                        "anchor_id": existing.id,
+                        "precision": None,
+                    },
+                )
+                continue
+            try:
+                anchor, precision, source, _display = (
+                    await self.anchor_from_address(
+                        project.id, payload=payload, force=is_placeholder,
+                    )
+                )
+            except HTTPException as exc:
+                # Re-classify common no-op outcomes as "skipped" instead
+                # of "failed" so the UI doesn't scream about an address
+                # that simply hasn't been filled in yet.
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                code = detail.get("code") if isinstance(detail, dict) else None
+                if exc.status_code in (422,):
+                    skipped += 1
+                    results.append(
+                        {
+                            "project_id": project.id,
+                            "project_name": project.name,
+                            "status": "skipped",
+                            "reason": code or "address_missing",
+                            "anchor_id": None,
+                            "precision": None,
+                        },
+                    )
+                    continue
+                failed += 1
+                results.append(
+                    {
+                        "project_id": project.id,
+                        "project_name": project.name,
+                        "status": "failed",
+                        "reason": code or "error",
+                        "anchor_id": None,
+                        "precision": None,
+                    },
+                )
+                continue
+            succeeded += 1
+            results.append(
+                {
+                    "project_id": project.id,
+                    "project_name": project.name,
+                    "status": "ok",
+                    "reason": None,
+                    "anchor_id": anchor.id,
+                    "precision": precision,
+                },
+            )
+            _ = source  # silence lint — surfaced per-project in events only
+        return {
+            "succeeded": succeeded,
+            "skipped": skipped,
+            "failed": failed,
+            "results": results,
+        }
+
     # ── GeoAnchor ────────────────────────────────────────────────────────
 
     async def create_anchor(

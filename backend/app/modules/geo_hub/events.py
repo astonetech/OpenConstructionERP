@@ -15,6 +15,7 @@ subscriber:
 Events PUBLISHED by geo_hub (payload schemas in the publishing call):
 
     geo_hub.anchor.created          {anchor_id, project_id, lat, lon}
+    geo_hub.anchor.auto_geocoded    {anchor_id, project_id, lat, lon, precision, source}
     geo_hub.tile_job.queued         {job_id, project_id, source_kind, source_id}
     geo_hub.tile_job.completed      {job_id, project_id, tileset_id, output_uri}
     geo_hub.tile_job.failed         {job_id, project_id, error}
@@ -26,6 +27,7 @@ Events PUBLISHED by geo_hub (payload schemas in the publishing call):
 Inbound (we subscribe to)::
 
     projects.created               -> auto-create empty anchor
+    projects.address_set           -> auto-geocode address -> anchor
     bim_hub.model.uploaded         -> enqueue tile build
     bim_hub.federation.created     -> enqueue federation tile build
     property_dev.development.created   -> place development on map
@@ -132,6 +134,161 @@ async def _on_project_created(event: Event) -> dict[str, Any]:
             "_on_project_created", event.name, exc,
         )
         return {"status": "error", "error": str(exc)}
+
+
+async def _on_project_address_set(event: Event) -> dict[str, Any]:
+    """``projects.address_set`` -> auto-geocode + drop an anchor.
+
+    Listens for the address-changed event the projects module fires from
+    both ``create_project`` and ``update_project`` whenever the address
+    JSONB carries at least a country. Runs the Nominatim geocoder, then:
+
+    * Skips silently when the project already has a non-placeholder
+      anchor (lat / lon != 0,0) — manual anchors win over auto ones.
+    * Overwrites the placeholder anchor that ``_on_project_created``
+      seeds with lat=0 / lon=0 (so the user's first proper address fill
+      flips the globe pin to the right spot without UI ceremony).
+    * Creates a fresh anchor when none exists.
+
+    All failures land in the failure-fanout — the producing module's
+    transaction is already committed by this point so we never raise.
+    """
+    import asyncio as _asyncio
+
+    from app.modules.geo_hub.geocoder import project_address_from_jsonb
+
+    payload = event.data or {}
+    project_id = _coerce_uuid(payload.get("project_id"))
+    address_blob = payload.get("address")
+    if project_id is None or not isinstance(address_blob, dict):
+        return {"status": "ignored", "reason": "missing project_id / address"}
+    typed_address = project_address_from_jsonb(address_blob)
+    if typed_address is None:
+        return {"status": "ignored", "reason": "address has no country"}
+
+    # Yield once so the producing request's session (still holding the
+    # SQLite single-writer lock when ``publish_detached`` scheduled us)
+    # has a chance to commit + close before we open a fresh one. Without
+    # this, aiosqlite races on the same connection pool slot and surfaces
+    # as ``RuntimeError: await wasn't used with future`` — caught below
+    # and retried with an exponential backoff.
+    await _asyncio.sleep(0)
+
+    last_exc: BaseException | None = None
+    for attempt in range(4):
+        if attempt:
+            await _asyncio.sleep(0.05 * (2 ** (attempt - 1)))
+        try:
+            return await _do_geocode_and_persist(
+                project_id, typed_address, event,
+            )
+        except RuntimeError as exc:
+            # aiosqlite cross-loop / writer-contention surface; retry.
+            if "await wasn't used with future" not in str(exc):
+                last_exc = exc
+                break
+            last_exc = exc
+            continue
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            break
+    logger.warning("geo_hub._on_project_address_set: %s", last_exc)
+    if last_exc is not None:
+        await _fan_out_failure(
+            "_on_project_address_set", event.name, last_exc,
+        )
+    return {"status": "error", "error": str(last_exc)}
+
+
+async def _do_geocode_and_persist(
+    project_id: uuid.UUID,
+    typed_address: Any,
+    event: Event,
+) -> dict[str, Any]:
+    """Inner body of ``_on_project_address_set`` — opens a session, geocodes,
+    persists. Pulled out so the caller can wrap it in retry-on-aiosqlite."""
+    from app.modules.geo_hub.geocoder import geocode_address
+    from app.modules.geo_hub.models import GeoAnchor
+    from app.modules.geo_hub.repository import GeoAnchorRepository
+
+    async with async_session_factory() as session:
+        repo = GeoAnchorRepository(session)
+        existing = await repo.get_by_project(project_id)
+        if (
+            existing is not None
+            and (
+                existing.lat != Decimal("0") or existing.lon != Decimal("0")
+            )
+        ):
+            meta = existing.metadata_ or {}
+            if meta.get("geocoded_from") != "project_address":
+                # Manual anchor present — don't clobber.
+                return {
+                    "status": "ignored",
+                    "reason": "manual anchor wins over auto",
+                    "anchor_id": str(existing.id),
+                }
+        result = await geocode_address(typed_address, session=session)
+        if result is None:
+            return {
+                "status": "ignored",
+                "reason": "geocoder returned no result",
+            }
+        now = datetime.now(UTC).isoformat()
+        geo_meta = {
+            "geocoded_from": "project_address",
+            "geocode_precision": result.precision,
+            "geocode_source": result.source,
+            "geocode_display_name": result.display_name,
+            "geocoded_at": now,
+        }
+        address_line = ", ".join(
+            part for part in (
+                typed_address.street,
+                typed_address.house_number,
+                typed_address.postal_code,
+                typed_address.city,
+                typed_address.country,
+            )
+            if part
+        )
+        if existing is None:
+            anchor = GeoAnchor(
+                project_id=project_id,
+                lat=result.lat,
+                lon=result.lon,
+                alt=Decimal("0"),
+                epsg_code=4326,
+                address=address_line or None,
+                metadata_=geo_meta,
+            )
+            await repo.create(anchor)
+            anchor_id = anchor.id
+        else:
+            merged_meta = {**(existing.metadata_ or {}), **geo_meta}
+            await repo.update_fields(
+                existing.id,
+                lat=result.lat,
+                lon=result.lon,
+                epsg_code=4326,
+                address=address_line or existing.address,
+                metadata_=merged_meta,
+            )
+            anchor_id = existing.id
+        await session.commit()
+    await event_bus.publish(
+        "geo_hub.anchor.auto_geocoded",
+        {
+            "anchor_id": str(anchor_id),
+            "project_id": str(project_id),
+            "lat": str(result.lat),
+            "lon": str(result.lon),
+            "precision": result.precision,
+            "source": result.source,
+        },
+        source_module="geo_hub",
+    )
+    return {"status": "ok", "anchor_id": str(anchor_id)}
 
 
 async def _on_bim_model_uploaded(event: Event) -> dict[str, Any]:
@@ -609,6 +766,7 @@ async def _on_risk_zone_flagged(event: Event) -> dict[str, Any]:
 
 _SUBSCRIPTIONS: tuple[tuple[str, Any], ...] = (
     ("projects.created", _on_project_created),
+    ("projects.address_set", _on_project_address_set),
     ("bim_hub.model.uploaded", _on_bim_model_uploaded),
     ("bim_hub.federation.created", _on_bim_federation_created),
     ("property_dev.development.created", _on_property_dev_development_created),

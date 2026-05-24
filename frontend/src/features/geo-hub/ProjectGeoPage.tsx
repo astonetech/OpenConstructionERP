@@ -29,6 +29,7 @@ import { MapPinned, AlertTriangle, ServerCrash } from 'lucide-react';
 
 import { ApiError } from '@/shared/lib/api';
 
+import { AnchorAdjustPanel } from './AnchorAdjustPanel';
 import {
   fetchDiaryPhotoPins,
   fetchHsePins,
@@ -142,6 +143,9 @@ export function ProjectGeoPage() {
   );
   const [overlayEditMode, setOverlayEditMode] =
     useState<OverlayEditMode>('idle');
+  // "Drag to adjust" toggle for the anchor — when on, the page captures
+  // the next click on the map and PATCHes the anchor's lat/lon.
+  const [anchorDragMode, setAnchorDragMode] = useState<boolean>(false);
   // Cesium runtime ref, populated by ``CesiumViewer.onViewerReady`` so
   // the overlay layer can attach its imagery + interaction handlers.
   const [cesiumRuntime, setCesiumRuntime] = useState<
@@ -399,6 +403,14 @@ export function ProjectGeoPage() {
                   />
                   {emptyKind && (
                     <GeoEmptyState kind={emptyKind} projectId={projectId} />
+                  )}
+                  {data?.anchor && !emptyKind && (
+                    <AnchorAdjustPanel
+                      projectId={projectId}
+                      anchor={data.anchor}
+                      dragMode={anchorDragMode}
+                      onToggleDragMode={() => setAnchorDragMode((v) => !v)}
+                    />
                   )}
                 </>
               }

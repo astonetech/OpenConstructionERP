@@ -641,6 +641,56 @@ class AnchoredProjectResponse(BaseModel):
     address: str | None = None
 
 
+# ── Auto-anchor (from project address) ──────────────────────────────────
+
+
+class AnchorFromAddressRequest(BaseModel):
+    """Body for ``POST /api/v1/geo-hub/anchors/from-address/``."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+
+
+class AnchorFromAddressResponse(BaseModel):
+    """Return shape for the auto-anchor endpoint.
+
+    Carries the persisted ``GeoAnchor`` plus the resolved precision +
+    source so the UI can render a confidence chip without an extra GET.
+    """
+
+    model_config = ConfigDict()
+
+    anchor: GeoAnchorResponse
+    precision: str = Field(default="address")
+    source: str = Field(default="nominatim")
+    display_name: str | None = None
+
+
+class BulkAnchorOutcome(BaseModel):
+    """Per-project status row inside ``BulkAnchorFromAddressResponse``."""
+
+    model_config = ConfigDict()
+
+    project_id: UUID
+    project_name: str | None = None
+    status: str  # "ok" | "skipped" | "failed"
+    reason: str | None = None
+    anchor_id: UUID | None = None
+    precision: str | None = None
+
+
+class BulkAnchorFromAddressResponse(BaseModel):
+    """Summary of the bulk auto-anchor sweep."""
+
+    model_config = ConfigDict()
+
+    succeeded: int = 0
+    skipped: int = 0
+    failed: int = 0
+    results: list[BulkAnchorOutcome] = Field(default_factory=list)
+
+
 class DiaryPhotoPinResponse(BaseModel):
     """A single geo-tagged Daily Diary photo on the project map."""
 
@@ -658,7 +708,11 @@ class DiaryPhotoPinResponse(BaseModel):
 
 
 __all__ = [
+    "AnchorFromAddressRequest",
+    "AnchorFromAddressResponse",
     "AnchoredProjectResponse",
+    "BulkAnchorFromAddressResponse",
+    "BulkAnchorOutcome",
     "CanonicalToTilesetRequest",
     "DiaryPhotoPinResponse",
     "GeoAnchorCreate",

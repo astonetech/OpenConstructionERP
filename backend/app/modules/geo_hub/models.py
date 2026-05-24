@@ -47,6 +47,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -517,10 +518,91 @@ class GeoRasterOverlay(Base):
         return f"<GeoRasterOverlay {self.id} ({self.source_kind} / {self.name})>"
 
 
+# ── GeocodeCache ─────────────────────────────────────────────────────────
+
+
+class GeocodeCache(Base):
+    """30-day cache of Nominatim address-to-coords lookups.
+
+    Keyed by ``query_hash`` (SHA-256 of the normalised query string) so
+    we can serve a repeat lookup without re-hitting Nominatim and without
+    burning rate-limit budget. ``cached_at`` drives the 30-day TTL: a row
+    older than 30 days is treated as a miss and re-fetched on next
+    request. ``hit_count`` is incremented every time the row is reused
+    so we have visibility into which addresses are hot (handy for
+    moving them to a seed file later).
+
+    Every NOT NULL column ships a ``server_default`` so the ``create_all``
+    fresh-DB path can't trip ``IntegrityError`` (see v4.4.1 memory note).
+    """
+
+    __tablename__ = "oe_geo_hub_geocode_cache"
+    __table_args__ = (
+        UniqueConstraint(
+            "query_hash", name="uq_oe_geo_hub_geocode_cache_query_hash",
+        ),
+    )
+
+    query_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default="",
+        index=True,
+    )
+    query_text: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="", server_default="",
+    )
+    lat: Mapped[Decimal] = mapped_column(
+        Numeric(10, 7), nullable=False,
+        default=Decimal("0"), server_default="0",
+    )
+    lon: Mapped[Decimal] = mapped_column(
+        Numeric(10, 7), nullable=False,
+        default=Decimal("0"), server_default="0",
+    )
+    precision: Mapped[str] = mapped_column(
+        String(20), nullable=False,
+        default="address", server_default="address",
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="", server_default="",
+    )
+    bbox_min_lat: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 7), nullable=True,
+    )
+    bbox_min_lon: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 7), nullable=True,
+    )
+    bbox_max_lat: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 7), nullable=True,
+    )
+    bbox_max_lon: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 7), nullable=True,
+    )
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False,
+        default="nominatim", server_default="nominatim",
+    )
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
+    hit_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover — display only
+        return (
+            f"<GeocodeCache {self.query_hash[:8]}… "
+            f"({self.lat},{self.lon}) {self.precision}>"
+        )
+
+
 __all__ = [
     "GeoAnchor",
     "GeoOverlay",
     "GeoRasterOverlay",
+    "GeocodeCache",
     "ImageryLayer",
     "TerrainSource",
     "TileGenerationJob",
