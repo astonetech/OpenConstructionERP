@@ -42,7 +42,6 @@ import {
   Calendar,
   CalendarRange,
   CalendarDays,
-  Loader2,
   AlertTriangle,
   X,
   Plus,
@@ -62,7 +61,15 @@ import {
   isToday as dfIsToday,
 } from 'date-fns';
 
-import { Button, Badge, ConfirmDialog, Breadcrumb } from '@/shared/ui';
+import {
+  Button,
+  Badge,
+  ConfirmDialog,
+  Breadcrumb,
+  EmptyState,
+  RecoveryCard,
+  SkeletonCard,
+} from '@/shared/ui';
 import {
   WideModal,
   WideModalSection,
@@ -581,32 +588,36 @@ export function AccommodationCalendar({
       {(accommodationsQuery.isError ||
         scopedDetailQuery.isError ||
         dataQuery.isError) && (
-        <div className="rounded-xl border border-semantic-error/30 bg-semantic-error/10 p-4 text-sm text-semantic-error">
-          <AlertTriangle className="mr-2 inline h-4 w-4" />
-          {getErrorMessage(
-            accommodationsQuery.error ??
+        <div data-testid="accommodation-calendar-error">
+          <RecoveryCard
+            error={
+              accommodationsQuery.error ??
               scopedDetailQuery.error ??
-              dataQuery.error,
-          ) ||
-            t('accommodation.calendar.load_failed', {
-              defaultValue: 'Could not load calendar.',
-            })}
+              dataQuery.error
+            }
+            onRetry={() => {
+              accommodationsQuery.refetch();
+              scopedDetailQuery.refetch();
+              dataQuery.refetch();
+            }}
+          />
         </div>
       )}
 
       {!dataQuery.isLoading &&
         !dataQuery.isError &&
         chosenAccommodations.length === 0 && (
-          <div
-            data-testid="accommodation-calendar-empty"
-            className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary"
-          >
-            <p className="mb-3 text-content-secondary">
-              {t('accommodation.calendar.noAccommodations', {
+          <div data-testid="accommodation-calendar-empty">
+            <EmptyState
+              icon={<CalendarRange size={22} aria-hidden="true" />}
+              title={t('accommodation.calendar.empty_title', {
+                defaultValue: 'No accommodations to schedule yet',
+              })}
+              description={t('accommodation.calendar.noAccommodations', {
                 defaultValue:
                   'No accommodations yet. Create your first accommodation to start booking rooms.',
               })}
-            </p>
+            />
           </div>
         )}
 
@@ -614,14 +625,17 @@ export function AccommodationCalendar({
         !dataQuery.isError &&
         chosenAccommodations.length > 0 &&
         rows.length === 0 && (
-          <div
-            data-testid="accommodation-calendar-empty-rows"
-            className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary"
-          >
-            {t('accommodation.calendar.noRooms', {
-              defaultValue:
-                'No bookings this week — pick a cell to create one. Add rooms from the accommodation detail page if your camp is empty.',
-            })}
+          <div data-testid="accommodation-calendar-empty-rows">
+            <EmptyState
+              icon={<CalendarRange size={22} aria-hidden="true" />}
+              title={t('accommodation.calendar.no_rooms_title', {
+                defaultValue: 'No rooms to schedule yet',
+              })}
+              description={t('accommodation.calendar.noRooms', {
+                defaultValue:
+                  'No bookings this week — pick a cell to create one. Add rooms from the accommodation detail page if your camp is empty.',
+              })}
+            />
           </div>
         )}
 
@@ -1422,16 +1436,12 @@ function BookingDetailDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {detailQuery.isLoading && (
-            <div className="flex items-center justify-center py-10 text-content-tertiary">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-          )}
+          {detailQuery.isLoading && <SkeletonCard />}
           {detailQuery.isError && (
-            <div className="rounded-xl border border-semantic-error/30 bg-semantic-error/10 p-3 text-sm text-semantic-error">
-              <AlertTriangle className="mr-2 inline h-4 w-4" />
-              {getErrorMessage(detailQuery.error)}
-            </div>
+            <RecoveryCard
+              error={detailQuery.error}
+              onRetry={() => detailQuery.refetch()}
+            />
           )}
           {data && (
             <>

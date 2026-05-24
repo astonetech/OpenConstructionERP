@@ -1,16 +1,26 @@
 /**
  * AccommodationDetailPage — /accommodation/:id
  *
- * Header (testid `accommodation-detail-header`) + tabs strip
- * (`accommodation-detail-tabs`) with four panels:
- *   • rooms     — colour-coded grid, bulk add, per-room assign-occupant
- *   • bookings  — list + state-machine actions (check-in / check-out / cancel)
- *   • charges   — table grouped by booking, add extra charge
- *   • settings  — edit name/address/geo/BIM link/notes + bootstrap-from-propdev
- *                 + soft-delete danger zone
+ * Information architecture:
+ *   The five operator-level tabs (rooms / bookings / calendar / charges /
+ *   settings) are grouped into three logical blocks so the page reads as
+ *   "Inventory · Occupancy · Billing" with Settings parked at the end:
  *
- * Money discipline: all charge amounts and base_rate values are sent as
- * STRINGS to the API. No `parseFloat()` is ever called on a money field.
+ *     Inventory  → Rooms
+ *     Occupancy  → Bookings · Calendar
+ *     Billing    → Charges
+ *     Settings   → General · Bootstrap · Danger zone
+ *
+ *   The top tab strip toggles blocks; a secondary segmented control
+ *   within Occupancy switches Bookings/Calendar. Charges is rebuilt as a
+ *   booking-picker (no more UUID-paste UX) backed by the existing
+ *   `/bookings/{id}/charges` endpoint.
+ *
+ * Header KPIs: an at-a-glance strip (capacity, active bookings, rooms,
+ * vacant) replaces the dense single-line text list.
+ *
+ * Money discipline: every charge amount + base_rate is sent / read as a
+ * STRING; we never `parseFloat()` a money field.
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -34,6 +44,9 @@ import {
   AlertTriangle,
   Trash2,
   MoreHorizontal,
+  Users,
+  CircleCheck,
+  Layers,
 } from 'lucide-react';
 
 import {
@@ -45,6 +58,10 @@ import {
   ModuleHelpButton,
   SkeletonCard,
   SkeletonTable,
+  EmptyState,
+  RecoveryCard,
+  TabBar,
+  tabIds,
 } from '@/shared/ui';
 import {
   WideModal,
@@ -67,12 +84,14 @@ import {
   isBookingTerminal,
   listAccommodationBookings,
   updateBooking,
+  getBooking,
   type AccommodationDetail,
   type Room,
   type RoomStatus,
   type Booking,
   type BookingStatus,
   type ChargeKind,
+  type ChargeStatus,
 } from './api';
 import { BulkRoomAddModal } from './BulkRoomAddModal';
 import { AccommodationCalendar } from './AccommodationCalendar';
@@ -85,6 +104,13 @@ const BOOKING_STATUS_BADGE: Record<BookingStatus, string> = {
   cancelled: 'bg-rose-100 text-rose-800 border-rose-300',
 };
 
+const CHARGE_STATUS_BADGE: Record<ChargeStatus, string> = {
+  pending: 'bg-amber-100 text-amber-800 border-amber-300',
+  invoiced: 'bg-sky-100 text-sky-800 border-sky-300',
+  paid: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  waived: 'bg-slate-200 text-slate-700 border-slate-300',
+};
+
 /** Status filter pill keys in display order (incl. `all`). */
 const FILTER_PILLS: Array<'all' | BookingStatus> = [
   'all',
@@ -94,14 +120,14 @@ const FILTER_PILLS: Array<'all' | BookingStatus> = [
   'cancelled',
 ];
 
-type DetailTab = 'rooms' | 'bookings' | 'calendar' | 'charges' | 'settings';
-const DETAIL_TAB_IDS: readonly DetailTab[] = [
-  'rooms',
-  'bookings',
-  'calendar',
-  'charges',
-  'settings',
-];
+/* ── IA grouping ──────────────────────────────────────────────────────── */
+
+/** Top-level page sections (3 logical blocks + Settings). */
+type DetailBlock = 'inventory' | 'occupancy' | 'billing' | 'settings';
+
+/** Sub-tabs inside the Occupancy block (Bookings + Calendar). */
+type OccupancyTab = 'bookings' | 'calendar';
+const OCCUPANCY_TAB_IDS: readonly OccupancyTab[] = ['bookings', 'calendar'];
 
 const ROOM_STATUS_STYLES: Record<RoomStatus, string> = {
   available: 'bg-emerald-100 text-emerald-800 border-emerald-300',
@@ -110,13 +136,6 @@ const ROOM_STATUS_STYLES: Record<RoomStatus, string> = {
   blocked: 'bg-rose-100 text-rose-800 border-rose-300',
 };
 
-// Booking + charge status styling tables are referenced from the
-// child components when those tabs grow real lists; the MVP renders a
-// per-room CTA strip instead of a flat booking/charge table. They are
-// intentionally inlined where used (RoomBookingsRow) rather than kept
-// here to avoid an unused-symbol typescript warning under the strict
-// tsconfig — leaving a docstring for the next iteration.
-
 export function AccommodationDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
@@ -124,9 +143,10 @@ export function AccommodationDetailPage() {
   const queryClient = useQueryClient();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [tab, setTab] = useState<DetailTab>('rooms');
+  const [block, setBlock] = useState<DetailBlock>('inventory');
+  const [occupancyTab, setOccupancyTab] = useState<OccupancyTab>('bookings');
 
-  const { data, isLoading, isError, error } = useQuery({
+  const detailQuery = useQuery({
     queryKey: ['accommodation', 'detail', id],
     queryFn: () => getAccommodation(id!),
     enabled: !!id,
@@ -134,22 +154,39 @@ export function AccommodationDetailPage() {
 
   if (!id) return null;
 
-  if (isLoading) {
-    return <SkeletonCard className="my-6" />;
-  }
-
-  if (isError || !data) {
+  if (detailQuery.isLoading) {
     return (
-      <div className="rounded-xl border border-semantic-error/30 bg-semantic-error/10 p-6 text-sm text-semantic-error">
-        <AlertTriangle className="mr-2 inline h-4 w-4" />
-        {getErrorMessage(error) || t('accommodation.detail.load_failed', {
-          defaultValue: 'Could not load accommodation.',
-        })}
+      <div className="space-y-4" data-testid="accommodation-detail-loading">
+        <SkeletonCard />
+        <SkeletonTable rows={4} columns={4} />
       </div>
     );
   }
 
+  if (detailQuery.isError || !detailQuery.data) {
+    return (
+      <div data-testid="accommodation-detail-error">
+        <RecoveryCard
+          error={detailQuery.error}
+          onRetry={() => detailQuery.refetch()}
+        />
+      </div>
+    );
+  }
+
+  const data = detailQuery.data;
   const hasGeo = data.geo_lat !== null && data.geo_lon !== null;
+
+  // ── Derived KPIs ────────────────────────────────────────────────────
+  const roomCounts = {
+    available: 0,
+    occupied: 0,
+    maintenance: 0,
+    blocked: 0,
+  } as Record<RoomStatus, number>;
+  for (const r of data.rooms) roomCounts[r.status] += 1;
+
+  const blockIds = tabIds('accommodation-detail');
 
   return (
     <div className="space-y-4">
@@ -165,7 +202,7 @@ export function AccommodationDetailPage() {
 
       <div
         data-testid="accommodation-detail-header"
-        className="rounded-2xl border border-border-light bg-surface-elevated p-4"
+        className="rounded-2xl border border-border-light bg-surface-elevated p-4 space-y-4"
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -181,10 +218,13 @@ export function AccommodationDetailPage() {
               {data.bim_model_id && (
                 <Link
                   to={`/bim/${data.bim_model_id}`}
+                  aria-label={t('accommodation.bim_link.aria', {
+                    defaultValue: 'Open linked BIM model',
+                  })}
                   className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-secondary px-2 py-0.5 text-2xs font-medium text-content-secondary hover:text-oe-blue"
                   data-testid="accommodation-bim-link"
                 >
-                  <Box size={11} />
+                  <Box size={11} aria-hidden="true" />
                   {t('accommodation.bim_link.label', { defaultValue: 'BIM' })}
                 </Link>
               )}
@@ -193,35 +233,15 @@ export function AccommodationDetailPage() {
             {data.address && (
               <p className="mt-1 text-sm text-content-secondary">{data.address}</p>
             )}
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-content-tertiary">
-              <span>
-                {t('accommodation.capacity.full', {
-                  defaultValue: 'Capacity {{count}}',
-                  count: data.capacity_total,
-                })}
-              </span>
-              <span>
-                {t('accommodation.active_bookings', {
-                  defaultValue: '{{count}} active bookings',
-                  count: data.active_bookings_count,
-                })}
-              </span>
-              <span>
-                {t('accommodation.rooms_count', {
-                  defaultValue: '{{count}} rooms',
-                  count: data.rooms.length,
-                })}
-              </span>
-            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {hasGeo && (
               <Link
                 to={`/geo?lat=${data.geo_lat}&lon=${data.geo_lon}`}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-oe-blue/30 bg-oe-blue/5 px-2.5 py-1.5 text-xs font-medium text-oe-blue hover:bg-oe-blue/10"
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-oe-blue/30 bg-oe-blue/5 px-2.5 py-1.5 text-xs font-medium text-oe-blue hover:bg-oe-blue/10"
                 data-testid="accommodation-detail-geo-link"
               >
-                <Globe2 size={12} />
+                <Globe2 size={12} aria-hidden="true" />
                 {t('accommodation.geo.view_on_map', {
                   defaultValue: 'View on map',
                 })}
@@ -229,122 +249,265 @@ export function AccommodationDetailPage() {
             )}
           </div>
         </div>
+
+        {/* KPI strip — capacity / bookings / rooms / vacant. Collapses
+            to 2 columns on phones, 4 across on tablets+ for breathing
+            room without scrolling. */}
+        <div
+          data-testid="accommodation-header-kpis"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+        >
+          <HeaderKpi
+            icon={<Users size={14} aria-hidden="true" />}
+            label={t('accommodation.summary.capacity', {
+              defaultValue: 'Capacity',
+            })}
+            value={data.capacity_total}
+          />
+          <HeaderKpi
+            icon={<CalendarClock size={14} aria-hidden="true" />}
+            label={t('accommodation.summary.active', {
+              defaultValue: 'Active stays',
+            })}
+            value={data.active_bookings_count}
+            accent={
+              data.active_bookings_count > 0 ? 'text-emerald-700' : undefined
+            }
+          />
+          <HeaderKpi
+            icon={<BedDouble size={14} aria-hidden="true" />}
+            label={t('accommodation.summary.rooms', { defaultValue: 'Rooms' })}
+            value={data.rooms.length}
+          />
+          <HeaderKpi
+            icon={<CircleCheck size={14} aria-hidden="true" />}
+            label={t('accommodation.summary.vacant', { defaultValue: 'Vacant' })}
+            value={roomCounts.available}
+            accent={
+              roomCounts.available === 0 && data.rooms.length > 0
+                ? 'text-amber-700'
+                : undefined
+            }
+          />
+        </div>
       </div>
 
-      <DetailTabs tab={tab} setTab={setTab} />
+      {/* Primary block tab strip — 3 logical blocks + Settings */}
+      <TabBar<DetailBlock>
+        tabs={[
+          {
+            id: 'inventory',
+            label: t('accommodation.block.inventory', {
+              defaultValue: 'Inventory',
+            }),
+            icon: <Layers size={16} aria-hidden="true" />,
+            badge: (
+              <span className="rounded-full bg-surface-secondary px-1.5 text-2xs tabular-nums text-content-tertiary">
+                {data.rooms.length}
+              </span>
+            ),
+          },
+          {
+            id: 'occupancy',
+            label: t('accommodation.block.occupancy', {
+              defaultValue: 'Occupancy',
+            }),
+            icon: <CalendarRange size={16} aria-hidden="true" />,
+            badge: (
+              <span className="rounded-full bg-surface-secondary px-1.5 text-2xs tabular-nums text-content-tertiary">
+                {data.active_bookings_count}
+              </span>
+            ),
+          },
+          {
+            id: 'billing',
+            label: t('accommodation.block.billing', {
+              defaultValue: 'Billing',
+            }),
+            icon: <Receipt size={16} aria-hidden="true" />,
+          },
+          {
+            id: 'settings',
+            label: t('accommodation.tabs.settings', {
+              defaultValue: 'Settings',
+            }),
+            icon: <SettingsIcon size={16} aria-hidden="true" />,
+          },
+        ]}
+        activeId={block}
+        onChange={setBlock}
+        ariaLabel={t('accommodation.tabs.aria', {
+          defaultValue: 'Accommodation sections',
+        })}
+        idPrefix="accommodation-detail"
+        testIdPrefix="accommodation-detail"
+      />
 
-      {tab === 'rooms' && <RoomsTab data={data} />}
-      {tab === 'bookings' && <BookingsTab data={data} />}
-      {tab === 'calendar' && (
+      {block === 'inventory' && (
         <div
           role="tabpanel"
-          data-testid="accommodation-tab-panel-calendar"
-          className="space-y-4"
+          id={blockIds.panelId('inventory')}
+          aria-labelledby={blockIds.tabId('inventory')}
         >
-          <AccommodationCalendar embedded scopedAccommodationId={data.id} />
+          <RoomsTab data={data} />
         </div>
       )}
-      {tab === 'charges' && <ChargesTab data={data} />}
-      {tab === 'settings' && (
-        <SettingsTab
-          data={data}
-          onDeleted={() => {
-            addToast({
-              type: 'success',
-              title: t('accommodation.toast.deleted', {
-                defaultValue: 'Accommodation deleted',
-              }),
-            });
-            queryClient.invalidateQueries({ queryKey: ['accommodation'] });
-            navigate('/accommodation');
-          }}
-        />
+      {block === 'occupancy' && (
+        <div
+          role="tabpanel"
+          id={blockIds.panelId('occupancy')}
+          aria-labelledby={blockIds.tabId('occupancy')}
+          className="space-y-3"
+        >
+          <OccupancySubTabs
+            value={occupancyTab}
+            onChange={setOccupancyTab}
+            bookingCount={data.active_bookings_count}
+          />
+          {occupancyTab === 'bookings' && <BookingsTab data={data} />}
+          {occupancyTab === 'calendar' && (
+            <div data-testid="accommodation-tab-panel-calendar">
+              <AccommodationCalendar
+                embedded
+                scopedAccommodationId={data.id}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {block === 'billing' && (
+        <div
+          role="tabpanel"
+          id={blockIds.panelId('billing')}
+          aria-labelledby={blockIds.tabId('billing')}
+        >
+          <ChargesTab data={data} />
+        </div>
+      )}
+      {block === 'settings' && (
+        <div
+          role="tabpanel"
+          id={blockIds.panelId('settings')}
+          aria-labelledby={blockIds.tabId('settings')}
+        >
+          <SettingsTab
+            data={data}
+            onDeleted={() => {
+              addToast({
+                type: 'success',
+                title: t('accommodation.toast.deleted', {
+                  defaultValue: 'Accommodation deleted',
+                }),
+              });
+              queryClient.invalidateQueries({ queryKey: ['accommodation'] });
+              navigate('/accommodation');
+            }}
+          />
+        </div>
       )}
     </div>
   );
 }
 
-/* ── Tabs strip ──────────────────────────────────────────────────────── */
+/* ── Header KPI tile ─────────────────────────────────────────────────── */
 
-function DetailTabs({
-  tab,
-  setTab,
+interface HeaderKpiProps {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  accent?: string;
+}
+
+function HeaderKpi({ icon, label, value, accent }: HeaderKpiProps) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-border-light bg-surface-primary px-3 py-2">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-secondary text-content-secondary">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-wide text-content-tertiary leading-tight">
+          {label}
+        </div>
+        <div
+          className={clsx(
+            'text-base font-semibold tabular-nums leading-tight',
+            accent ?? 'text-content-primary',
+          )}
+        >
+          {value}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Occupancy sub-tabs ──────────────────────────────────────────────── */
+
+function OccupancySubTabs({
+  value,
+  onChange,
+  bookingCount,
 }: {
-  tab: DetailTab;
-  setTab: (t: DetailTab) => void;
+  value: OccupancyTab;
+  onChange: (next: OccupancyTab) => void;
+  bookingCount: number;
 }) {
   const { t } = useTranslation();
-  const onTabKeyDown = useTabKeyboardNav<DetailTab>({
-    ids: DETAIL_TAB_IDS,
-    activeId: tab,
-    onChange: setTab,
+  const onKey = useTabKeyboardNav<OccupancyTab>({
+    ids: OCCUPANCY_TAB_IDS,
+    activeId: value,
+    onChange,
     orientation: 'horizontal',
   });
-  const items: { id: DetailTab; label: string; icon: typeof BedDouble }[] = [
-    {
-      id: 'rooms',
-      label: t('accommodation.tabs.rooms', { defaultValue: 'Rooms' }),
-      icon: BedDouble,
-    },
-    {
-      id: 'bookings',
-      label: t('accommodation.tabs.bookings', { defaultValue: 'Bookings' }),
-      icon: CalendarClock,
-    },
-    {
-      id: 'calendar',
-      label: t('accommodation.tabs.calendar', { defaultValue: 'Calendar' }),
-      icon: CalendarRange,
-    },
-    {
-      id: 'charges',
-      label: t('accommodation.tabs.charges', { defaultValue: 'Charges' }),
-      icon: Receipt,
-    },
-    {
-      id: 'settings',
-      label: t('accommodation.tabs.settings', { defaultValue: 'Settings' }),
-      icon: SettingsIcon,
-    },
-  ];
   return (
     <div
       role="tablist"
-      aria-label={t('accommodation.tabs.aria', {
-        defaultValue: 'Accommodation sections',
+      aria-label={t('accommodation.occupancy.sub_aria', {
+        defaultValue: 'Occupancy views',
       })}
-      onKeyDown={onTabKeyDown}
-      data-testid="accommodation-detail-tabs"
-      // Horizontal scroll on small viewports so all tabs remain reachable
-      // with a touch-swipe (mobile a11y requirement).
-      className="flex gap-1 overflow-x-auto border-b border-border-light scrollbar-thin"
+      onKeyDown={onKey}
+      data-testid="accommodation-occupancy-subtabs"
+      className="inline-flex rounded-lg border border-border-light bg-surface-secondary p-0.5"
     >
-      {items.map((it) => {
-        const isActive = tab === it.id;
-        const Icon = it.icon;
-        return (
-          <button
-            key={it.id}
-            role="tab"
-            id={`accommodation-detail-tab-${it.id}`}
-            aria-selected={isActive}
-            aria-controls={`accommodation-tab-panel-${it.id}`}
-            tabIndex={isActive ? 0 : -1}
-            type="button"
-            onClick={() => setTab(it.id)}
-            data-testid={`accommodation-detail-tab-${it.id}`}
-            className={clsx(
-              'inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors -mb-px',
-              isActive
-                ? 'border-oe-blue text-content-primary'
-                : 'border-transparent text-content-tertiary hover:text-content-primary',
-            )}
-          >
-            <Icon size={14} />
-            {it.label}
-          </button>
-        );
-      })}
+      <button
+        type="button"
+        role="tab"
+        id="accommodation-occupancy-sub-bookings"
+        aria-selected={value === 'bookings'}
+        tabIndex={value === 'bookings' ? 0 : -1}
+        onClick={() => onChange('bookings')}
+        data-testid="accommodation-occupancy-sub-bookings"
+        className={clsx(
+          'inline-flex min-h-[36px] items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+          value === 'bookings'
+            ? 'bg-surface-elevated text-content-primary shadow-sm'
+            : 'text-content-secondary hover:text-content-primary',
+        )}
+      >
+        <CalendarClock size={14} aria-hidden="true" />
+        {t('accommodation.tabs.bookings', { defaultValue: 'Bookings' })}
+        <span className="rounded-full bg-surface-secondary px-1.5 text-2xs tabular-nums text-content-tertiary">
+          {bookingCount}
+        </span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="accommodation-occupancy-sub-calendar"
+        aria-selected={value === 'calendar'}
+        tabIndex={value === 'calendar' ? 0 : -1}
+        onClick={() => onChange('calendar')}
+        data-testid="accommodation-occupancy-sub-calendar"
+        className={clsx(
+          'inline-flex min-h-[36px] items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+          value === 'calendar'
+            ? 'bg-surface-elevated text-content-primary shadow-sm'
+            : 'text-content-secondary hover:text-content-primary',
+        )}
+      >
+        <CalendarRange size={14} aria-hidden="true" />
+        {t('accommodation.tabs.calendar', { defaultValue: 'Calendar' })}
+      </button>
     </div>
   );
 }
@@ -372,7 +535,6 @@ function RoomsTab({ data }: { data: AccommodationDetail }) {
   return (
     <div
       data-testid="accommodation-tab-panel-rooms"
-      role="tabpanel"
       className="space-y-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -396,18 +558,28 @@ function RoomsTab({ data }: { data: AccommodationDetail }) {
           onClick={() => setBulkOpen(true)}
           data-testid="accommodation-rooms-bulk-add"
         >
-          <Plus size={14} className="mr-1.5" />
+          <Plus size={14} className="mr-1.5" aria-hidden="true" />
           {t('accommodation.rooms.bulk_add', { defaultValue: 'Add rooms' })}
         </Button>
       </div>
 
       {data.rooms.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary">
-          {t('accommodation.rooms.empty', {
-            defaultValue:
-              'No rooms yet. Use "Add rooms" to bulk-create labels like B-201..B-212.',
+        <EmptyState
+          icon={<BedDouble size={22} aria-hidden="true" />}
+          title={t('accommodation.rooms.empty_title', {
+            defaultValue: 'No rooms yet',
           })}
-        </div>
+          description={t('accommodation.rooms.empty_description', {
+            defaultValue:
+              'Add rooms in bulk with a label generator (e.g. B-201..B-212) or paste your own list. Each room can be booked, status-tracked and billed.',
+          })}
+          action={{
+            label: t('accommodation.rooms.bulk_add', {
+              defaultValue: 'Add rooms',
+            }),
+            onClick: () => setBulkOpen(true),
+          }}
+        />
       ) : (
         <div
           data-testid="accommodation-rooms-grid"
@@ -419,8 +591,15 @@ function RoomsTab({ data }: { data: AccommodationDetail }) {
               type="button"
               onClick={() => setAssignRoom(r)}
               data-testid={`accommodation-room-${r.label}`}
+              aria-label={t('accommodation.room.tile_aria', {
+                defaultValue: 'Room {{label}} — {{status}}',
+                label: r.label,
+                status: t(`accommodation.room.status.${r.status}`, {
+                  defaultValue: r.status,
+                }),
+              })}
               className={clsx(
-                'flex flex-col items-start rounded-lg border p-2.5 text-left text-xs transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
+                'flex min-h-[68px] flex-col items-start rounded-lg border p-2.5 text-left text-xs transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
                 ROOM_STATUS_STYLES[r.status],
               )}
             >
@@ -550,7 +729,7 @@ function AssignOccupantModal({
     >
       {disabled && (
         <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-          <AlertTriangle className="mr-1.5 inline h-3.5 w-3.5" />
+          <AlertTriangle className="mr-1.5 inline h-3.5 w-3.5" aria-hidden="true" />
           {t('accommodation.assign.disabled', {
             defaultValue:
               'Room is {{status}} — change its status before booking.',
@@ -600,6 +779,7 @@ function AssignOccupantModal({
             value={checkIn}
             onChange={(e) => setCheckIn(e.target.value)}
             className={inputCls}
+            data-testid="accommodation-assign-check-in"
           />
         </WideModalField>
         <WideModalField
@@ -652,15 +832,19 @@ function BookingsTab({ data }: { data: AccommodationDetail }) {
   if (data.rooms.length === 0) {
     return (
       <div
-        role="tabpanel"
         data-testid="accommodation-tab-panel-bookings"
         className="space-y-4"
       >
-        <div className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary">
-          {t('accommodation.bookings.no_rooms', {
-            defaultValue: 'Create rooms first, then book occupants.',
+        <EmptyState
+          icon={<CalendarClock size={22} aria-hidden="true" />}
+          title={t('accommodation.bookings.no_rooms_title', {
+            defaultValue: 'No rooms to book yet',
           })}
-        </div>
+          description={t('accommodation.bookings.no_rooms_desc', {
+            defaultValue:
+              'Bookings live on rooms. Add some rooms first — Inventory tab → Add rooms — then come back here.',
+          })}
+        />
       </div>
     );
   }
@@ -669,7 +853,6 @@ function BookingsTab({ data }: { data: AccommodationDetail }) {
 
   return (
     <div
-      role="tabpanel"
       data-testid="accommodation-tab-panel-bookings"
       className="space-y-4"
     >
@@ -702,7 +885,7 @@ function BookingsTab({ data }: { data: AccommodationDetail }) {
                 onClick={() => setFilter(pill)}
                 data-testid={`bookings-filter-${pill}`}
                 className={clsx(
-                  'rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
+                  'min-h-[32px] rounded-full border px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
                   active
                     ? 'border-oe-blue bg-oe-blue/10 text-oe-blue'
                     : 'border-border bg-surface-secondary/40 text-content-secondary hover:text-content-primary',
@@ -720,7 +903,7 @@ function BookingsTab({ data }: { data: AccommodationDetail }) {
           disabled={data.rooms.length === 0}
           data-testid="bookings-new-button"
         >
-          <Plus size={14} className="mr-1.5" />
+          <Plus size={14} className="mr-1.5" aria-hidden="true" />
           {t('accommodation.booking.actions.new', {
             defaultValue: 'New booking',
           })}
@@ -732,28 +915,51 @@ function BookingsTab({ data }: { data: AccommodationDetail }) {
       )}
 
       {bookingsQuery.isError && (
-        <div className="rounded-xl border border-semantic-error/30 bg-semantic-error/10 p-4 text-sm text-semantic-error">
-          <AlertTriangle className="mr-2 inline h-4 w-4" />
-          {getErrorMessage(bookingsQuery.error) ||
-            t('accommodation.bookings.load_failed', {
-              defaultValue: 'Could not load bookings.',
-            })}
-        </div>
+        <RecoveryCard
+          error={bookingsQuery.error}
+          onRetry={() => bookingsQuery.refetch()}
+        />
       )}
 
       {!bookingsQuery.isLoading && !bookingsQuery.isError && items.length === 0 && (
-        <div
-          data-testid="bookings-empty"
-          className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary"
-        >
-          {filter === 'all'
-            ? t('accommodation.bookings.empty_all', {
-                defaultValue: 'No bookings yet. Use "New booking" to create one.',
-              })
-            : t('accommodation.bookings.empty_filtered', {
-                defaultValue: 'No bookings match this filter.',
-              })}
-        </div>
+        <EmptyState
+          icon={<CalendarClock size={22} aria-hidden="true" />}
+          title={
+            filter === 'all'
+              ? t('accommodation.bookings.empty_all_title', {
+                  defaultValue: 'No bookings yet',
+                })
+              : t('accommodation.bookings.empty_filtered_title', {
+                  defaultValue: 'Nothing matches this filter',
+                })
+          }
+          description={
+            filter === 'all'
+              ? t('accommodation.bookings.empty_all_desc', {
+                  defaultValue:
+                    'Bookings stretch from reservation to check-out. Open a room from the Inventory tab to assign an occupant, or hit "New booking" to get started.',
+                })
+              : t('accommodation.bookings.empty_filtered_desc', {
+                  defaultValue:
+                    'Try a different status filter, or clear it to see every booking.',
+                })
+          }
+          action={
+            filter === 'all'
+              ? {
+                  label: t('accommodation.booking.actions.new', {
+                    defaultValue: 'New booking',
+                  }),
+                  onClick: () => setPickerRoom(data.rooms[0] ?? null),
+                }
+              : {
+                  label: t('common.clear_filters', {
+                    defaultValue: 'Clear filters',
+                  }),
+                  onClick: () => setFilter('all'),
+                }
+          }
+        />
       )}
 
       {items.length > 0 && (
@@ -948,7 +1154,7 @@ function BookingsList({
       {/* Mobile <640px — cards */}
       <div className="sm:hidden space-y-2" data-testid="bookings-cards-wrapper">
         {items.map((b) => (
-          <Card key={b.id} data-testid={`booking-card-${b.id}`}>
+          <Card key={b.id} padding="none" data-testid={`booking-card-${b.id}`}>
             <div className="p-3 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -974,7 +1180,7 @@ function BookingsList({
                       })}
                   </div>
                   <div className="mt-0.5 text-xs text-content-tertiary tabular-nums">
-                    {b.check_in} → {b.check_out ?? '∞'}
+                    {b.check_in} {'→'} {b.check_out ?? '∞'}
                   </div>
                 </div>
                 <BookingActionMenu booking={b} onAction={handleAction} />
@@ -1081,13 +1287,13 @@ function BookingActionMenu({
         disabled={disabled}
         data-testid={`booking-actions-${booking.id}`}
         className={clsx(
-          'inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent transition focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
+          'inline-flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded-md border border-transparent transition focus:outline-none focus-visible:ring-2 focus-visible:ring-oe-blue',
           disabled
             ? 'cursor-not-allowed text-content-tertiary opacity-40'
             : 'text-content-secondary hover:bg-surface-secondary hover:text-content-primary',
         )}
       >
-        <MoreHorizontal size={16} />
+        <MoreHorizontal size={16} aria-hidden="true" />
       </button>
       {open && actions.length > 0 && (
         <div
@@ -1130,88 +1336,351 @@ function BookingActionMenu({
 
 /* ── Charges tab ─────────────────────────────────────────────────────── */
 
+/**
+ * Operator-friendly charges view:
+ *   1. List active bookings as a left-rail picker (instead of asking the
+ *      user to paste a booking UUID — that was unusable).
+ *   2. When a booking is selected, fetch its detail and render the
+ *      charge list inline with an "Add charge" CTA.
+ *   3. Empty state when there are no bookings (no charges possible).
+ */
 function ChargesTab({ data }: { data: AccommodationDetail }) {
   const { t } = useTranslation();
-  // The backend exposes charges only under `bookings/{id}/charges`. Since
-  // the detail endpoint doesn't return a list of bookings, we surface a
-  // helpful empty-state + CTA toward the bookings tab.
-  return (
-    <div role="tabpanel" data-testid="accommodation-tab-panel-charges">
-      {data.active_bookings_count === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-surface-secondary/40 p-8 text-center text-sm text-content-tertiary">
-          {t('accommodation.charges.no_bookings', {
-            defaultValue: 'Create a booking first; charges are added per booking.',
+
+  // We need at least one room+booking pair to add a charge. Pull a wide
+  // booking list so even checked-out stays can have catch-up charges.
+  const bookingsQuery = useQuery({
+    queryKey: ['accommodation', 'bookings', data.id, 'all-for-charges'],
+    queryFn: () => listAccommodationBookings(data.id, { limit: 200 }),
+    enabled: data.rooms.length > 0,
+  });
+  const bookings = bookingsQuery.data?.items ?? [];
+
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(
+    null,
+  );
+
+  // Auto-select first booking on first non-empty load so the panel
+  // shows something useful immediately.
+  useEffect(() => {
+    if (!selectedBookingId && bookings.length > 0) {
+      setSelectedBookingId(bookings[0]!.id);
+    }
+  }, [bookings, selectedBookingId]);
+
+  if (data.rooms.length === 0) {
+    return (
+      <div data-testid="accommodation-tab-panel-charges">
+        <EmptyState
+          icon={<Receipt size={22} aria-hidden="true" />}
+          title={t('accommodation.charges.no_rooms_title', {
+            defaultValue: 'No charges without rooms',
           })}
+          description={t('accommodation.charges.no_rooms_desc', {
+            defaultValue:
+              'Charges belong to bookings, and bookings belong to rooms. Add rooms first to start billing.',
+          })}
+        />
+      </div>
+    );
+  }
+
+  if (bookingsQuery.isLoading) {
+    return (
+      <div data-testid="accommodation-tab-panel-charges">
+        <SkeletonTable rows={3} columns={3} />
+      </div>
+    );
+  }
+
+  if (bookingsQuery.isError) {
+    return (
+      <div data-testid="accommodation-tab-panel-charges">
+        <RecoveryCard
+          error={bookingsQuery.error}
+          onRetry={() => bookingsQuery.refetch()}
+        />
+      </div>
+    );
+  }
+
+  if (bookings.length === 0) {
+    return (
+      <div data-testid="accommodation-tab-panel-charges">
+        <EmptyState
+          icon={<Receipt size={22} aria-hidden="true" />}
+          title={t('accommodation.charges.no_bookings_title', {
+            defaultValue: 'No bookings to charge yet',
+          })}
+          description={t('accommodation.charges.no_bookings_desc', {
+            defaultValue:
+              'Create a booking from the Occupancy tab — charges (base rent, extras, deposits, refunds) appear here once a stay exists.',
+          })}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="accommodation-tab-panel-charges"
+      className="grid grid-cols-1 md:grid-cols-[260px_minmax(0,1fr)] gap-4"
+    >
+      {/* Booking picker rail */}
+      <Card padding="none">
+        <div className="p-3 border-b border-border-light">
+          <div className="text-xs font-semibold uppercase tracking-wide text-content-tertiary">
+            {t('accommodation.charges.picker_title', {
+              defaultValue: 'Pick a booking',
+            })}
+          </div>
+          <p className="mt-0.5 text-2xs text-content-tertiary">
+            {t('accommodation.charges.picker_hint', {
+              defaultValue: 'Charges are scoped to one booking at a time.',
+            })}
+          </p>
         </div>
+        <ul
+          role="listbox"
+          aria-label={t('accommodation.charges.picker_aria', {
+            defaultValue: 'Bookings',
+          })}
+          className="max-h-[420px] overflow-y-auto"
+          data-testid="charges-booking-picker"
+        >
+          {bookings.map((b) => {
+            const active = selectedBookingId === b.id;
+            return (
+              <li key={b.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => setSelectedBookingId(b.id)}
+                  data-testid={`charges-pick-booking-${b.id}`}
+                  className={clsx(
+                    'w-full px-3 py-2.5 text-left text-xs transition border-l-2 min-h-[56px]',
+                    active
+                      ? 'border-oe-blue bg-oe-blue/5'
+                      : 'border-transparent hover:bg-surface-secondary/40',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-2xs font-semibold">
+                      {b.room_label ?? '—'}
+                    </span>
+                    <span
+                      className={clsx(
+                        'inline-flex items-center rounded-md border px-1.5 py-0 text-[10px] font-semibold',
+                        BOOKING_STATUS_BADGE[b.status],
+                      )}
+                    >
+                      {t(`accommodation.booking.status.${b.status}`, {
+                        defaultValue: b.status,
+                      })}
+                    </span>
+                  </div>
+                  <div className="mt-1 truncate text-sm font-medium text-content-primary">
+                    {b.occupant_name ||
+                      t('accommodation.bookings.unnamed_occupant', {
+                        defaultValue: '(unnamed)',
+                      })}
+                  </div>
+                  <div className="text-2xs text-content-tertiary tabular-nums">
+                    {b.check_in} {'→'} {b.check_out ?? '∞'}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </Card>
+
+      {/* Selected booking — charges list + add */}
+      {selectedBookingId ? (
+        <BookingChargesPanel
+          accommodationId={data.id}
+          bookingId={selectedBookingId}
+        />
       ) : (
-        <BookingChargeFinder data={data} />
+        <Card>
+          <EmptyState
+            icon={<Receipt size={22} aria-hidden="true" />}
+            title={t('accommodation.charges.pick_one_title', {
+              defaultValue: 'Pick a booking to see its charges',
+            })}
+            description={t('accommodation.charges.pick_one_desc', {
+              defaultValue:
+                'Select any booking on the left to view billed items, add an extra charge, or chase pending invoices.',
+            })}
+          />
+        </Card>
       )}
     </div>
   );
 }
 
-/** Find-booking-by-id input + per-booking charge view + add-charge modal. */
-function BookingChargeFinder({ data: _data }: { data: AccommodationDetail }) {
+function BookingChargesPanel({
+  accommodationId,
+  bookingId,
+}: {
+  accommodationId: string;
+  bookingId: string;
+}) {
   const { t } = useTranslation();
-  const [bookingId, setBookingId] = useState('');
-  const [editor, setEditor] = useState<{ bookingId: string } | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const queryClient = useQueryClient();
   const addToast = useToastStore((s) => s.addToast);
 
-  // Hint copy that mirrors the backend contract: charges are scoped to
-  // bookings, not rooms / accommodations. The MVP doesn't list every
-  // charge in the accommodation; it lets you target a booking and add
-  // one. The booking page (future) will be the canonical view.
+  const bookingDetail = useQuery({
+    queryKey: ['accommodation', 'booking-detail', bookingId],
+    queryFn: () => getBooking(bookingId),
+  });
+
+  if (bookingDetail.isLoading) {
+    return <SkeletonTable rows={3} columns={3} />;
+  }
+  if (bookingDetail.isError || !bookingDetail.data) {
+    return (
+      <RecoveryCard
+        error={bookingDetail.error}
+        onRetry={() => bookingDetail.refetch()}
+      />
+    );
+  }
+
+  const data = bookingDetail.data;
+  const charges = data.charges;
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border-light bg-surface-elevated p-4 text-sm">
-        <p className="text-content-secondary">
-          {t('accommodation.charges.intro', {
-            defaultValue:
-              'Charges live under bookings. Paste a booking id below to add an extra charge.',
-          })}
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input
-            type="text"
-            placeholder={t('accommodation.charges.booking_id_placeholder', {
-              defaultValue: 'Booking UUID…',
-            })}
-            value={bookingId}
-            onChange={(e) => setBookingId(e.target.value.trim())}
-            className="h-9 flex-1 min-w-[18rem] rounded-lg border border-border bg-surface-primary px-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-oe-blue/30 focus:border-oe-blue"
-            data-testid="charges-booking-id-input"
-          />
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!bookingId}
-            onClick={() => setEditor({ bookingId })}
-            data-testid="charges-add-button"
-          >
-            <Plus size={12} className="mr-1" />
-            {t('accommodation.charges.add', { defaultValue: 'Add charge' })}
-          </Button>
+    <Card padding="none" data-testid="charges-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-light p-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-content-primary truncate">
+            {data.occupant_name ||
+              t('accommodation.bookings.unnamed_occupant', {
+                defaultValue: '(unnamed)',
+              })}
+          </div>
+          <div className="text-2xs text-content-tertiary tabular-nums">
+            {data.check_in} {'→'} {data.check_out ?? '∞'}
+          </div>
         </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setEditorOpen(true)}
+          data-testid="charges-add-button"
+        >
+          <Plus size={12} className="mr-1" aria-hidden="true" />
+          {t('accommodation.charges.add', { defaultValue: 'Add charge' })}
+        </Button>
       </div>
 
-      {editor && (
+      {charges.length === 0 ? (
+        <div className="p-2">
+          <EmptyState
+            icon={<Receipt size={20} aria-hidden="true" />}
+            title={t('accommodation.charges.empty_title', {
+              defaultValue: 'No charges on this booking yet',
+            })}
+            description={t('accommodation.charges.empty_desc', {
+              defaultValue:
+                'Add base rent for the stay or one-off extras (cleaning, damage, deposit). Amounts stay exact through to billing.',
+            })}
+            action={{
+              label: t('accommodation.charges.add', {
+                defaultValue: 'Add charge',
+              }),
+              onClick: () => setEditorOpen(true),
+            }}
+          />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm" data-testid="charges-table">
+            <thead className="bg-surface-secondary/60 text-left text-xs uppercase tracking-wide text-content-tertiary">
+              <tr>
+                <th className="px-3 py-2 font-medium">
+                  {t('accommodation.charges.kind', { defaultValue: 'Kind' })}
+                </th>
+                <th className="px-3 py-2 font-medium">
+                  {t('accommodation.charges.description', {
+                    defaultValue: 'Description',
+                  })}
+                </th>
+                <th className="px-3 py-2 font-medium text-right">
+                  {t('accommodation.charges.amount', {
+                    defaultValue: 'Amount',
+                  })}
+                </th>
+                <th className="px-3 py-2 font-medium">
+                  {t('accommodation.charges.status_col', {
+                    defaultValue: 'Status',
+                  })}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-light">
+              {charges.map((c) => (
+                <tr
+                  key={c.id}
+                  data-testid={`charge-row-${c.id}`}
+                  className="hover:bg-surface-secondary/30"
+                >
+                  <td className="px-3 py-2 text-xs">
+                    {t(`accommodation.charge.kind.${c.kind}`, {
+                      defaultValue: c.kind,
+                    })}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-content-secondary">
+                    {c.description || '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-mono text-xs">
+                    {c.amount}{' '}
+                    <span className="text-content-tertiary">{c.currency}</span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={clsx(
+                        'inline-flex items-center rounded-md border px-1.5 py-0.5 text-2xs font-semibold',
+                        CHARGE_STATUS_BADGE[c.status],
+                      )}
+                    >
+                      {t(`accommodation.charge.status.${c.status}`, {
+                        defaultValue: c.status,
+                      })}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editorOpen && (
         <AddChargeModal
-          bookingId={editor.bookingId}
-          onClose={() => setEditor(null)}
+          bookingId={bookingId}
+          onClose={() => setEditorOpen(false)}
           onCreated={() => {
-            queryClient.invalidateQueries({ queryKey: ['accommodation'] });
+            queryClient.invalidateQueries({
+              queryKey: ['accommodation', 'booking-detail', bookingId],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ['accommodation', 'bookings', accommodationId],
+            });
             addToast({
               type: 'success',
               title: t('accommodation.charges.created_toast', {
                 defaultValue: 'Charge created',
               }),
             });
-            setEditor(null);
+            setEditorOpen(false);
           }}
         />
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -1501,15 +1970,22 @@ function SettingsTab({
 
   return (
     <div
-      role="tabpanel"
       data-testid="accommodation-tab-panel-settings"
       className="space-y-4"
     >
       <Card>
-        <div className="p-4 space-y-4">
-          <h2 className="text-sm font-semibold text-content-primary">
-            {t('accommodation.settings.general', { defaultValue: 'General' })}
-          </h2>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-content-primary">
+              {t('accommodation.settings.general', { defaultValue: 'General' })}
+            </h2>
+            <p className="mt-0.5 text-xs text-content-tertiary">
+              {t('accommodation.settings.general_hint', {
+                defaultValue:
+                  'Core metadata — name, address and links to the BIM model / Geo Hub coordinates that power the right-rail shortcuts.',
+              })}
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-xs font-medium text-content-primary">
               {t('accommodation.field.name', { defaultValue: 'Name' })}
@@ -1539,7 +2015,7 @@ function SettingsTab({
                 value={geoLat}
                 onChange={(e) => setGeoLat(e.target.value)}
                 className={`${inputCls} mt-1`}
-                placeholder="-90 → 90"
+                placeholder="-90 to 90"
               />
             </label>
             <label className="text-xs font-medium text-content-primary">
@@ -1552,7 +2028,7 @@ function SettingsTab({
                 value={geoLon}
                 onChange={(e) => setGeoLon(e.target.value)}
                 className={`${inputCls} mt-1`}
-                placeholder="-180 → 180"
+                placeholder="-180 to 180"
               />
             </label>
             <label className="text-xs font-medium text-content-primary sm:col-span-2">
@@ -1576,7 +2052,7 @@ function SettingsTab({
               />
             </label>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end border-t border-border-light pt-3">
             <Button
               variant="primary"
               size="sm"
@@ -1591,18 +2067,20 @@ function SettingsTab({
       </Card>
 
       <Card>
-        <div className="p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-content-primary">
-            {t('accommodation.bootstrap.from_propdev', {
-              defaultValue: 'Bootstrap from PropDev block',
-            })}
-          </h2>
-          <p className="text-xs text-content-tertiary">
-            {t('accommodation.bootstrap.idempotent_note', {
-              defaultValue:
-                "Idempotent: re-running won't duplicate rooms. Each PropDev plot becomes a Room labelled with its plot number.",
-            })}
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-content-primary">
+              {t('accommodation.bootstrap.from_propdev', {
+                defaultValue: 'Bootstrap from PropDev block',
+              })}
+            </h2>
+            <p className="mt-0.5 text-xs text-content-tertiary">
+              {t('accommodation.bootstrap.idempotent_note', {
+                defaultValue:
+                  "Idempotent: re-running won't duplicate rooms. Each PropDev plot becomes a Room labelled with its plot number.",
+              })}
+            </p>
+          </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs font-medium text-content-primary flex-1 min-w-[20rem]">
               {t('accommodation.bootstrap.block_id', {
@@ -1631,18 +2109,20 @@ function SettingsTab({
       </Card>
 
       <Card className="border-semantic-error/30">
-        <div className="p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-semantic-error">
-            {t('accommodation.settings.danger_zone', {
-              defaultValue: 'Danger zone',
-            })}
-          </h2>
-          <p className="text-xs text-content-tertiary">
-            {t('accommodation.delete.warning', {
-              defaultValue:
-                'Soft-delete removes this accommodation from active views. Audit history is preserved.',
-            })}
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-semantic-error">
+              {t('accommodation.settings.danger_zone', {
+                defaultValue: 'Danger zone',
+              })}
+            </h2>
+            <p className="mt-0.5 text-xs text-content-tertiary">
+              {t('accommodation.delete.warning', {
+                defaultValue:
+                  'Soft-delete removes this accommodation from active views. Audit history is preserved.',
+              })}
+            </p>
+          </div>
           <div>
             <Button
               variant="danger"
@@ -1650,7 +2130,7 @@ function SettingsTab({
               onClick={() => setConfirmDeleteOpen(true)}
               data-testid="accommodation-delete-button"
             >
-              <Trash2 size={13} className="mr-1.5" />
+              <Trash2 size={13} className="mr-1.5" aria-hidden="true" />
               {t('accommodation.delete.cta', {
                 defaultValue: 'Delete accommodation',
               })}
