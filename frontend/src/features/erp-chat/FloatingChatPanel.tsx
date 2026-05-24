@@ -32,6 +32,8 @@ import {
   KeyRound,
   AlertTriangle,
   RotateCw,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
@@ -76,6 +78,51 @@ const HARD_LIMIT = 4000;
 
 function uid(): string {
   return crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ── Role helpers ───────────────────────────────────────────────────────────
+// Mirrors the backend ``Role`` hierarchy: admin > manager > editor > viewer.
+// Project-team aliases (``owner`` / ``project_manager``) and the legacy
+// ``superuser`` alias also count as manager+. We deliberately err on the
+// side of "show the action and let the backend reject it" — the chip
+// guard is UX-only; the source of truth lives in
+// ``backend/app/modules/erp_chat/tools.py`` ``check_tool_permission``.
+const MANAGER_OR_ABOVE_ROLES = new Set([
+  'admin',
+  'manager',
+  'superuser',
+  'owner',
+  'project_manager',
+]);
+
+function isManagerOrAbove(role: string | null | undefined): boolean {
+  if (!role) return false;
+  return MANAGER_OR_ABOVE_ROLES.has(role.toLowerCase().trim());
+}
+
+// Heuristic — does this suggestion chip's text imply a write action?
+// Used to lock chips like "Create a draft RFI from the latest clash" for
+// non-manager users. Conservative: matches only verbs at the start of the
+// sentence to avoid false positives on read-only chips that mention
+// "create" in passing (e.g. "Show me what tools can create…").
+const WRITE_VERB_PREFIXES = [
+  'create ',
+  'draft ',
+  'add ',
+  'insert ',
+  'update ',
+  'edit ',
+  'delete ',
+  'remove ',
+  'mark ',
+  'approve ',
+  'reject ',
+];
+
+function chipIsWriteAction(text: string): boolean {
+  if (!text) return false;
+  const lc = text.trim().toLowerCase();
+  return WRITE_VERB_PREFIXES.some((v) => lc.startsWith(v));
 }
 
 // ── Suggestion prompts ─────────────────────────────────────────────────────
@@ -319,17 +366,32 @@ function SuggestionChip({
   text,
   onPick,
   testIdSuffix,
+  locked = false,
 }: {
   text: string;
   onPick: (text: string) => void;
   testIdSuffix: string;
+  /** Write action that the current user cannot perform. We still render the
+   *  chip so users discover the feature, but lock the click and surface the
+   *  manager-required tooltip. */
+  locked?: boolean;
 }) {
+  const { t } = useTranslation();
+  const lockedTooltip = t('chat.error.manager_required', {
+    defaultValue: 'Requires manager permission',
+  });
   return (
     <button
       key={text}
       type="button"
-      onClick={() => onPick(text)}
+      onClick={() => {
+        if (locked) return;
+        onPick(text);
+      }}
+      aria-disabled={locked || undefined}
+      title={locked ? lockedTooltip : undefined}
       data-testid={`floating-chat-suggestion-${testIdSuffix}`}
+      data-locked={locked || undefined}
       style={{
         textAlign: 'left',
         padding: '8px 12px',
@@ -338,19 +400,33 @@ function SuggestionChip({
         background: 'var(--chat-surface-2)',
         border: '1px solid var(--chat-border-subtle)',
         borderRadius: 8,
-        color: 'var(--chat-text-primary)',
-        cursor: 'pointer',
+        color: locked ? 'var(--chat-text-tertiary)' : 'var(--chat-text-primary)',
+        cursor: locked ? 'not-allowed' : 'pointer',
+        opacity: locked ? 0.75 : 1,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
         transition: 'border-color 0.15s, background 0.15s',
       }}
       onMouseEnter={(e) => {
+        if (locked) return;
         (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--chat-accent)';
       }}
       onMouseLeave={(e) => {
+        if (locked) return;
         (e.currentTarget as HTMLButtonElement).style.borderColor =
           'var(--chat-border-subtle)';
       }}
     >
-      {text}
+      {locked && (
+        <Lock
+          size={11}
+          strokeWidth={1.85}
+          aria-hidden
+          style={{ color: 'var(--chat-text-tertiary)', flexShrink: 0 }}
+        />
+      )}
+      <span style={{ flex: 1, minWidth: 0 }}>{text}</span>
     </button>
   );
 }
@@ -358,9 +434,14 @@ function SuggestionChip({
 function EmptyState({
   onPick,
   pathname,
+  canWrite,
 }: {
   onPick: (text: string) => void;
   pathname: string;
+  /** Caller's role permits write tools. When false, chips that look like
+   *  write actions render with a lock icon + tooltip instead of being
+   *  clickable. */
+  canWrite: boolean;
 }) {
   const { t } = useTranslation();
   const suggestions = useDefaultSuggestions();
@@ -410,6 +491,7 @@ function EmptyState({
                 text={s}
                 onPick={onPick}
                 testIdSuffix={`ctx-${i}`}
+                locked={!canWrite && chipIsWriteAction(s)}
               />
             ))}
           </div>
@@ -443,6 +525,7 @@ function EmptyState({
             text={s}
             onPick={onPick}
             testIdSuffix={`generic-${i}`}
+            locked={!canWrite && chipIsWriteAction(s)}
           />
         ))}
       </div>
@@ -578,16 +661,30 @@ function NoAIBanner({
 // ── Friendly error card (replaces inline error plain-text) ─────────────────
 function ErrorCard({
   message,
+  i18nKey,
   onConfigure,
   onRetry,
 }: {
   message: string;
+  /** When set, render the localized message for this key (non-retryable —
+   *  used for permission-denied errors that would just fail on retry). */
+  i18nKey?: string;
   onConfigure: () => void;
   onRetry: () => void;
 }) {
   const { t } = useTranslation();
   const apiKey = isApiKeyError(message);
-  const humanized = apiKey
+  // ``managerRequired`` is mutually exclusive with ``apiKey`` — it skips
+  // both the Configure CTA AND the Retry CTA in favour of a static
+  // explanatory variant.
+  const managerRequired = i18nKey === 'chat.error.manager_required';
+  const humanized = managerRequired
+    ? t('chat.error.manager_required', {
+        defaultValue:
+          'This action requires manager-or-higher permission on this project. '
+          + 'Ask a project manager or admin to perform it for you.',
+      })
+    : apiKey
     ? t('chat.panel.error_card.api_key', {
         defaultValue:
           'AI provider needs a key — configure it in Settings to keep chatting.',
@@ -610,12 +707,21 @@ function ErrorCard({
       }}
     >
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <AlertTriangle
-          size={16}
-          strokeWidth={1.85}
-          style={{ color: 'var(--chat-tool-error, #ef4444)', flexShrink: 0, marginTop: 1 }}
-          aria-hidden
-        />
+        {managerRequired ? (
+          <ShieldAlert
+            size={16}
+            strokeWidth={1.85}
+            style={{ color: 'var(--chat-tool-error, #ef4444)', flexShrink: 0, marginTop: 1 }}
+            aria-hidden
+          />
+        ) : (
+          <AlertTriangle
+            size={16}
+            strokeWidth={1.85}
+            style={{ color: 'var(--chat-tool-error, #ef4444)', flexShrink: 0, marginTop: 1 }}
+            aria-hidden
+          />
+        )}
         <div
           style={{
             fontSize: 13,
@@ -625,6 +731,9 @@ function ErrorCard({
             flex: 1,
             minWidth: 0,
           }}
+          data-testid={
+            managerRequired ? 'floating-chat-error-manager-required' : undefined
+          }
         >
           {humanized}
         </div>
@@ -637,7 +746,7 @@ function ErrorCard({
           flexWrap: 'wrap',
         }}
       >
-        {apiKey ? (
+        {managerRequired ? null : apiKey ? (
           <button
             type="button"
             onClick={onConfigure}
@@ -846,6 +955,10 @@ export function FloatingChatPanel() {
   const isMobile = useIsMobileViewport(640);
   const resolvedTheme = useThemeStore((s) => s.resolved);
   const activeProjectId = useProjectContextStore((s) => s.activeProjectId);
+  // Role is decoded from the JWT on login (useAuthStore). Drives the
+  // chip-lock UX — backend always re-checks via ``check_tool_permission``.
+  const userRole = useAuthStore((s) => s.userRole);
+  const canWrite = isManagerOrAbove(userRole);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1113,6 +1226,18 @@ export function FloatingChatPanel() {
                 case 'tool_result': {
                   const result = payload.result as ToolCallInfo['result'] | undefined;
                   const isErrorResult = result?.renderer === 'error';
+                  // The backend's permission-denied card carries a
+                  // machine-readable ``i18n_key`` in ``data`` — pluck it
+                  // out so the ErrorCard can render the localized message
+                  // and switch to the non-retryable variant.
+                  const errorData =
+                    isErrorResult && result?.data && typeof result.data === 'object'
+                      ? (result.data as Record<string, unknown>)
+                      : null;
+                  const errorI18nKey =
+                    typeof errorData?.i18n_key === 'string'
+                      ? (errorData.i18n_key as string)
+                      : undefined;
                   setMessages((prev) =>
                     prev.map((m) => {
                       if (m.id !== aiMsgId) return m;
@@ -1143,8 +1268,11 @@ export function FloatingChatPanel() {
                           (result?.summary as string | undefined) ??
                           (typeof result?.data === 'string'
                             ? (result.data as string)
+                            : typeof errorData?.message === 'string'
+                            ? (errorData.message as string)
                             : 'Tool returned an error');
                         next.errorText = errMsg;
+                        if (errorI18nKey) next.errorI18nKey = errorI18nKey;
                       }
                       return next;
                     }),
@@ -1419,7 +1547,11 @@ export function FloatingChatPanel() {
           }}
         >
           {messages.length === 0 ? (
-            <EmptyState onPick={sendMessage} pathname={location.pathname} />
+            <EmptyState
+              onPick={sendMessage}
+              pathname={location.pathname}
+              canWrite={canWrite}
+            />
           ) : (
             <>
               {messages.map((msg) => (
@@ -1673,6 +1805,7 @@ function MessageRow({
       {msg.errorText && (
         <ErrorCard
           message={msg.errorText}
+          i18nKey={msg.errorI18nKey}
           onConfigure={onConfigureAI}
           onRetry={() => {
             if (msg.lastUserPrompt) onRetry(msg.id, msg.lastUserPrompt);

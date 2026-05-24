@@ -6352,6 +6352,7 @@ const resource = {
     // Friendly error card (replaces inline plain-text errors)
     "chat.panel.error_card.api_key": "Der KI-Anbieter benötigt einen Schlüssel — richte ihn in den Einstellungen ein, um weiter zu chatten.",
     "chat.panel.error_card.retry": "Erneut versuchen",
+    "chat.error.manager_required": "Diese Aktion erfordert Manager-Berechtigung (oder höher) für dieses Projekt. Bitte einen Projektmanager oder Admin, sie für dich auszuführen.",
 
     // Page-contextual chip groups
     "chat.panel.contextual_label": "Für diese Seite",

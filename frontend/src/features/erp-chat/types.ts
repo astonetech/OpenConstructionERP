@@ -14,6 +14,14 @@ export interface ChatMessage {
    * what the user typed without making them re-enter it.
    */
   errorText?: string;
+  /**
+   * Optional i18n key carried by the server-side error payload (e.g.
+   * ``"chat.error.manager_required"``). When set, the {@link ErrorCard}
+   * renders the localized message instead of ``errorText`` AND suppresses
+   * the Retry CTA — retrying a permission-denied call would just fail
+   * again, so we replace it with a non-retryable variant.
+   */
+  errorI18nKey?: string;
   lastUserPrompt?: string;
 }
 

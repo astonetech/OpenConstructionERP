@@ -6863,6 +6863,10 @@ const resource = {
     // Friendly error card (replaces inline plain-text errors)
     "chat.panel.error_card.api_key": "AI provider needs a key — configure it in Settings to keep chatting.",
     "chat.panel.error_card.retry": "Retry",
+    // Server-emitted error keys. The backend sends an ``i18n_key`` field
+    // on permission-denied tool results; the chat panel looks it up here
+    // so the user sees a localized, non-retryable explanation.
+    "chat.error.manager_required": "This action requires manager-or-higher permission on this project. Ask a project manager or admin to perform it for you.",
 
     // Page-contextual chip groups
     "chat.panel.contextual_label": "For this page",
