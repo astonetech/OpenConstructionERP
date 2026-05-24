@@ -21,6 +21,8 @@ from app.core.file_signature import (
 from app.core.file_signature import (
     require as require_signature,
 )
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import (
     CurrentUserId,
     RequirePermission,
@@ -582,7 +584,7 @@ async def get_photo(
     photo = await service.photo_repo.get_by_id(photo_id)
     if photo is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary photo not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_photo_not_found", locale=get_locale()))
     await verify_project_access(photo.project_id, user_id, session)
     return DiaryPhotoResponse.model_validate(photo)
 
@@ -602,7 +604,7 @@ async def update_photo(
     existing = await service.photo_repo.get_by_id(photo_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary photo not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_photo_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     photo = await service.update_photo(photo_id, data)
     return DiaryPhotoResponse.model_validate(photo)
@@ -619,7 +621,7 @@ async def delete_photo(
     existing = await service.photo_repo.get_by_id(photo_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary photo not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_photo_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     await service.delete_photo(photo_id)
 
@@ -675,7 +677,7 @@ async def get_video(
     video = await service.video_repo.get_by_id(video_id)
     if video is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary video not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_video_not_found", locale=get_locale()))
     await verify_project_access(video.project_id, user_id, session)
     return DiaryVideoResponse.model_validate(video)
 
@@ -695,7 +697,7 @@ async def update_video(
     existing = await service.video_repo.get_by_id(video_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary video not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_video_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     video = await service.update_video(video_id, data)
     return DiaryVideoResponse.model_validate(video)
@@ -712,7 +714,7 @@ async def delete_video(
     existing = await service.video_repo.get_by_id(video_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Diary video not found")
+        raise HTTPException(status_code=404, detail=translate("errors.diary_video_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     await service.delete_video(video_id)
 
@@ -768,7 +770,7 @@ async def get_drone_survey(
     survey = await service.drone_repo.get_by_id(survey_id)
     if survey is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Drone survey not found")
+        raise HTTPException(status_code=404, detail=translate("errors.survey_not_found", locale=get_locale()))
     await verify_project_access(survey.project_id, user_id, session)
     return DroneSurveyResponse.model_validate(survey)
 
@@ -788,7 +790,7 @@ async def update_drone_survey(
     existing = await service.drone_repo.get_by_id(survey_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Drone survey not found")
+        raise HTTPException(status_code=404, detail=translate("errors.survey_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     survey = await service.update_drone_survey(survey_id, data)
     return DroneSurveyResponse.model_validate(survey)
@@ -805,7 +807,7 @@ async def delete_drone_survey(
     existing = await service.drone_repo.get_by_id(survey_id)
     if existing is None:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Drone survey not found")
+        raise HTTPException(status_code=404, detail=translate("errors.survey_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     await service.delete_drone_survey(survey_id)
 

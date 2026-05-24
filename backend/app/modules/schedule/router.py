@@ -34,6 +34,8 @@ from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, CurrentUserPayload, RequirePermission, SessionDep, verify_project_access
 from app.modules.schedule.schemas import (
     ActivityBimLinkRequest,
@@ -1077,7 +1079,7 @@ async def get_baseline(
 
     baseline = await session.get(ScheduleBaseline, baseline_id)
     if baseline is None:
-        raise HTTPException(status_code=404, detail="Baseline not found")
+        raise HTTPException(status_code=404, detail=translate("errors.baseline_not_found", locale=get_locale()))
     await verify_project_access(baseline.project_id, _user_id, session)
     return BaselineResponse.model_validate(baseline)
 
@@ -1109,7 +1111,7 @@ async def update_baseline(
 
     baseline = await session.get(ScheduleBaseline, baseline_id)
     if baseline is None:
-        raise HTTPException(status_code=404, detail="Baseline not found")
+        raise HTTPException(status_code=404, detail=translate("errors.baseline_not_found", locale=get_locale()))
     await verify_project_access(baseline.project_id, _user_id, session)
 
     updates = data.model_dump(exclude_unset=True)
@@ -1142,7 +1144,7 @@ async def delete_baseline(
 
     baseline = await session.get(ScheduleBaseline, baseline_id)
     if baseline is None:
-        raise HTTPException(status_code=404, detail="Baseline not found")
+        raise HTTPException(status_code=404, detail=translate("errors.baseline_not_found", locale=get_locale()))
     await verify_project_access(baseline.project_id, _user_id, session)
     await session.delete(baseline)
     await session.flush()

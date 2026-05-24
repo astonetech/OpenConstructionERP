@@ -20,6 +20,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.bid_management.models import (
     BidAward,
     BidComparison,
@@ -808,7 +810,7 @@ class BidManagementService:
     async def update_bidder(self, bidder_id: uuid.UUID, data: BidderUpdate) -> Bidder:
         bidder = await self.bidder_repo.get_by_id(bidder_id)
         if bidder is None:
-            raise HTTPException(status_code=404, detail="Bidder not found")
+            raise HTTPException(status_code=404, detail=translate("errors.bidder_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         if not fields:
             return bidder
@@ -822,7 +824,7 @@ class BidManagementService:
     async def disqualify_bidder(self, bidder_id: uuid.UUID, reason: str) -> Bidder:
         bidder = await self.bidder_repo.get_by_id(bidder_id)
         if bidder is None:
-            raise HTTPException(status_code=404, detail="Bidder not found")
+            raise HTTPException(status_code=404, detail=translate("errors.bidder_not_found", locale=get_locale()))
         bidder.status = "disqualified"
         bidder.disqualification_reason = reason
         await self.session.flush()
@@ -879,7 +881,7 @@ class BidManagementService:
     ) -> BidInvitation:
         inv = await self.invitation_repo.get_by_id(invitation_id)
         if inv is None:
-            raise HTTPException(status_code=404, detail="Invitation not found")
+            raise HTTPException(status_code=404, detail=translate("errors.invitation_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         new_status = fields.get("status")
         if new_status is not None and new_status != inv.status:
@@ -897,7 +899,7 @@ class BidManagementService:
     async def mark_invitation_opened(self, invitation_id: uuid.UUID) -> BidInvitation:
         inv = await self.invitation_repo.get_by_id(invitation_id)
         if inv is None:
-            raise HTTPException(status_code=404, detail="Invitation not found")
+            raise HTTPException(status_code=404, detail=translate("errors.invitation_not_found", locale=get_locale()))
         if "opened" not in allowed_invitation_transitions(inv.status):
             # No-op when already in a terminal state.
             return inv
@@ -911,7 +913,7 @@ class BidManagementService:
     ) -> BidInvitation:
         inv = await self.invitation_repo.get_by_id(invitation_id)
         if inv is None:
-            raise HTTPException(status_code=404, detail="Invitation not found")
+            raise HTTPException(status_code=404, detail=translate("errors.invitation_not_found", locale=get_locale()))
         if "declined" not in allowed_invitation_transitions(inv.status):
             raise HTTPException(
                 status_code=409, detail=f"Cannot decline from '{inv.status}'"
@@ -925,7 +927,7 @@ class BidManagementService:
     async def resend_invitation(self, invitation_id: uuid.UUID) -> BidInvitation:
         inv = await self.invitation_repo.get_by_id(invitation_id)
         if inv is None:
-            raise HTTPException(status_code=404, detail="Invitation not found")
+            raise HTTPException(status_code=404, detail=translate("errors.invitation_not_found", locale=get_locale()))
         inv.sent_at = _now_iso()
         inv.status = "sent" if inv.status == "pending" else inv.status
         await self.session.flush()
@@ -1011,7 +1013,7 @@ class BidManagementService:
     ) -> BidSubmission:
         sub = await self.submission_repo.get_by_id(submission_id)
         if sub is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
+            raise HTTPException(status_code=404, detail=translate("errors.submission_not_found", locale=get_locale()))
         await self._assert_submission_mutable(submission_id)
         fields = data.model_dump(exclude_unset=True)
         if "total_amount" in fields and fields["total_amount"] is not None:
@@ -1025,7 +1027,7 @@ class BidManagementService:
     async def withdraw_submission(self, submission_id: uuid.UUID) -> BidSubmission:
         sub = await self.submission_repo.get_by_id(submission_id)
         if sub is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
+            raise HTTPException(status_code=404, detail=translate("errors.submission_not_found", locale=get_locale()))
         sub.is_valid = False
         envelope = dict(sub.envelope_payload or {})
         envelope["withdrawn"] = True
@@ -1327,7 +1329,7 @@ class BidManagementService:
     ) -> BidRejection:
         rejection = await self.rejection_repo.get_by_id(rejection_id)
         if rejection is None:
-            raise HTTPException(status_code=404, detail="Rejection not found")
+            raise HTTPException(status_code=404, detail=translate("errors.rejection_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         if not fields:
             return rejection
@@ -1338,7 +1340,7 @@ class BidManagementService:
     async def notify_rejection(self, rejection_id: uuid.UUID) -> BidRejection:
         rejection = await self.rejection_repo.get_by_id(rejection_id)
         if rejection is None:
-            raise HTTPException(status_code=404, detail="Rejection not found")
+            raise HTTPException(status_code=404, detail=translate("errors.rejection_not_found", locale=get_locale()))
         rejection.notified_at = _now_iso()
         await self.session.flush()
         return rejection

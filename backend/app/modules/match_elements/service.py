@@ -36,11 +36,13 @@ from app.core.match_service.config import (
     CONFIDENCE_MEDIUM_THRESHOLD,
     DEFAULT_AUTO_CONFIRM_THRESHOLD,
 )
+from app.core.i18n import get_locale
 from app.core.match_service.envelope import (
     ElementEnvelope,
     MatchCandidate,
     confidence_band_for,
 )
+from app.core.validation.messages import translate
 from app.modules.match_elements import ifc_labels, schemas, signature
 from app.modules.match_elements.matchers.resources import ResourcesMatcher
 
@@ -1315,7 +1317,7 @@ class MatchElementsService:
         row = await db.get(MatchSession, session_id)
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
         return _to_session_read(row)
 
     async def update_session(
@@ -1325,7 +1327,7 @@ class MatchElementsService:
         row = await db.get(MatchSession, session_id)
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
         # Track whether the patch changed anything that affects grouping —
         # group_by, scope filters, excluded categories, BIM model binding,
         # or net/gross. If yes, regroup at the end so the chip-bar feels
@@ -1545,7 +1547,7 @@ class MatchElementsService:
         sess = await db.get(MatchSession, session_id)
         if sess is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
 
         adapter = self._adapter(sess.source, db, sess)
         elements = await adapter.iter_elements(
@@ -1768,7 +1770,7 @@ class MatchElementsService:
         row = (await db.execute(stmt)).scalar_one_or_none()
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=translate("errors.group_not_found", locale=get_locale()))
         # Deserialize methods JSON into MatchCandidate lists.
         methods_typed: dict[str, list[MatchCandidate]] = {}
         for name, raw_list in (row.methods or {}).items():
@@ -1921,7 +1923,7 @@ class MatchElementsService:
         sess = await db.get(MatchSession, session_id)
         if sess is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
 
         # Stamp the initial progress snapshot before any work begins —
         # the wizard's MatchProgressCard polls /progress every ~800ms and
@@ -2347,7 +2349,7 @@ class MatchElementsService:
         row = (await db.execute(stmt)).scalar_one_or_none()
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=translate("errors.group_not_found", locale=get_locale()))
         # candidate_id is now properly nullable both in the schema and the
         # FK column. None means "manual override / no library row" — the
         # group is still recorded as confirmed and the apply step writes
@@ -2481,7 +2483,7 @@ class MatchElementsService:
         sess = await db.get(MatchSession, session_id)
         if sess is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
         adapter = self._adapter(sess.source, db, sess)
         keys = await adapter.list_attribute_keys(sess.project_id, sess.bim_model_id)
         return [schemas.AttributeKey(key=k, sample_values=[]) for k in keys]
@@ -2492,7 +2494,7 @@ class MatchElementsService:
         sess = await db.get(MatchSession, session_id)
         if sess is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
         adapter = self._adapter(sess.source, db, sess)
         cats = await adapter.list_categories(sess.project_id, sess.bim_model_id)
         out: list[schemas.CategoryCount] = []
@@ -2571,7 +2573,7 @@ class MatchElementsService:
         row = (await db.execute(stmt)).scalar_one_or_none()
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=translate("errors.group_not_found", locale=get_locale()))
         row.status = "skipped"
         await db.flush()
         return await self.get_group_detail(db, session_id, group_key)
@@ -2600,7 +2602,7 @@ class MatchElementsService:
 
         sess = await db.get(MatchSession, session_id)
         if sess is None:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
         project = await db.get(Project, sess.project_id)
         # Base currency selection (no EUR hardcode):
         #   1. project.currency if set (operator's choice).
@@ -2882,7 +2884,7 @@ class MatchElementsService:
         row = (await db.execute(stmt)).scalar_one_or_none()
         if row is None:
             from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=translate("errors.group_not_found", locale=get_locale()))
         if spec.action == "tbd":
             row.status = "tbd"
             row.notes = "Pending — no good catalogue match"

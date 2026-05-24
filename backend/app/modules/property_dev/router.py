@@ -31,6 +31,8 @@ from app.core.file_signature import (
     mime_for_signature,
     require as require_signature,
 )
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserPayload, RequirePermission, SessionDep
 from app.modules.portal.dependencies import RequirePortalSession
 from app.modules.property_dev.schemas import (
@@ -1269,10 +1271,10 @@ async def list_warranty_claims(
 
         proj = await ProjectRepository(session).get_by_id(project_id)
         if proj is None:
-            raise HTTPException(status_code=404, detail="Resource not found")
+            raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
         owner_id = uuid.UUID(str(user_payload["sub"]))
         if proj.owner_id != owner_id:
-            raise HTTPException(status_code=404, detail="Resource not found")
+            raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
         rows = await service.warranty.list_for_project(
             project_id, status=status
         )
@@ -1717,7 +1719,7 @@ async def _verify_owner_via_plot(
     is_admin = payload.get("role") == "admin"
     user_id = payload.get("sub") or payload.get("user_id")
     if user_id is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
 
     from app.modules.projects.repository import ProjectRepository
     from app.modules.property_dev.repository import (
@@ -1727,15 +1729,15 @@ async def _verify_owner_via_plot(
 
     plot = await PlotRepository(session).get_by_id(plot_id)
     if plot is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     if is_admin:
         return
     dev = await DevelopmentRepository(session).get_by_id(plot.development_id)
     if dev is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     project = await ProjectRepository(session).get_by_id(dev.project_id)
     if project is None or str(project.owner_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
 
 
 async def _verify_owner_via_development(
@@ -1747,19 +1749,19 @@ async def _verify_owner_via_development(
     is_admin = payload.get("role") == "admin"
     user_id = payload.get("sub") or payload.get("user_id")
     if user_id is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
 
     from app.modules.projects.repository import ProjectRepository
     from app.modules.property_dev.repository import DevelopmentRepository
 
     dev = await DevelopmentRepository(session).get_by_id(dev_id)
     if dev is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     if is_admin:
         return
     project = await ProjectRepository(session).get_by_id(dev.project_id)
     if project is None or str(project.owner_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
 
 
 async def _verify_owner_via_lead(
@@ -1777,13 +1779,13 @@ async def _verify_owner_via_lead(
     is_admin = payload.get("role") == "admin"
     user_id = payload.get("sub") or payload.get("user_id")
     if user_id is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
 
     from app.modules.property_dev.repository import LeadRepository
 
     lead = await LeadRepository(session).get_by_id(lead_id)
     if lead is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     if is_admin or lead.development_id is None:
         return
     await _verify_owner_via_development(session, lead.development_id, payload)
@@ -1798,7 +1800,7 @@ async def _verify_owner_via_reservation(
 
     res = await ReservationRepository(session).get_by_id(r_id)
     if res is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_plot(session, res.plot_id, payload)
 
 
@@ -1811,7 +1813,7 @@ async def _verify_owner_via_spa(
 
     spa = await SalesContractRepository(session).get_by_id(spa_id)
     if spa is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_plot(session, spa.plot_id, payload)
 
 
@@ -1824,7 +1826,7 @@ async def _verify_owner_via_schedule(
 
     sched = await PaymentScheduleRepository(session).get_by_id(schedule_id)
     if sched is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_spa(session, sched.sales_contract_id, payload)
 
 
@@ -1837,7 +1839,7 @@ async def _verify_owner_via_instalment(
 
     ins = await InstalmentRepository(session).get_by_id(ins_id)
     if ins is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_schedule(session, ins.schedule_id, payload)
 
 
@@ -1850,7 +1852,7 @@ async def _verify_owner_via_party(
 
     party = await ContractPartyRepository(session).get_by_id(party_id)
     if party is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_spa(session, party.sales_contract_id, payload)
 
 
@@ -1867,7 +1869,7 @@ async def _verify_owner_via_handover(
 
     handover = await HandoverRepository(session).get_by_id(handover_id)
     if handover is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_plot(session, handover.plot_id, payload)
 
 
@@ -1881,7 +1883,7 @@ async def _verify_owner_via_snag(
 
     snag = await SnagRepository(session).get_by_id(snag_id)
     if snag is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_handover(session, snag.handover_id, payload)
 
 
@@ -1895,7 +1897,7 @@ async def _verify_owner_via_warranty(
 
     claim = await WarrantyClaimRepository(session).get_by_id(claim_id)
     if claim is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_plot(session, claim.plot_id, payload)
 
 
@@ -1909,7 +1911,7 @@ async def _verify_owner_via_buyer(
 
     buyer = await BuyerRepository(session).get_by_id(buyer_id)
     if buyer is None:
-        raise HTTPException(status_code=404, detail="Resource not found")
+        raise HTTPException(status_code=404, detail=translate("errors.resource_not_found", locale=get_locale()))
     await _verify_owner_via_development(session, buyer.development_id, payload)
 
 
@@ -3288,7 +3290,7 @@ async def approve_commission_accrual(
     user_id = _payload_user_id(payload)
     accrual = await service.commission_accruals.get_by_id(accrual_id)
     if accrual is None:
-        raise HTTPException(status_code=404, detail="CommissionAccrual not found")
+        raise HTTPException(status_code=404, detail=translate("errors.commission_accrual_not_found", locale=get_locale()))
     broker = await service.get_broker(accrual.broker_id)
     _ensure_broker_owner(broker, payload)
     return CommissionAccrualResponse.model_validate(
@@ -3310,7 +3312,7 @@ async def pay_commission_accrual(
     user_id = _payload_user_id(payload)
     accrual = await service.commission_accruals.get_by_id(accrual_id)
     if accrual is None:
-        raise HTTPException(status_code=404, detail="CommissionAccrual not found")
+        raise HTTPException(status_code=404, detail=translate("errors.commission_accrual_not_found", locale=get_locale()))
     broker = await service.get_broker(accrual.broker_id)
     _ensure_broker_owner(broker, payload)
     return CommissionAccrualResponse.model_validate(
@@ -3462,7 +3464,7 @@ async def get_escrow_transaction(
 ) -> EscrowTransactionResponse:
     obj = await service.escrow_transactions.get_by_id(tx_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="EscrowTransaction not found")
+        raise HTTPException(status_code=404, detail=translate("errors.escrow_not_found", locale=get_locale()))
     return EscrowTransactionResponse.model_validate(obj)
 
 
@@ -3477,7 +3479,7 @@ async def update_escrow_transaction(
 ) -> EscrowTransactionResponse:
     obj = await service.escrow_transactions.get_by_id(tx_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="EscrowTransaction not found")
+        raise HTTPException(status_code=404, detail=translate("errors.escrow_not_found", locale=get_locale()))
     fields = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
     if "metadata" in fields:
         fields["metadata_"] = fields.pop("metadata")
@@ -3494,7 +3496,7 @@ async def delete_escrow_transaction(
 ) -> None:
     obj = await service.escrow_transactions.get_by_id(tx_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="EscrowTransaction not found")
+        raise HTTPException(status_code=404, detail=translate("errors.escrow_not_found", locale=get_locale()))
     await service.escrow_transactions.delete(tx_id)
 
 
@@ -4356,9 +4358,9 @@ async def upload_custom_document_template(
     if project_id is not None:
         proj = await session.get(Project, project_id)
         if proj is None:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(status_code=404, detail=translate("errors.project_not_found", locale=get_locale()))
         if not is_admin and str(proj.owner_id) != str(user_id):
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise HTTPException(status_code=404, detail=translate("errors.project_not_found", locale=get_locale()))
         resolved_project_id = project_id
     else:
         first_proj = (
@@ -4451,14 +4453,14 @@ async def delete_custom_document_template(
 
     row = await session.get(PropertyDevCustomTemplate, template_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
 
     is_admin = user_payload.get("role") == "admin"
     user_id = user_payload.get("sub") or user_payload.get("user_id")
     if not is_admin and row.project_id is not None:
         proj = await ProjectRepository(session).get_by_id(row.project_id)
         if proj is None or str(proj.owner_id) != str(user_id):
-            raise HTTPException(status_code=404, detail="Template not found")
+            raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
 
     try:
         path = Path(row.storage_path)
@@ -4492,14 +4494,14 @@ async def download_custom_document_template(
 
     row = await session.get(PropertyDevCustomTemplate, template_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
 
     is_admin = user_payload.get("role") == "admin"
     user_id = user_payload.get("sub") or user_payload.get("user_id")
     if not is_admin and row.project_id is not None:
         proj = await ProjectRepository(session).get_by_id(row.project_id)
         if proj is None or str(proj.owner_id) != str(user_id):
-            raise HTTPException(status_code=404, detail="Template not found")
+            raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
 
     path = Path(row.storage_path)
     if not path.exists():

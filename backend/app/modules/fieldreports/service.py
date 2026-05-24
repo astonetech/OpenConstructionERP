@@ -16,6 +16,8 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.fieldreports.builtin_templates import (
     BUILTIN_TEMPLATES,
     get_builtin,
@@ -563,7 +565,7 @@ class FieldReportTemplateService:
             if tpl is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Template not found",
+                    detail=translate("errors.template_not_found", locale=get_locale()),
                 )
             return self._builtin_to_dict_one(tpl)
 
@@ -572,13 +574,13 @@ class FieldReportTemplateService:
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Template not found",
+                detail=translate("errors.template_not_found", locale=get_locale()),
             ) from None
         row = await self.repo.get_by_id(tpl_uuid)
         if row is None or str(row.project_id) != str(project_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Template not found",
+                detail=translate("errors.template_not_found", locale=get_locale()),
             )
         return row
 
@@ -631,7 +633,7 @@ class FieldReportTemplateService:
         if template is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Template not found",
+                detail=translate("errors.template_not_found", locale=get_locale()),
             )
 
         fields = data.model_dump(exclude_unset=True)
@@ -656,7 +658,7 @@ class FieldReportTemplateService:
         if template is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Template not found",
+                detail=translate("errors.template_not_found", locale=get_locale()),
             )
         await self.repo.delete(template_id)
         logger.info("Field report template deleted: %s", template_id)

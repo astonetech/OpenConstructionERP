@@ -17,6 +17,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.assemblies.models import Assembly, Component
 from app.modules.assemblies.repository import AssemblyRepository, ComponentRepository
 from app.modules.assemblies.schemas import (
@@ -444,7 +446,7 @@ class AssemblyService:
                 ):
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Project not found",
+                        detail=translate("errors.project_not_found", locale=get_locale()),
                     )
 
         # Check code uniqueness if code is being changed

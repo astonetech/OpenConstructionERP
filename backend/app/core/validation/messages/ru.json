@@ -245,5 +245,37 @@
       "fail": "Прайс-матрица {matrix}: правило '{factor}' множитель {multiplier} вне диапазона [-0,50; 2,00]",
       "suggestion": "Ограничьте модификаторы диапазоном от -50% до +200%, чтобы избежать нереалистичных цен"
     }
+  },
+  "errors": {
+    "resource_not_found": "Ресурс не найден",
+    "project_not_found": "Проект не найден",
+    "vendor_not_found": "Поставщик не найден",
+    "template_not_found": "Шаблон не найден",
+    "position_not_found": "Позиция не найдена",
+    "session_not_found": "Сессия не найдена",
+    "document_not_found": "Документ не найден",
+    "invitation_not_found": "Приглашение не найдено",
+    "agreement_not_found": "Соглашение не найдено",
+    "rejection_not_found": "Отказ не найден",
+    "claim_not_found": "Промежуточный акт не найден",
+    "plot_not_found": "Участок не найден",
+    "survey_not_found": "Дрон-съёмка не найдена",
+    "diary_video_not_found": "Видео из строительного журнала не найдено",
+    "diary_photo_not_found": "Фото из строительного журнала не найдено",
+    "bidder_not_found": "Участник торгов не найден",
+    "webhook_not_found": "Вебхук не найден",
+    "submission_not_found": "Заявка не найдена",
+    "measurement_not_found": "Замер на площадке не найден",
+    "salescontract_not_found": "Договор купли-продажи не найден",
+    "prompt_not_found": "Шаблон промпта не найден",
+    "prequalification_not_found": "Преквалификация не найдена",
+    "purchase_requisition_not_found": "Заявка на закупку не найдена",
+    "purchase_order_not_found": "Заказ на поставку не найден",
+    "group_not_found": "Группа не найдена",
+    "final_account_not_found": "Окончательный расчёт не найден",
+    "estimate_job_not_found": "Задание калькуляции не найдено",
+    "escrow_not_found": "Эскроу-транзакция не найдена",
+    "commission_accrual_not_found": "Начисление комиссии не найдено",
+    "baseline_not_found": "Базовая версия не найдена"
   }
 }

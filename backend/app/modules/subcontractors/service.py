@@ -24,6 +24,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.subcontractors.models import (
     Certificate,
     PaymentApplication,
@@ -651,7 +653,7 @@ class SubcontractorService:
     ) -> PrequalificationApplication:
         entity = await self.prequal.get_by_id(prequal_id)
         if entity is None:
-            raise HTTPException(status_code=404, detail="Prequalification not found")
+            raise HTTPException(status_code=404, detail=translate("errors.prequalification_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         # Status transitions go through dedicated methods.
         fields.pop("status", None)
@@ -665,7 +667,7 @@ class SubcontractorService:
     ) -> PrequalificationApplication:
         entity = await self.prequal.get_by_id(prequal_id)
         if entity is None:
-            raise HTTPException(status_code=404, detail="Prequalification not found")
+            raise HTTPException(status_code=404, detail=translate("errors.prequalification_not_found", locale=get_locale()))
         _assert_transition(entity.status, "submitted", _PREQUAL_TRANSITIONS, "prequalification")
         await self.prequal.update_fields(
             prequal_id,
@@ -688,7 +690,7 @@ class SubcontractorService:
     ) -> PrequalificationApplication:
         entity = await self.prequal.get_by_id(prequal_id)
         if entity is None:
-            raise HTTPException(status_code=404, detail="Prequalification not found")
+            raise HTTPException(status_code=404, detail=translate("errors.prequalification_not_found", locale=get_locale()))
         if entity.status == "submitted":
             # Auto-move through `under_review` so the state machine stays linear.
             await self.prequal.update_fields(prequal_id, status="under_review")
@@ -721,7 +723,7 @@ class SubcontractorService:
     ) -> PrequalificationApplication:
         entity = await self.prequal.get_by_id(prequal_id)
         if entity is None:
-            raise HTTPException(status_code=404, detail="Prequalification not found")
+            raise HTTPException(status_code=404, detail=translate("errors.prequalification_not_found", locale=get_locale()))
         _assert_transition(entity.status, "rejected", _PREQUAL_TRANSITIONS, "prequalification")
         await self.prequal.update_fields(
             prequal_id,
@@ -824,7 +826,7 @@ class SubcontractorService:
     ) -> SubcontractAgreement:
         entity = await self.agreements.get_by_id(agreement_id)
         if entity is None:
-            raise HTTPException(status_code=404, detail="Agreement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         if "status" in fields and fields["status"] is not None:
             _assert_transition(
@@ -843,7 +845,7 @@ class SubcontractorService:
     async def create_work_package(self, data: WorkPackageCreate) -> WorkPackage:
         agreement = await self.agreements.get_by_id(data.agreement_id)
         if agreement is None:
-            raise HTTPException(status_code=404, detail="Agreement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
         entity = WorkPackage(
             agreement_id=data.agreement_id,
             name=data.name,
@@ -881,7 +883,7 @@ class SubcontractorService:
     ) -> PaymentApplication:
         agreement = await self.agreements.get_by_id(data.agreement_id)
         if agreement is None:
-            raise HTTPException(status_code=404, detail="Agreement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
 
         gross = Decimal(str(data.gross_amount))
         if gross <= 0:
@@ -994,7 +996,7 @@ class SubcontractorService:
                 )
             agreement = await self.agreements.get_by_id(entity.agreement_id)
             if agreement is None:
-                raise HTTPException(status_code=404, detail="Agreement not found")
+                raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
             retention_amount = (
                 gross * Decimal(str(agreement.retention_percent)) / Decimal("100")
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -1119,7 +1121,7 @@ class SubcontractorService:
     ) -> RetentionLedger:
         agreement = await self.agreements.get_by_id(agreement_id)
         if agreement is None:
-            raise HTTPException(status_code=404, detail="Agreement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
         # Never release more than the outstanding accrued balance — releasing
         # phantom retention would push the agreement's balance negative and
         # over-pay the subcontractor.
@@ -1305,7 +1307,7 @@ class SubcontractorService:
         """
         agreement = await self.agreements.get_by_id(agreement_id)
         if agreement is None:
-            raise HTTPException(status_code=404, detail="Agreement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.agreement_not_found", locale=get_locale()))
 
         work_packages = await self.work_packages.list_for_agreement(agreement_id)
         payment_apps = await self.payments.list_for_agreement(agreement_id)

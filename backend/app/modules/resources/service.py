@@ -12,6 +12,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.resources.models import (
     Assignment,
     AvailabilityWindow,
@@ -371,7 +373,8 @@ class ResourcesService:
         resource = await self.resource_repo.get_by_id(resource_id)
         if resource is None:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=translate("errors.resource_not_found", locale=get_locale()),
             )
         return resource
 

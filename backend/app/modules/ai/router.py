@@ -28,6 +28,8 @@ from app.core.file_signature import (
     FileSignatureMismatch,
     require as require_signature,
 )
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, check_ai_rate_limit
 from app.modules.ai.ai_client import (
     call_ai,
@@ -574,7 +576,7 @@ async def enrich_estimate(
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estimate job not found",
+            detail=translate("errors.estimate_job_not_found", locale=get_locale()),
         )
 
     # 2. Verify ownership and status
@@ -748,7 +750,7 @@ async def get_estimate_job(
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Estimate job not found",
+            detail=translate("errors.estimate_job_not_found", locale=get_locale()),
         )
 
     if str(job.user_id) != str(uid):

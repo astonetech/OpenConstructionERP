@@ -13,6 +13,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.geo_hub.geojson_io import kml_to_geojson, validate_geojson
 from app.modules.geo_hub.models import (
     GeoAnchor,
@@ -184,7 +186,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoAnchor:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         existing = await self.anchors.get_by_project(data.project_id)
         if existing is not None:
@@ -270,7 +272,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> Tileset:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         obj = Tileset(
             project_id=data.project_id,
@@ -321,7 +323,7 @@ class GeoHubService:
         tileset_status: str | None = None,
     ) -> list[Tileset]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.tilesets.list_for_project(
             project_id, offset=offset, limit=limit, status=tileset_status,
@@ -346,7 +348,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> TileGenerationJob:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         # IDOR guard: scope the reuse lookup to the caller's project so a
         # ``(source_kind, source_id)`` pair belonging to another tenant
@@ -434,7 +436,7 @@ class GeoHubService:
         limit: int = 50,
     ) -> list[TileGenerationJob]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.jobs.list_for_project(
             project_id, state=state, offset=offset, limit=limit,
@@ -448,7 +450,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> ImageryLayer:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         if data.default_for_project:
             await self.imagery.clear_default_for_project(data.project_id)
@@ -492,7 +494,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> list[ImageryLayer]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.imagery.list_for_project(project_id)
 
@@ -554,7 +556,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoViewpoint:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         obj = GeoViewpoint(
             project_id=data.project_id,
@@ -596,7 +598,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> list[GeoViewpoint]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.viewpoints.list_for_project(project_id)
 
@@ -619,7 +621,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoOverlay:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         if data.geojson:
             try:
@@ -666,7 +668,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoOverlay:
         await self._verify_project_owner(
-            req.project_id, payload, not_found_detail="Project not found",
+            req.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         try:
             geojson = validate_geojson(req.geojson)
@@ -692,7 +694,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoOverlay:
         await self._verify_project_owner(
-            req.project_id, payload, not_found_detail="Project not found",
+            req.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         try:
             geojson = kml_to_geojson(req.kml.encode("utf-8"))
@@ -720,7 +722,7 @@ class GeoHubService:
         kind: str | None = None,
     ) -> list[GeoOverlay]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.overlays.list_for_project(project_id, kind=kind)
 
@@ -733,7 +735,7 @@ class GeoHubService:
     ) -> dict[str, Any]:
         """Merge every overlay for the project into one FeatureCollection."""
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         overlays = await self.overlays.list_for_project(
             project_id, kind=kind, limit=1000,
@@ -768,7 +770,7 @@ class GeoHubService:
         include_hidden: bool = True,
     ) -> list[GeoRasterOverlay]:
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         return await self.raster_overlays.list_for_project(
             project_id, include_hidden=include_hidden,
@@ -795,7 +797,7 @@ class GeoHubService:
         payload: dict[str, Any] | None = None,
     ) -> GeoRasterOverlay:
         await self._verify_project_owner(
-            data.project_id, payload, not_found_detail="Project not found",
+            data.project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         corners = data.corners_geojson or await self._default_corners_for_project(
             data.project_id,
@@ -1414,7 +1416,7 @@ class GeoHubService:
         leak unrelated buildings into the buyer's view.
         """
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
 
         if development_id is not None:
@@ -1503,7 +1505,7 @@ class GeoHubService:
     ) -> list[dict[str, Any]]:
         """Return geo-pinned safety incidents for the project."""
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         from sqlalchemy import select
 
@@ -1541,7 +1543,7 @@ class GeoHubService:
     ) -> list[dict[str, Any]]:
         """Return geo-pinned punch list items for the project."""
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         from sqlalchemy import select
 
@@ -1578,7 +1580,7 @@ class GeoHubService:
     ) -> list[dict[str, Any]]:
         """Return geo-tagged Daily Diary photos for the project."""
         await self._verify_project_owner(
-            project_id, payload, not_found_detail="Project not found",
+            project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
         )
         from sqlalchemy import select
 

@@ -13,6 +13,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserPayload, RequirePermission, SessionDep
 from app.modules.geo_hub.schemas import (
     AnchoredProjectResponse,
@@ -67,7 +69,7 @@ async def list_anchors(
     _perm: None = Depends(RequirePermission("geo_hub.read")),
 ) -> list[GeoAnchorResponse]:
     await service._verify_project_owner(
-        project_id, payload, not_found_detail="Project not found",
+        project_id, payload, not_found_detail=translate("errors.project_not_found", locale=get_locale()),
     )
     anchor = await service.get_anchor_for_project(project_id)
     if anchor is None:

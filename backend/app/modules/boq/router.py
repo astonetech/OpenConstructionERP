@@ -72,7 +72,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.csv_safety import neutralise_formula
 from app.core.file_signature import detect as detect_signature
+from app.core.i18n import get_locale
 from app.core.upload_guards import reject_if_xlsx_bomb
+from app.core.validation.messages import translate
 from app.dependencies import (
     CurrentUserId,
     CurrentUserPayload,
@@ -192,7 +194,7 @@ async def _verify_boq_owner(
     project_repo = ProjectRepository(session)
     project = await project_repo.get_by_id(boq.project_id)
     if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.project_not_found", locale=get_locale()))
     if str(project.owner_id) != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -217,7 +219,7 @@ async def _verify_project_owner_for_boq(
     project_repo = ProjectRepository(session)
     project = await project_repo.get_by_id(project_id)
     if project is None or project.status == "archived":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.project_not_found", locale=get_locale()))
     if is_admin:
         return
     if str(project.owner_id) != user_id:
@@ -1714,7 +1716,7 @@ async def get_position(
     # IDOR guard: load position → derive boq_id → verify ownership chain
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     return await _position_to_response_with_links(service, existing)
 
@@ -1737,7 +1739,7 @@ async def update_position(
     # IDOR guard: load position → derive boq_id → verify ownership chain
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     # Pass actor_id through so the audit log records who made the change
     # (BUG-AUDIT01).  Without it the service falls back to anonymous and
@@ -1900,7 +1902,7 @@ async def repick_resource_variant(
     # IDOR guard: load position → derive boq_id → verify ownership chain.
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
 
     position = await service.repick_resource_variant(
@@ -1936,7 +1938,7 @@ async def list_position_links(
     """
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     return await service.list_links(position_id)
 
@@ -1963,7 +1965,7 @@ async def unlink_position(
     """
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     position = await service.unlink_position(position_id, actor_id=user_id)
     return await _position_to_response_with_links(service, position)
@@ -1990,7 +1992,7 @@ async def delete_position(
     # IDOR guard: load position → derive boq_id → verify ownership chain
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Position not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.position_not_found", locale=get_locale()))
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     await _log_activity(
         service,
@@ -2212,7 +2214,8 @@ async def list_quantity_links(
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Position not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=translate("errors.position_not_found", locale=get_locale()),
         )
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     return await service.list_quantity_links(position_id)
@@ -2242,7 +2245,8 @@ async def create_quantity_link(
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Position not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=translate("errors.position_not_found", locale=get_locale()),
         )
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     link = await service.create_quantity_link(
@@ -2281,7 +2285,8 @@ async def delete_quantity_link(
     existing = await service.position_repo.get_by_id(position_id)
     if existing is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Position not found"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=translate("errors.position_not_found", locale=get_locale()),
         )
     await _verify_boq_owner(session, existing.boq_id, user_id, payload)
     link = await service.quantity_link_repo.get_by_id(link_id)
@@ -6247,7 +6252,7 @@ async def assign_position_co2(
 
     pos = await service.position_repo.get_by_id(position_id)
     if not pos:
-        raise HTTPException(status_code=404, detail="Position not found")
+        raise HTTPException(status_code=404, detail=translate("errors.position_not_found", locale=get_locale()))
 
     meta = dict(pos.metadata_) if pos.metadata_ else {}
     qty = float(pos.quantity) if pos.quantity else 0.0
@@ -7317,7 +7322,7 @@ async def boq_position_similar(
     stmt = select(Position).options(selectinload(Position.boq)).where(Position.id == position_id)
     row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
-        raise HTTPException(status_code=404, detail="Position not found")
+        raise HTTPException(status_code=404, detail=translate("errors.position_not_found", locale=get_locale()))
 
     project_id = (
         str(row.boq.project_id) if row.boq is not None and row.boq.project_id is not None else None

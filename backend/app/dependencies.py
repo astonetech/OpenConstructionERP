@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 if TYPE_CHECKING:
     from app.modules.users.models import User
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -441,6 +441,54 @@ async def verify_project_access(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+
+
+# ── Locale resolution (per-request, for HTTPException i18n) ────────────────
+
+
+def get_lang(request: Request) -> str:
+    """Resolve the request's preferred locale as a 2-letter ISO 639-1 code.
+
+    Priority:
+        1. ``?locale=XX`` query parameter (explicit override)
+        2. First language tag of the ``Accept-Language`` header
+        3. ``"en"`` fallback
+
+    The full RFC 7231 parser lives in
+    :mod:`app.middleware.accept_language` and already runs on every
+    request; this helper exists so router handlers can ask for the same
+    resolved code without going through the context variable when they
+    want to render an HTTPException detail via
+    :func:`app.core.validation.messages.translate`.
+
+    Args:
+        request: Incoming FastAPI/Starlette request.
+
+    Returns:
+        A 2-letter locale code, e.g. ``"de"`` / ``"ru"`` / ``"en"``.
+    """
+    # 1. Explicit query override
+    qs_locale = request.query_params.get("locale")
+    if qs_locale:
+        code = qs_locale.strip().lower()[:2]
+        if code:
+            return code
+
+    # 2. Accept-Language header (first tag, region stripped)
+    header = request.headers.get("accept-language", "")
+    if header:
+        first = header.split(",", 1)[0].strip()
+        # Strip ;q=... suffix, then language-region → language
+        first = first.split(";", 1)[0].strip()
+        code = first.split("-", 1)[0].lower()[:2]
+        if code and code.isalpha():
+            return code
+
+    # 3. Default
+    return "en"
+
+
+LangDep = Annotated[str, Depends(get_lang)]
 
 
 # ── Convenience type aliases ───────────────────────────────────────────────

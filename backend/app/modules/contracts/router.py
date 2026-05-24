@@ -27,6 +27,8 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import (
     CurrentUserId,
     RequirePermission,
@@ -110,7 +112,7 @@ async def _load_contract_or_404(session, contract_id: uuid.UUID) -> Contract:
 async def _load_claim_or_404(session, claim_id: uuid.UUID) -> ProgressClaim:
     obj = await session.get(ProgressClaim, claim_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="Progress claim not found")
+        raise HTTPException(status_code=404, detail=translate("errors.claim_not_found", locale=get_locale()))
     return obj
 
 
@@ -1048,7 +1050,7 @@ async def get_final_account(
     repo = FinalAccountRepository(session)
     obj = await repo.get_by_id(account_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="Final account not found")
+        raise HTTPException(status_code=404, detail=translate("errors.final_account_not_found", locale=get_locale()))
     await _verify_contract_access(session, obj.contract_id, user_id)
     return FinalAccountResponse.model_validate(obj)
 
@@ -1066,7 +1068,7 @@ async def update_final_account(
     repo = FinalAccountRepository(session)
     obj = await repo.get_by_id(account_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="Final account not found")
+        raise HTTPException(status_code=404, detail=translate("errors.final_account_not_found", locale=get_locale()))
     await _verify_contract_access(session, obj.contract_id, user_id)
     fields = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
     if fields:
@@ -1088,7 +1090,7 @@ async def delete_final_account(
     repo = FinalAccountRepository(session)
     obj = await repo.get_by_id(account_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail="Final account not found")
+        raise HTTPException(status_code=404, detail=translate("errors.final_account_not_found", locale=get_locale()))
     await _verify_contract_access(session, obj.contract_id, user_id)
     await repo.delete(account_id)
 

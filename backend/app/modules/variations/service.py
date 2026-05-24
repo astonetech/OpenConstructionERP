@@ -19,6 +19,8 @@ from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.variations.models import (
     DayworkSheet,
     DayworkSheetLine,
@@ -1323,7 +1325,7 @@ class VariationsService:
     async def get_site_measurement(self, sm_id: uuid.UUID) -> SiteMeasurement:
         row = await self.site_measurement_repo.get_by_id(sm_id)
         if row is None:
-            raise HTTPException(status_code=404, detail="Site measurement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.measurement_not_found", locale=get_locale()))
         return row
 
     async def update_site_measurement(
@@ -1333,7 +1335,7 @@ class VariationsService:
     ) -> SiteMeasurement:
         sm = await self.site_measurement_repo.get_by_id(sm_id)
         if sm is None:
-            raise HTTPException(status_code=404, detail="Site measurement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.measurement_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         if "measured_quantity" in fields and fields["measured_quantity"] is not None:
             fields["measured_quantity"] = _to_decimal(fields["measured_quantity"])
@@ -1348,7 +1350,7 @@ class VariationsService:
     ) -> SiteMeasurement:
         sm = await self.site_measurement_repo.get_by_id(sm_id)
         if sm is None:
-            raise HTTPException(status_code=404, detail="Site measurement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.measurement_not_found", locale=get_locale()))
         await self.site_measurement_repo.update_fields(
             sm_id, agreed_with_owner_at=_now_iso(),
         )
@@ -1372,7 +1374,7 @@ class VariationsService:
     async def delete_site_measurement(self, sm_id: uuid.UUID) -> None:
         sm = await self.site_measurement_repo.get_by_id(sm_id)
         if sm is None:
-            raise HTTPException(status_code=404, detail="Site measurement not found")
+            raise HTTPException(status_code=404, detail=translate("errors.measurement_not_found", locale=get_locale()))
         await self.site_measurement_repo.delete(sm_id)
 
     # ── Daywork sheets ───────────────────────────────────────────────────
@@ -1850,7 +1852,7 @@ class VariationsService:
     async def get_final_account(self, fa_id: uuid.UUID) -> FinalAccount:
         row = await self.final_account_repo.get_by_id(fa_id)
         if row is None:
-            raise HTTPException(status_code=404, detail="Final account not found")
+            raise HTTPException(status_code=404, detail=translate("errors.final_account_not_found", locale=get_locale()))
         return row
 
     async def update_final_account(
@@ -1929,7 +1931,7 @@ class VariationsService:
             # should never have asked.
             raise HTTPException(
                 status_code=http_status.HTTP_404_NOT_FOUND,
-                detail="Final account not found",
+                detail=translate("errors.final_account_not_found", locale=get_locale()),
             )
         vo_currency = (vo.currency or "").strip()
         fa_currency = (fa.currency or "").strip()

@@ -27,6 +27,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.schedule_advanced.models import (
     Baseline,
     BaselineDelta,
@@ -1393,7 +1395,7 @@ class ScheduleAdvancedService:
     async def get_baseline(self, bid: uuid.UUID) -> Baseline:
         b = await self.baseline_repo.get_by_id(bid)
         if b is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Baseline not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.baseline_not_found", locale=get_locale()))
         return b
 
     async def update_baseline(
