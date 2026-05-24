@@ -18,6 +18,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.property_dev.models import (
     Block,
     Broker,
@@ -1042,7 +1044,7 @@ class PropertyDevService:
         if user_id is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
+                detail=translate("errors.project_not_found", locale=get_locale()),
             )
         from app.modules.projects.repository import ProjectRepository
 
@@ -1050,7 +1052,7 @@ class PropertyDevService:
         if project is None or str(project.owner_id) != str(user_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
+                detail=translate("errors.project_not_found", locale=get_locale()),
             )
 
     async def list_house_type_catalogue(
@@ -1375,7 +1377,7 @@ class PropertyDevService:
     async def get_plot(self, plot_id: uuid.UUID) -> Plot:
         obj = await self.plots.get_by_id(plot_id)
         if obj is None:
-            raise HTTPException(status_code=404, detail="Plot not found")
+            raise HTTPException(status_code=404, detail=translate("errors.plot_not_found", locale=get_locale()))
         return obj
 
     async def update_plot(self, plot_id: uuid.UUID, data: PlotUpdate) -> Plot:
@@ -3149,7 +3151,7 @@ class PropertyDevService:
     async def get_spa(self, spa_id: uuid.UUID) -> SalesContract:
         obj = await self.sales_contracts.get_by_id(spa_id)
         if obj is None:
-            raise HTTPException(status_code=404, detail="SalesContract not found")
+            raise HTTPException(status_code=404, detail=translate("errors.salescontract_not_found", locale=get_locale()))
         return obj
 
     async def update_spa(
@@ -5423,7 +5425,7 @@ async def _svc_approve_commission(
 ) -> CommissionAccrual:
     accrual = await svc.commission_accruals.get_by_id(accrual_id)
     if accrual is None:
-        raise HTTPException(status_code=404, detail="CommissionAccrual not found")
+        raise HTTPException(status_code=404, detail=translate("errors.commission_accrual_not_found", locale=get_locale()))
     target = "approved"
     if target == accrual.state:
         return accrual
@@ -5462,7 +5464,7 @@ async def _svc_pay_commission(
 ) -> CommissionAccrual:
     accrual = await svc.commission_accruals.get_by_id(accrual_id)
     if accrual is None:
-        raise HTTPException(status_code=404, detail="CommissionAccrual not found")
+        raise HTTPException(status_code=404, detail=translate("errors.commission_accrual_not_found", locale=get_locale()))
     target = "paid"
     if target not in allowed_commission_transitions(accrual.state):
         raise HTTPException(
@@ -5582,7 +5584,7 @@ async def _svc_reconcile_escrow_transaction(
 ) -> EscrowTransaction:
     tx = await svc.escrow_transactions.get_by_id(tx_id)
     if tx is None:
-        raise HTTPException(status_code=404, detail="EscrowTransaction not found")
+        raise HTTPException(status_code=404, detail=translate("errors.escrow_not_found", locale=get_locale()))
     target = "matched"
     if target == tx.reconciliation_state:
         return tx
@@ -6209,7 +6211,7 @@ async def _svc_generate_document(
             raise HTTPException(status_code=404, detail="Reservation not found")
         plot = await svc.plots.get_by_id(reservation.plot_id)
         if plot is None:
-            raise HTTPException(status_code=404, detail="Plot not found")
+            raise HTTPException(status_code=404, detail=translate("errors.plot_not_found", locale=get_locale()))
         development = await svc.developments.get_by_id(plot.development_id)
         if development is None:
             raise HTTPException(status_code=404, detail="Development not found")
@@ -6227,10 +6229,10 @@ async def _svc_generate_document(
             raise HTTPException(status_code=400, detail="contract_id required")
         contract = await svc.sales_contracts.get_by_id(contract_id)
         if contract is None:
-            raise HTTPException(status_code=404, detail="SalesContract not found")
+            raise HTTPException(status_code=404, detail=translate("errors.salescontract_not_found", locale=get_locale()))
         plot = await svc.plots.get_by_id(contract.plot_id)
         if plot is None:
-            raise HTTPException(status_code=404, detail="Plot not found")
+            raise HTTPException(status_code=404, detail=translate("errors.plot_not_found", locale=get_locale()))
         development = await svc.developments.get_by_id(plot.development_id)
         if development is None:
             raise HTTPException(status_code=404, detail="Development not found")
@@ -6271,7 +6273,7 @@ async def _svc_generate_document(
             raise HTTPException(status_code=404, detail="PaymentSchedule not found")
         contract = await svc.sales_contracts.get_by_id(schedule.sales_contract_id)
         if contract is None:
-            raise HTTPException(status_code=404, detail="SalesContract not found")
+            raise HTTPException(status_code=404, detail=translate("errors.salescontract_not_found", locale=get_locale()))
         plot = await svc.plots.get_by_id(contract.plot_id)
         development = (
             await svc.developments.get_by_id(plot.development_id)
@@ -6296,7 +6298,7 @@ async def _svc_generate_document(
             raise HTTPException(status_code=404, detail="Handover not found")
         plot = await svc.plots.get_by_id(handover.plot_id)
         if plot is None:
-            raise HTTPException(status_code=404, detail="Plot not found")
+            raise HTTPException(status_code=404, detail=translate("errors.plot_not_found", locale=get_locale()))
         development = await svc.developments.get_by_id(plot.development_id)
         # The handover certificate quotes the SPA — find the most recent
         # signed contract on the plot. Falls back to draft if no signed one.
@@ -6378,10 +6380,10 @@ async def _svc_generate_document(
             raise HTTPException(status_code=400, detail="contract_id required")
         contract = await svc.sales_contracts.get_by_id(contract_id)
         if contract is None:
-            raise HTTPException(status_code=404, detail="SalesContract not found")
+            raise HTTPException(status_code=404, detail=translate("errors.salescontract_not_found", locale=get_locale()))
         plot = await svc.plots.get_by_id(contract.plot_id)
         if plot is None:
-            raise HTTPException(status_code=404, detail="Plot not found")
+            raise HTTPException(status_code=404, detail=translate("errors.plot_not_found", locale=get_locale()))
         development = await svc.developments.get_by_id(plot.development_id)
         return render_no_objection_certificate_pdf(
             contract,

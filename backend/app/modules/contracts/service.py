@@ -21,6 +21,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.contracts.models import (
     Contract,
     ContractLine,
@@ -1011,7 +1013,7 @@ class ContractsService:
     ) -> ProgressClaim:
         claim = await self.claim_repo.get_by_id(claim_id)
         if claim is None:
-            raise HTTPException(status_code=404, detail="Progress claim not found")
+            raise HTTPException(status_code=404, detail=translate("errors.claim_not_found", locale=get_locale()))
         try:
             assert_claim_transition(claim.status, target_status)
         except InvalidTransitionError as exc:
@@ -1098,7 +1100,7 @@ class ContractsService:
         """
         claim = await self.claim_repo.get_by_id(claim_id)
         if claim is None:
-            raise HTTPException(status_code=404, detail="Progress claim not found")
+            raise HTTPException(status_code=404, detail=translate("errors.claim_not_found", locale=get_locale()))
         if claim.status != "draft":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1482,7 +1484,7 @@ class ContractsService:
             )
         claim = await self.claim_repo.get_by_id(claim_id)
         if claim is None:
-            raise HTTPException(status_code=404, detail="Progress claim not found")
+            raise HTTPException(status_code=404, detail=translate("errors.claim_not_found", locale=get_locale()))
         # Lien waivers are a legal release of lien rights tied to a specific
         # payment application. A waiver on a draft claim (never submitted)
         # has no underlying lien to release; one on a rejected claim ties
@@ -1537,7 +1539,7 @@ class ContractsService:
     async def list_lien_waivers(self, claim_id: uuid.UUID) -> list[dict[str, Any]]:
         claim = await self.claim_repo.get_by_id(claim_id)
         if claim is None:
-            raise HTTPException(status_code=404, detail="Progress claim not found")
+            raise HTTPException(status_code=404, detail=translate("errors.claim_not_found", locale=get_locale()))
         return list((claim.metadata_ or {}).get("lien_waivers", []) or [])
 
     # ── Dashboard ────────────────────────────────────────────────────────

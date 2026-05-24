@@ -18,6 +18,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 
 _logger_ev = __import__("logging").getLogger(__name__ + ".events")
 
@@ -883,7 +885,7 @@ class AIService:
                     self.session.expunge(job)
                     job = await self.job_repo.get_by_id(job_id)
                     if job is None:
-                        raise HTTPException(status_code=404, detail="Estimate job not found")
+                        raise HTTPException(status_code=404, detail=translate("errors.estimate_job_not_found", locale=get_locale()))
                     return _build_job_response(job)
 
             elif category == "image":
@@ -905,7 +907,7 @@ class AIService:
             self.session.expunge(job)
             job = await self.job_repo.get_by_id(job_id)
             if job is None:
-                raise HTTPException(status_code=404, detail="Estimate job not found")
+                raise HTTPException(status_code=404, detail=translate("errors.estimate_job_not_found", locale=get_locale()))
             return _build_job_response(job)
 
         # ── Choose prompt and call AI ──
@@ -975,7 +977,7 @@ class AIService:
                 self.session.expunge(job)
                 job = await self.job_repo.get_by_id(job_id)
                 if job is None:
-                    raise HTTPException(status_code=404, detail="Estimate job not found")
+                    raise HTTPException(status_code=404, detail=translate("errors.estimate_job_not_found", locale=get_locale()))
                 return _build_job_response(job)
 
             # Store metadata about the file
@@ -1032,7 +1034,7 @@ class AIService:
         self.session.expunge(job)
         job = await self.job_repo.get_by_id(job_id)
         if job is None:
-            raise HTTPException(status_code=404, detail="Estimate job not found")
+            raise HTTPException(status_code=404, detail=translate("errors.estimate_job_not_found", locale=get_locale()))
 
         await _safe_publish(
             "ai.estimate.completed",
@@ -1087,7 +1089,7 @@ class AIService:
         if job is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Estimate job not found",
+                detail=translate("errors.estimate_job_not_found", locale=get_locale()),
             )
 
         if str(job.user_id) != str(uid):

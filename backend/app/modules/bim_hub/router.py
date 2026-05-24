@@ -68,7 +68,9 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.i18n import get_locale
 from app.core.rate_limiter import upload_limiter
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep
 from app.modules.bim_hub import file_storage as bim_file_storage
 from app.modules.bim_hub.schemas import (
@@ -257,7 +259,7 @@ async def _verify_project_access(
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
+            detail=translate("errors.project_not_found", locale=get_locale()),
         )
 
     # Admin bypass — admins can touch any project regardless of ownership.
@@ -274,7 +276,7 @@ async def _verify_project_access(
     if str(project.owner_id) != str(user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
+            detail=translate("errors.project_not_found", locale=get_locale()),
         )
 
 

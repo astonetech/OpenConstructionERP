@@ -513,7 +513,7 @@ function AssignOccupantModal({
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            {t('common.cancel', { defaultValue: 'Cancel' })}
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -867,7 +867,7 @@ function BookingsList({
               </th>
               <th scope="col" className="px-3 py-2 font-medium text-right">
                 <span className="sr-only">
-                  {t('common.actions', { defaultValue: 'Actions' })}
+                  {t('common.actions')}
                 </span>
               </th>
             </tr>
@@ -1251,7 +1251,7 @@ function AddChargeModal({
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            {t('common.cancel', { defaultValue: 'Cancel' })}
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -1261,7 +1261,7 @@ function AddChargeModal({
             disabled={!amountValid}
             data-testid="charge-submit"
           >
-            {t('common.create', { defaultValue: 'Create' })}
+            {t('common.create')}
           </Button>
         </>
       }

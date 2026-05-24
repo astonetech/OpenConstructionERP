@@ -27,7 +27,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from app.core.file_signature import detect as detect_signature
+from app.core.i18n import get_locale
 from app.core.upload_guards import reject_if_xlsx_bomb
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.fieldreports.schemas import (
     FieldReportCreate,
@@ -1047,12 +1049,12 @@ async def update_template(
     try:
         tpl_uuid = uuid.UUID(template_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="Template not found") from None
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale())) from None
 
     # IDOR guard: load first, verify the template's project, then mutate.
     existing = await service.repo.get_by_id(tpl_uuid)
     if existing is None or str(existing.project_id) != str(project_id):
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     tpl = await service.update_template(tpl_uuid, data)
     return _template_to_response(tpl)
@@ -1078,11 +1080,11 @@ async def delete_template(
     try:
         tpl_uuid = uuid.UUID(template_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="Template not found") from None
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale())) from None
 
     existing = await service.repo.get_by_id(tpl_uuid)
     if existing is None or str(existing.project_id) != str(project_id):
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail=translate("errors.template_not_found", locale=get_locale()))
     await verify_project_access(existing.project_id, user_id, session)
     await service.delete_template(tpl_uuid)
 

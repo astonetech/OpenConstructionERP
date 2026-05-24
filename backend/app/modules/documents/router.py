@@ -28,7 +28,9 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.core.bulk_ops import BulkDeleteRequest
+from app.core.i18n import get_locale
 from app.core.rate_limiter import upload_limiter
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.documents.schemas import (
     DocumentActivityResponse,
@@ -120,14 +122,14 @@ async def _verify_project_membership_or_404(
         if await proj_repo.get_by_id(project_id) is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
+                detail=translate("errors.project_not_found", locale=get_locale()),
             )
         return
 
     if not await is_project_member(session, project_id, uuid.UUID(str(user_id))):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
+            detail=translate("errors.project_not_found", locale=get_locale()),
         )
 
 
@@ -1628,7 +1630,7 @@ async def documents_similar(
     stmt = select(Document).where(Document.id == document_id)
     row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=translate("errors.document_not_found", locale=get_locale()))
 
     # Cross-tenant IDOR gate — mirror ``get_document`` so a caller with no
     # access to the document's project gets a 404 (not a 200 leaking a

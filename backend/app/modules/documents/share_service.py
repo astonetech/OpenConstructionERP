@@ -31,6 +31,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.documents.models import Document
 from app.modules.documents.share_models import DocumentShareLink
 
@@ -100,7 +102,7 @@ async def _load_document(
     if doc is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            detail=translate("errors.document_not_found", locale=get_locale()),
         )
     return doc
 

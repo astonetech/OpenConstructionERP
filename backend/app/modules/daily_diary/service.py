@@ -28,6 +28,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.daily_diary.models import (
     DailyDiary,
     DiaryArchiveSignature,
@@ -1081,7 +1083,10 @@ class DailyDiaryService:
     ) -> DiaryPhoto:
         photo = await self.photo_repo.get_by_id(photo_id)
         if photo is None:
-            raise HTTPException(status_code=404, detail="Diary photo not found")
+            raise HTTPException(
+                status_code=404,
+                detail=translate("errors.diary_photo_not_found", locale=get_locale()),
+            )
         # R7 signed-immutable: mutating a photo on a sealed diary breaks the
         # archival hash.
         parent_diary_id = getattr(photo, "diary_id", None)
@@ -1105,7 +1110,10 @@ class DailyDiaryService:
     async def delete_photo(self, photo_id: uuid.UUID) -> None:
         photo = await self.photo_repo.get_by_id(photo_id)
         if photo is None:
-            raise HTTPException(status_code=404, detail="Diary photo not found")
+            raise HTTPException(
+                status_code=404,
+                detail=translate("errors.diary_photo_not_found", locale=get_locale()),
+            )
         # R7 signed-immutable: deleting a photo on a sealed diary is also
         # a hash-breaking change. Reject with the structured 409 so the
         # UI can prompt for unlock.
@@ -1145,7 +1153,7 @@ class DailyDiaryService:
     ) -> DiaryVideo:
         video = await self.video_repo.get_by_id(video_id)
         if video is None:
-            raise HTTPException(status_code=404, detail="Diary video not found")
+            raise HTTPException(status_code=404, detail=translate("errors.diary_video_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         if fields:
             await self.video_repo.update_fields(video_id, **fields)
@@ -1154,7 +1162,7 @@ class DailyDiaryService:
     async def delete_video(self, video_id: uuid.UUID) -> None:
         video = await self.video_repo.get_by_id(video_id)
         if video is None:
-            raise HTTPException(status_code=404, detail="Diary video not found")
+            raise HTTPException(status_code=404, detail=translate("errors.diary_video_not_found", locale=get_locale()))
         await self.video_repo.delete(video_id)
 
     # ── Drone surveys ────────────────────────────────────────────────────
@@ -1190,7 +1198,7 @@ class DailyDiaryService:
     ) -> DroneSurvey:
         survey = await self.drone_repo.get_by_id(survey_id)
         if survey is None:
-            raise HTTPException(status_code=404, detail="Drone survey not found")
+            raise HTTPException(status_code=404, detail=translate("errors.survey_not_found", locale=get_locale()))
         fields = data.model_dump(exclude_unset=True)
         # Cross-field invariant: elevation_min_m ≤ elevation_max_m. The
         # schema validator catches the case where BOTH come in the same
@@ -1214,7 +1222,7 @@ class DailyDiaryService:
     async def delete_drone_survey(self, survey_id: uuid.UUID) -> None:
         survey = await self.drone_repo.get_by_id(survey_id)
         if survey is None:
-            raise HTTPException(status_code=404, detail="Drone survey not found")
+            raise HTTPException(status_code=404, detail=translate("errors.survey_not_found", locale=get_locale()))
         await self.drone_repo.delete(survey_id)
 
     # ── Reality capture ──────────────────────────────────────────────────

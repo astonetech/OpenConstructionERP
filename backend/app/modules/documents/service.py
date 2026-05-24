@@ -25,6 +25,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.modules.bim_hub.models import BIMElement
 from app.modules.documents.activity_service import record_activity
 from app.modules.documents.models import Document, DocumentBIMLink, ProjectPhoto, Sheet
@@ -369,7 +371,7 @@ class DocumentService:
         if document is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found",
+                detail=translate("errors.document_not_found", locale=get_locale()),
             )
         return document
 
@@ -1374,7 +1376,7 @@ class DocumentBIMLinkService:
         if document is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document not found",
+                detail=translate("errors.document_not_found", locale=get_locale()),
             )
 
         # Verify BIM element exists

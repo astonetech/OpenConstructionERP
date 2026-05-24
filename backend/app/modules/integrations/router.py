@@ -25,6 +25,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse
 
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, SessionDep
 from app.modules.integrations.models import IntegrationConfig
 from app.modules.integrations.schemas import (
@@ -286,7 +288,7 @@ async def update_webhook(
     """Update an existing webhook endpoint."""
     webhook = await svc.get_webhook(webhook_id)
     if webhook is None or str(webhook.user_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail=translate("errors.webhook_not_found", locale=get_locale()))
     updated = await svc.update_webhook(webhook, body.model_dump(exclude_unset=True))
     return WebhookResponse.model_validate(updated)
 
@@ -300,7 +302,7 @@ async def delete_webhook(
     """Delete a webhook endpoint."""
     webhook = await svc.get_webhook(webhook_id)
     if webhook is None or str(webhook.user_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail=translate("errors.webhook_not_found", locale=get_locale()))
     await svc.delete_webhook(webhook)
 
 
@@ -316,7 +318,7 @@ async def list_deliveries(
     """Return the last 50 delivery log entries for a webhook."""
     webhook = await svc.get_webhook(webhook_id)
     if webhook is None or str(webhook.user_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail=translate("errors.webhook_not_found", locale=get_locale()))
     items = await svc.list_deliveries(webhook_id, limit=50)
     return [DeliveryResponse.model_validate(d) for d in items]
 
@@ -333,7 +335,7 @@ async def test_webhook(
     """Send a test payload to the webhook and return the delivery result."""
     webhook = await svc.get_webhook(webhook_id)
     if webhook is None or str(webhook.user_id) != str(user_id):
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail=translate("errors.webhook_not_found", locale=get_locale()))
     delivery = await svc.send_test(webhook)
     return DeliveryResponse.model_validate(delivery)
 

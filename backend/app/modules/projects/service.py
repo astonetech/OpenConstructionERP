@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.core.events import event_bus
+from app.core.i18n import get_locale
+from app.core.validation.messages import translate
 
 # Per-process lock + reservation set guarding ``_generate_project_code``.
 # The Project model does NOT carry a DB-level UniqueConstraint on
@@ -261,13 +263,13 @@ class ProjectService:
         if project is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
+                detail=translate("errors.project_not_found", locale=get_locale()),
             )
         if not include_archived and project.status == "archived":
             # Soft-deleted projects appear as gone to normal callers.
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found",
+                detail=translate("errors.project_not_found", locale=get_locale()),
             )
         return project
 

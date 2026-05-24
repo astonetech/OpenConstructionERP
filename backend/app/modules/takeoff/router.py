@@ -48,7 +48,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 
 from app.core.csv_safety import neutralise_formula
+from app.core.i18n import get_locale
 from app.core.rate_limiter import upload_limiter
+from app.core.validation.messages import translate
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.takeoff.manifest_verifier import (
     InstallNotSupported,
@@ -1551,7 +1553,7 @@ async def _verify_cad_session_access(
     if owner and owner != str(user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found.",
+            detail=translate("errors.session_not_found", locale=get_locale()),
         )
 
 
@@ -3304,7 +3306,7 @@ async def cad_data_delete_session(
     if not cad_session:
         # Match the historic "Session not found." string (some callers
         # branch on it) instead of the more verbose memory message.
-        raise HTTPException(status_code=404, detail="Session not found.")
+        raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
 
     await _verify_cad_session_access(cad_session, str(user_id) if user_id else "", db_session)
 
@@ -3313,7 +3315,7 @@ async def cad_data_delete_session(
     await db_session.commit()
 
     if result.rowcount == 0:  # type: ignore[union-attr]
-        raise HTTPException(status_code=404, detail="Session not found.")
+        raise HTTPException(status_code=404, detail=translate("errors.session_not_found", locale=get_locale()))
 
     # Also remove from memory cache
     _cad_sessions.pop(session_id, None)
@@ -3643,7 +3645,7 @@ async def _verify_takeoff_doc_access(
     if owner and owner != str(user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
+            detail=translate("errors.document_not_found", locale=get_locale()),
         )
 
 
@@ -3713,7 +3715,7 @@ async def get_document(
     """
     doc = await service.get_document(doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
 
     await _verify_takeoff_doc_access(doc, str(user_id) if user_id else "", session)
 
@@ -3752,7 +3754,7 @@ async def extract_tables(
     """
     doc = await service.get_document(doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
 
     await _verify_takeoff_doc_access(doc, str(user_id) if user_id else "", session)
 
@@ -3781,7 +3783,7 @@ async def download_document(
     """
     doc = await service.get_document(doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
 
     await _verify_takeoff_doc_access(doc, str(user_id) if user_id else "", session)
 
@@ -3838,7 +3840,7 @@ async def analyze_document(
     # 1. Get the document
     doc = await service.get_document(doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
 
     # Audit B5 — IDOR. AI analysis dispatches the PDF text to a third
     # party LLM and bills tokens; without this check, any user could
@@ -4004,7 +4006,7 @@ async def delete_document(
     """
     doc = await service.get_document(doc_id)
     if doc is None:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
 
     await _verify_takeoff_doc_access(doc, str(user_id) if user_id else "", session)
 
