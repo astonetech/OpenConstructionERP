@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "DataDrivenConstruction-workshop",
     "lede": "Alleen geselecteerde publieke workshops worden vermeld. Veel grote enterprise-opdrachten blijven onder NDA.",
-    "title": "Hands-on training, <span class=\"italic\">in jouw eigen stack.</span>"
+    "title": "Hands-on training, <span class=\"italic\">in jouw eigen stack.</span>",
+    "t1_quote": "Geweldige workshop, Artem! De voorbereidingen zijn in volle gang! Ik kijk al uit naar de hackathon in het nieuwe jaar! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "Wat gebeurt er als je bouwprocessen niet alleen organiseert, maar ze ook intelligent analyseert? Dat was het thema van onze workshop met Artem Boiko over &lsquo;Data-Driven Construction&rsquo;. Centraal stond de vraag: hoe kunnen we bestaande data beter benutten &ndash; om bouwprojecten effici&euml;nter, transparanter en minder foutgevoelig te maken. Aan de hand van concrete voorbeelden liet Artem zien hoe gestructureerde bouwdata helpen het overzicht te bewaren, meerwerk vroegtijdig te signaleren en de communicatie tussen ontwerp en uitvoering te verbeteren. Bijzonder spannend: hoe digitale tools en modellen vandaag al ingezet kunnen worden om processen te automatiseren. Data-driven construction is geen toekomstmuziek meer &ndash; we zitten er middenin. De workshop liet zien hoe groot het potentieel is als we samenwerken en data echt voor ons laten werken.",
+    "t2_role": "Lindner Group &middot; Afdelingshoofd, BIM Professional",
+    "t3_quote": "Artem Boiko verzorgde een uitstekende presentatie voor het hele Shapemaker-team en gaf diepgaande inzichten in datamigratie vanuit engineeringsoftware en aanverwante onderwerpen. Zijn expertise en heldere communicatie maakten complexe concepten goed te begrijpen en gaven ons team praktische kennis die we direct kunnen toepassen. Ik raad zijn diensten van harte aan iedereen die helderheid en bruikbare strategie&euml;n in dit domein zoekt!",
+    "t3_role": "Shapemaker &middot; CRO en medeoprichter",
+    "t4_quote": "Ik vond de DataDrivenConstruction-workshop heel interessant. Naar mijn mening kon iedereen het volgen. Aan je dia&rsquo;s zie je hoeveel tijd, doorzettingsvermogen en moeite je erin gestoken hebt. Ook de live presentaties waren geweldig. Het enige wat ik zou bekritiseren is het aantal dia&rsquo;s &ndash; er waren er gewoon te veel. Maar dat is mopperen op het allerhoogste niveau. Alles bij elkaar was het de beste workshop waar ik ben geweest. En bovendien ben je een heel prettig persoon.",
+    "t4_role": "Dimexcon &middot; Software engineer voor BIM-automatisering",
+    "t5_quote": "Ik vond de DataDrivenConstruction-training in zijn geheel echt boeiend en zeer verrijkend. Wat mij vooral aansprak: de &lsquo;historische&rsquo; achtergrond van de verschillende CAD-pakketten (dat was fascinerend en had iets weg van onderzoeksjournalistiek); de interessante aanpak van automatisering via DataFrames; je eigen praktische voorbeelden van procesautomatisering in de bouw; en de kijk op actuele trends als Claude Code en OpenClaw &mdash; je hebt het thema echt tot leven gebracht. Enig nadeel: het was wel heel veel input in twee dagen. Tegelijk heb je goed laten zien hoe we onszelf verder kunnen ori&euml;nteren &mdash; bijvoorbeeld door onze processen gestructureerd vast te leggen op het Miro-bord. Nogmaals heel erg bedankt voor de training en de uitwisseling.",
+    "t5_role": "Herbert Gruppe &middot; Teamleider Prefab",
+    "t6_quote": "Het was een fantastische workshop met boeiende inhoud waar wij &mdash; en ikzelf persoonlijk &mdash; veel van geleerd hebben. Bedankt dat je zoveel tijd voor ons hebt vrijgemaakt. We kijken ernaar uit om het geleerde zo snel mogelijk uit te proberen en in onze projecten te integreren! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "Lees meer",
+    "read_less": "Minder tonen"
   },
   "modgrid": {
     "eyebrow": "Wat zit erin",

@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "Workshop DataDrivenConstruction",
     "lede": "Vengono elencati solo i workshop pubblici selezionati. Molti incarichi enterprise importanti restano sotto NDA.",
-    "title": "Formazione pratica, <span class=\"italic\">sul tuo stack.</span>"
+    "title": "Formazione pratica, <span class=\"italic\">sul tuo stack.</span>",
+    "t1_quote": "Workshop fantastico, Artem! I preparativi sono in pieno svolgimento! Non vedo l&rsquo;ora dell&rsquo;hackathon del nuovo anno! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "Cosa succede quando si organizzano i processi di costruzione e li si analizza anche in modo intelligente? &Egrave; stato il tema del nostro workshop con Artem Boiko su &laquo;Data-Driven Construction&raquo;. L&rsquo;attenzione era sulla domanda: come possiamo sfruttare meglio i dati esistenti per rendere i progetti di costruzione pi&ugrave; efficienti, pi&ugrave; trasparenti e meno soggetti a errori. Con esempi concreti, Artem ha mostrato come dati strutturati aiutino a mantenere la visione d&rsquo;insieme, riconoscere in anticipo le varianti e migliorare la comunicazione tra progettazione ed esecuzione. Particolarmente interessante: come strumenti e modelli digitali possano gi&agrave; oggi automatizzare i processi. La costruzione data-driven non &egrave; pi&ugrave; un tema del futuro &ndash; siamo proprio nel mezzo. Il workshop ha mostrato quanto sia grande il potenziale se lavoriamo insieme e facciamo davvero lavorare i dati per noi.",
+    "t2_role": "Lindner Group &middot; Capo dipartimento, BIM Professional",
+    "t3_quote": "Artem Boiko ha tenuto una presentazione eccezionale a tutto il team Shapemaker, offrendo intuizioni profonde sulla migrazione dei dati da software di ingegneria e argomenti correlati. La sua competenza e comunicazione chiara hanno reso concetti complessi facili da comprendere, dotando il nostro team di conoscenze pratiche immediatamente applicabili. Consiglio vivamente i suoi servizi a chiunque cerchi chiarezza e strategie concrete in questo ambito!",
+    "t3_role": "Shapemaker &middot; CRO e cofondatore",
+    "t4_quote": "Ho trovato il workshop DataDrivenConstruction molto interessante. A mio parere, tutti sono riusciti a seguire. Dalle tue slide si vede quanto tempo, perseveranza e impegno hai dedicato. Anche le presentazioni dal vivo sono state ottime. L&rsquo;unica cosa che critico &egrave; il numero di slide &ndash; erano davvero troppe. Ma sono critiche di altissimo livello. Nel complesso &egrave; stato il miglior workshop a cui ho partecipato. E in pi&ugrave; sei anche una persona molto piacevole.",
+    "t4_role": "Dimexcon &middot; Ingegnere software per l&rsquo;automazione BIM",
+    "t5_quote": "Nel complesso, ho trovato la formazione DataDrivenConstruction davvero entusiasmante e molto arricchente. Mi sono piaciuti particolarmente: il contesto &laquo;storico&raquo; sui vari software CAD (&egrave; stato affascinante e aveva un tocco di giornalismo investigativo); l&rsquo;interessante approccio all&rsquo;automazione tramite DataFrames; i tuoi esempi pratici di automazione dei processi nell&rsquo;edilizia; e lo sguardo sui trend attuali come Claude Code e OpenClaw &mdash; hai davvero dato vita all&rsquo;argomento. Unico neo: davvero tanti input in soli due giorni. Allo stesso tempo hai mostrato molto bene come possiamo continuare ad orientarci da soli &mdash; per esempio registrando in modo strutturato i nostri processi nella lavagna Miro. Grazie ancora per la formazione e lo scambio.",
+    "t5_role": "Herbert Gruppe &middot; Team Leader Prefabbricazione",
+    "t6_quote": "&Egrave; stato un workshop fantastico con contenuti entusiasmanti da cui noi, e io personalmente, abbiamo imparato moltissimo. Grazie per averci dedicato cos&igrave; tanto tempo. Non vediamo l&rsquo;ora di mettere in pratica quanto appreso al pi&ugrave; presto e di integrarlo nei nostri progetti! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "Leggi di pi&ugrave;",
+    "read_less": "Mostra meno"
   },
   "modgrid": {
     "eyebrow": "Cosa c'è nel pacchetto",

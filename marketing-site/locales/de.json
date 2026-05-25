@@ -642,7 +642,21 @@
   "workshops": {
     "eyebrow": "DataDrivenConstruction Workshop",
     "title": "Praxistraining, <span class=\"italic\">in Ihrem Stack.</span>",
-    "lede": "Nur ausgewählte öffentliche Workshops. Viele größere Enterprise-Engagements bleiben unter NDA."
+    "lede": "Nur ausgewählte öffentliche Workshops. Viele größere Enterprise-Engagements bleiben unter NDA.",
+    "t1_quote": "Toller Workshop, Artem! Die Vorbereitungen laufen auf Hochtouren! Ich freue mich schon auf den Hackathon im neuen Jahr! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "Was passiert, wenn man Bauprozesse nicht nur organisiert, sondern auch intelligent analysiert? Das war das Thema unseres Workshops mit Artem Boiko zu &bdquo;Data-Driven Construction&ldquo;. Im Mittelpunkt stand die Frage, wie wir vorhandene Daten besser nutzen k&ouml;nnen &ndash; um Bauprojekte effizienter, transparenter und weniger fehleranf&auml;llig zu machen. Anhand konkreter Anwendungsbeispiele zeigte Artem, wie strukturierte Baudaten dabei helfen, den &Uuml;berblick zu behalten, Nachtr&auml;ge fr&uuml;hzeitig zu erkennen und die Kommunikation zwischen Planung und Ausf&uuml;hrung zu verbessern. Besonders spannend: wie digitale Werkzeuge und Modelle heute schon eingesetzt werden k&ouml;nnen, um Prozesse zu automatisieren. Data-Driven Construction ist kein Zukunftsthema mehr &ndash; wir stecken mittendrin. Der Workshop hat gezeigt, wie gro&szlig; das Potenzial ist, wenn wir gemeinsam arbeiten und Daten wirklich f&uuml;r uns arbeiten lassen.",
+    "t2_role": "Lindner Group &middot; Abteilungsleiter, BIM Professional",
+    "t3_quote": "Artem Boiko hat dem gesamten Shapemaker-Team eine hervorragende Pr&auml;sentation gehalten und tiefe Einblicke in die Datenmigration aus Engineering-Software und verwandten Themen gegeben. Seine Expertise und klare Kommunikation haben komplexe Konzepte leicht verst&auml;ndlich gemacht und unser Team mit praktischem Wissen ausgestattet, das wir sofort anwenden k&ouml;nnen. Sehr zu empfehlen f&uuml;r alle, die in diesem Bereich Klarheit und umsetzbare Strategien suchen!",
+    "t3_role": "Shapemaker &middot; CRO &amp; Mitgr&uuml;nder",
+    "t4_quote": "Ich fande DataDrivenConstruction Workshop sehr interessant. Meiner Meinung nach konnten alle folgen. Man merkt auch anhand deiner Folien wieviel Zeit, Ausdauer und M&uuml;he du hineingesteckt hast. Auch die Live Pr&auml;sentationen waren super. Das einzige was ich bem&auml;ngeln w&uuml;rde, w&auml;re die Anzahl der Folien, dadurch kamen zu viele slides zustande. Aber das ist meckern auf dem h&ouml;chsten Niveau. Rundum war es der beste Workshop bei dem ich war. Au&szlig;erdem bist du auch eine sehr angenehme Person.",
+    "t4_role": "Dimexcon &middot; Softwareingenieur f&uuml;r BIM Automatisierung",
+    "t5_quote": "Die DataDrivenConstruction Schulung fand ich insgesamt wirklich spannend und sehr bereichernd. Besonders gut gefallen haben mir: der &bdquo;historische&ldquo; Hintergrund zu den verschiedenen CAD-Softwares (das war spannend zu h&ouml;ren und hatte etwas von Investigativjournalismus); der interessante Ansatz zur Automatisierung &uuml;ber DataFrames; deine eigenen praxisnahen Beispiele zur Prozessautomatisierung im Bauwesen; und der Einblick in aktuelle Trends wie Claude Code und OpenClaw &mdash; du hast das Thema mit Leben gef&uuml;llt. Einziger Nachteil: Es war wirklich viel Input in nur zwei Tagen. Gleichzeitig hast du sehr gut aufgezeigt, wie wir uns selbst weiter orientieren k&ouml;nnen &mdash; zum Beispiel &uuml;ber das strukturierte Aufzeichnen unserer Prozesse im Miro-Board. Vielen Dank nochmal f&uuml;r die Schulung und den Austausch.",
+    "t5_role": "Herbert Gruppe &middot; Teamleiter Vorfertigung",
+    "t6_quote": "Es war ein fantastischer Workshop mit spannenden Inhalten, von denen wir &ndash; und ich pers&ouml;nlich &ndash; sehr viel gelernt haben. Vielen Dank, dass du dir so viel Zeit f&uuml;r uns genommen hast. Wir freuen uns darauf, das Gelernte so bald wie m&ouml;glich auszuprobieren und in unsere Projekte einflie&szlig;en zu lassen! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "Mehr lesen",
+    "read_less": "Weniger anzeigen"
   },
   "trust": {
     "title": "Ingenieure, Bauunternehmen und Beratungen, die es bereits einsetzen",

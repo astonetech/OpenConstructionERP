@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "DataDrivenConstruction-workshop",
     "lede": "Endast utvalda publika workshops. Många större företagsuppdrag förblir under NDA.",
-    "title": "Praktisk utbildning, <span class=\"italic\">i din stack.</span>"
+    "title": "Praktisk utbildning, <span class=\"italic\">i din stack.</span>",
+    "t1_quote": "Fantastisk workshop, Artem! F&ouml;rberedelserna &auml;r i full g&aring;ng! Jag ser redan fram emot hackathonet i det nya &aring;ret! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "Vad h&auml;nder n&auml;r man inte bara organiserar byggprocesser, utan ocks&aring; analyserar dem intelligent? Det var temat f&ouml;r v&aring;r workshop med Artem Boiko om &rdquo;Data-Driven Construction&rdquo;. I centrum stod fr&aring;gan: hur kan vi anv&auml;nda befintliga data b&auml;ttre &ndash; f&ouml;r att g&ouml;ra byggprojekt mer effektiva, mer transparenta och mindre felben&auml;gna. Med konkreta exempel visade Artem hur strukturerade byggdata hj&auml;lper oss att beh&aring;lla &ouml;verblicken, uppt&auml;cka till&auml;gg tidigt och f&ouml;rb&auml;ttra kommunikationen mellan projektering och utf&ouml;rande. Extra sp&auml;nnande: hur digitala verktyg och modeller redan idag kan automatisera processer. Datadriven byggande &auml;r inte l&auml;ngre en framtidsfr&aring;ga &ndash; vi &auml;r mitt uppe i det. Workshoppen visade hur stor potentialen &auml;r n&auml;r vi samarbetar och verkligen l&aring;ter data arbeta f&ouml;r oss.",
+    "t2_role": "Lindner Group &middot; Avdelningschef, BIM Professional",
+    "t3_quote": "Artem Boiko h&ouml;ll en framst&aring;ende presentation f&ouml;r hela Shapemaker-teamet och gav djupa insikter i datamigrering fr&aring;n teknikprogramvara och relaterade &auml;mnen. Hans expertis och tydliga kommunikation gjorde komplexa koncept l&auml;tta att f&ouml;rst&aring; och utrustade v&aring;rt team med praktisk kunskap att till&auml;mpa direkt. Rekommenderar verkligen hans tj&auml;nster till alla som s&ouml;ker klarhet och konkreta strategier inom omr&aring;det!",
+    "t3_role": "Shapemaker &middot; CRO och medgrundare",
+    "t4_quote": "Jag tyckte DataDrivenConstruction-workshoppen var mycket intressant. Enligt min mening kunde alla h&auml;nga med. Man ser p&aring; dina bilder hur mycket tid, uth&aring;llighet och m&ouml;da du lagt ner. &Auml;ven live-presentationerna var fantastiska. Det enda jag skulle kritisera &auml;r antalet bilder &ndash; det blev helt enkelt f&ouml;r m&aring;nga. Men det &auml;r att gn&auml;lla p&aring; allra h&ouml;gsta niv&aring;. Sammantaget var det den b&auml;sta workshopen jag varit p&aring;. Dessutom &auml;r du en mycket trevlig person.",
+    "t4_role": "Dimexcon &middot; Mjukvaruingenj&ouml;r f&ouml;r BIM-automation",
+    "t5_quote": "Sammantaget tyckte jag att DataDrivenConstruction-utbildningen var verkligen sp&auml;nnande och mycket berikande. Det jag s&auml;rskilt gillade: den &rdquo;historiska&rdquo; bakgrunden till de olika CAD-programmen (det var fascinerande och hade en touch av unders&ouml;kande journalistik); det intressanta s&auml;ttet att automatisera via DataFrames; dina egna praktiska exempel p&aring; processautomatisering inom bygg; och inblicken i aktuella trender som Claude Code och OpenClaw &mdash; du gav &auml;mnet liv. Enda nackdelen: det var verkligen mycket input p&aring; bara tv&aring; dagar. Samtidigt visade du mycket bra hur vi kan orientera oss vidare sj&auml;lva &mdash; till exempel genom strukturerad dokumentation av v&aring;ra processer p&aring; Miro-tavlan. Tack &aring;n en g&aring;ng f&ouml;r utbildningen och utbytet.",
+    "t5_role": "Herbert Gruppe &middot; Teamledare prefabricering",
+    "t6_quote": "Det var en fantastisk workshop med sp&auml;nnande inneh&aring;ll som vi &mdash; och jag personligen &mdash; l&auml;rde oss massor av. Tack f&ouml;r att du tog dig s&aring; mycket tid f&ouml;r oss. Vi ser fram emot att f&aring; pr&ouml;va det vi l&auml;rt oss s&aring; snart som m&ouml;jligt och integrera det i v&aring;ra projekt! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "L&auml;s mer",
+    "read_less": "Visa mindre"
   },
   "modgrid": {
     "eyebrow": "Vad som ingår",

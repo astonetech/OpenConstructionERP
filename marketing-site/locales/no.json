@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "DataDrivenConstruction-workshop",
     "lede": "Kun utvalgte offentlige workshops. Mange store bedriftsoppdrag forblir under NDA.",
-    "title": "Praktisk opplæring, <span class=\"italic\">i din stack.</span>"
+    "title": "Praktisk opplæring, <span class=\"italic\">i din stack.</span>",
+    "t1_quote": "Fantastisk workshop, Artem! Forberedelsene er i full gang! Jeg gleder meg allerede til hackathonet i det nye &aring;ret! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "Hva skjer n&aring;r man ikke bare organiserer byggeprosesser, men ogs&aring; analyserer dem intelligent? Det var temaet for v&aring;r workshop med Artem Boiko om &laquo;Data-Driven Construction&raquo;. Fokuset var sp&oslash;rsm&aring;let: hvordan kan vi utnytte eksisterende data bedre &ndash; for &aring; gj&oslash;re byggeprosjekter mer effektive, mer transparente og mindre utsatt for feil. Med konkrete eksempler viste Artem hvordan strukturerte byggedata hjelper oss &aring; beholde oversikten, oppdage tillegg tidlig og forbedre kommunikasjonen mellom prosjektering og utf&oslash;relse. S&aelig;rlig spennende: hvordan digitale verkt&oslash;y og modeller allerede i dag kan automatisere prosesser. Datadrevet bygging er ikke lenger et fremtidstema &ndash; vi st&aring;r midt i det. Workshopen viste hvor stort potensialet er n&aring;r vi samarbeider og virkelig lar data jobbe for oss.",
+    "t2_role": "Lindner Group &middot; Avdelingsleder, BIM Professional",
+    "t3_quote": "Artem Boiko holdt en fremragende presentasjon for hele Shapemaker-teamet og ga dyp innsikt i datamigrering fra ingeni&oslash;rprogramvare og relaterte temaer. Hans ekspertise og tydelige kommunikasjon gjorde komplekse begreper enkle &aring; forst&aring;, og utstyrte teamet v&aring;rt med praktisk kunnskap vi kan bruke umiddelbart. Anbefaler hans tjenester p&aring; det varmeste til alle som s&oslash;ker klarhet og handlekraftige strategier p&aring; dette feltet!",
+    "t3_role": "Shapemaker &middot; CRO og medgr&uuml;nder",
+    "t4_quote": "Jeg syntes DataDrivenConstruction-workshoppen var veldig interessant. Etter min mening klarte alle &aring; henge med. Man ser p&aring; lysbildene dine hvor mye tid, utholdenhet og innsats du har lagt ned. Live-presentasjonene var ogs&aring; fantastiske. Det eneste jeg ville kritisert er antall lysbilder &ndash; det ble rett og slett for mange. Men det er klaging p&aring; aller h&oslash;yeste niv&aring;. Alt i alt var det den beste workshoppen jeg har v&aelig;rt p&aring;. Og s&aring; er du i tillegg et veldig hyggelig menneske.",
+    "t4_role": "Dimexcon &middot; Programvareingeni&oslash;r for BIM-automatisering",
+    "t5_quote": "Alt i alt syntes jeg DataDrivenConstruction-kurset var virkelig spennende og veldig berikende. Det jeg likte spesielt godt: den &laquo;historiske&raquo; bakgrunnen til de ulike CAD-programmene (det var fascinerende og hadde et preg av unders&oslash;kende journalistikk); den interessante tiln&aelig;rmingen til automatisering via DataFrames; dine egne praktiske eksempler p&aring; prosessautomatisering i byggebransjen; og innblikket i aktuelle trender som Claude Code og OpenClaw &mdash; du fikk virkelig liv i temaet. Eneste minus: det var virkelig mye informasjon p&aring; bare to dager. Samtidig viste du veldig godt hvordan vi kan orientere oss videre selv &mdash; for eksempel ved &aring; dokumentere v&aring;re prosesser strukturert p&aring; Miro-tavla. Tusen takk igjen for kurset og utvekslingen.",
+    "t5_role": "Herbert Gruppe &middot; Teamleder prefabrikasjon",
+    "t6_quote": "Det var en fantastisk workshop med spennende innhold som vi &mdash; og jeg personlig &mdash; l&aelig;rte mye av. Takk for at du tok deg s&aring; mye tid for oss. Vi gleder oss til &aring; pr&oslash;ve ut det vi l&aelig;rte s&aring; snart som mulig og innlemme det i prosjektene v&aring;re! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "Les mer",
+    "read_less": "Vis mindre"
   },
   "modgrid": {
     "eyebrow": "Hva som er med",

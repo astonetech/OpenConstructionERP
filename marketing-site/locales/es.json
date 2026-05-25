@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "Taller DataDrivenConstruction",
     "lede": "Solo se listan los talleres públicos seleccionados. Muchos contratos importantes con grandes empresas siguen bajo NDA.",
-    "title": "Formación práctica, <span class=\"italic\">en tu propio stack.</span>"
+    "title": "Formación práctica, <span class=\"italic\">en tu propio stack.</span>",
+    "t1_quote": "&iexcl;Taller incre&iacute;ble, Artem! &iexcl;Los preparativos van a toda m&aacute;quina! &iexcl;Ya espero con ganas el hackat&oacute;n del a&ntilde;o nuevo! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Director de Transformaci&oacute;n Digital",
+    "t2_quote": "&iquest;Qu&eacute; ocurre cuando no solo se organizan los procesos de construcci&oacute;n, sino que tambi&eacute;n se analizan de forma inteligente? Este fue el tema de nuestro taller con Artem Boiko sobre &laquo;Data-Driven Construction&raquo;. La pregunta central fue: c&oacute;mo podemos aprovechar mejor los datos existentes para hacer que los proyectos de construcci&oacute;n sean m&aacute;s eficientes, m&aacute;s transparentes y menos propensos a errores. Con ejemplos concretos, Artem mostr&oacute; c&oacute;mo los datos estructurados de construcci&oacute;n ayudan a mantener la visi&oacute;n general, detectar pronto los suplementos y mejorar la comunicaci&oacute;n entre dise&ntilde;o y ejecuci&oacute;n. Especialmente interesante: c&oacute;mo las herramientas y modelos digitales pueden ya hoy automatizar procesos. La construcci&oacute;n basada en datos ya no es un tema del futuro &ndash; estamos justo en medio de ella. El taller mostr&oacute; lo grande que es el potencial cuando trabajamos juntos y hacemos que los datos trabajen realmente para nosotros.",
+    "t2_role": "Lindner Group &middot; Jefe de Departamento, BIM Professional",
+    "t3_quote": "Artem Boiko ofreci&oacute; una presentaci&oacute;n excepcional a todo el equipo de Shapemaker, brindando una visi&oacute;n profunda sobre la migraci&oacute;n de datos desde software de ingenier&iacute;a y temas relacionados. Su experiencia y comunicaci&oacute;n clara hicieron que conceptos complejos fueran f&aacute;ciles de captar, equipando a nuestro equipo con conocimientos pr&aacute;cticos aplicables de inmediato. &iexcl;Recomiendo encarecidamente sus servicios a quien busque claridad y estrategias accionables en este campo!",
+    "t3_role": "Shapemaker &middot; CRO y cofundador",
+    "t4_quote": "El taller DataDrivenConstruction me pareci&oacute; muy interesante. En mi opini&oacute;n, todos pudieron seguirlo. Se nota en tus diapositivas cu&aacute;nto tiempo, perseverancia y esfuerzo dedicaste. Las presentaciones en vivo tambi&eacute;n fueron geniales. Lo &uacute;nico que criticar&iacute;a ser&iacute;a la cantidad de diapositivas &ndash; fueron demasiadas. Pero eso es quejarse al m&aacute;s alto nivel. En conjunto, fue el mejor taller al que he asistido. Adem&aacute;s, eres una persona muy agradable.",
+    "t4_role": "Dimexcon &middot; Ingeniero de software para automatizaci&oacute;n BIM",
+    "t5_quote": "En conjunto, la formaci&oacute;n DataDrivenConstruction me result&oacute; realmente apasionante y muy enriquecedora. Lo que m&aacute;s me gust&oacute;: el contexto &laquo;hist&oacute;rico&raquo; de los distintos softwares CAD (fue fascinante y ten&iacute;a algo de periodismo de investigaci&oacute;n); el interesante enfoque de automatizaci&oacute;n con DataFrames; tus propios ejemplos pr&aacute;cticos de automatizaci&oacute;n de procesos en la construcci&oacute;n; y la mirada a tendencias actuales como Claude Code y OpenClaw &mdash; le diste vida al tema. Una pega: fue much&iacute;sima informaci&oacute;n en solo dos d&iacute;as. Al mismo tiempo, mostraste muy bien c&oacute;mo podemos seguir orient&aacute;ndonos por nuestra cuenta &mdash; por ejemplo, documentando de forma estructurada nuestros procesos en el tablero de Miro. Muchas gracias de nuevo por la formaci&oacute;n y el intercambio.",
+    "t5_role": "Herbert Gruppe &middot; Jefe de equipo de prefabricaci&oacute;n",
+    "t6_quote": "Fue un taller fant&aacute;stico con contenidos apasionantes de los que nosotros, y yo personalmente, aprendimos much&iacute;simo. Gracias por dedicarnos tanto tiempo. &iexcl;Estamos deseando probar lo aprendido cuanto antes e incorporarlo a nuestros proyectos! #bleedingedge",
+    "t6_role": "D&amp;S &middot; BIM Manager",
+    "read_more": "Leer m&aacute;s",
+    "read_less": "Mostrar menos"
   },
   "modgrid": {
     "eyebrow": "Qué incluye",

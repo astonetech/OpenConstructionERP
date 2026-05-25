@@ -653,7 +653,21 @@
   "workshops": {
     "eyebrow": "Workshop DataDrivenConstruction",
     "lede": "Apenas workshops públicos selecionados são listados. Muitos contratos enterprise importantes mantêm-se sob NDA.",
-    "title": "Formação prática, <span class=\"italic\">no teu próprio stack.</span>"
+    "title": "Formação prática, <span class=\"italic\">no teu próprio stack.</span>",
+    "t1_quote": "Workshop incr&iacute;vel, Artem! Os preparativos est&atilde;o a todo o vapor! J&aacute; estou ansioso pelo hackathon do ano novo! &#128170;&#127995;",
+    "t1_role": "Drees &amp; Sommer &middot; Head of Digital Transformation",
+    "t2_quote": "O que acontece quando n&atilde;o apenas organizamos os processos de constru&ccedil;&atilde;o, mas tamb&eacute;m os analisamos de forma inteligente? Este foi o tema do nosso workshop com Artem Boiko sobre &laquo;Data-Driven Construction&raquo;. O foco esteve na quest&atilde;o: como podemos aproveitar melhor os dados existentes para tornar os projetos de constru&ccedil;&atilde;o mais eficientes, mais transparentes e menos sujeitos a erros. Com exemplos concretos, Artem mostrou como dados estruturados ajudam a manter a vis&atilde;o geral, identificar aditivos cedo e melhorar a comunica&ccedil;&atilde;o entre projeto e execu&ccedil;&atilde;o. Particularmente interessante: como ferramentas e modelos digitais j&aacute; podem hoje automatizar processos. A constru&ccedil;&atilde;o orientada por dados j&aacute; n&atilde;o &eacute; um tema do futuro &ndash; estamos no meio dela. O workshop mostrou o quanto h&aacute; potencial quando trabalhamos juntos e fazemos os dados realmente trabalhar por n&oacute;s.",
+    "t2_role": "Lindner Group &middot; Chefe de Departamento, BIM Professional",
+    "t3_quote": "Artem Boiko fez uma apresenta&ccedil;&atilde;o excelente para toda a equipa da Shapemaker, oferecendo conhecimentos profundos sobre migra&ccedil;&atilde;o de dados de software de engenharia e temas relacionados. A sua experi&ecirc;ncia e comunica&ccedil;&atilde;o clara tornaram conceitos complexos f&aacute;ceis de entender, equipando a nossa equipa com conhecimentos pr&aacute;ticos que podemos aplicar imediatamente. Recomendo vivamente os seus servi&ccedil;os a quem procura clareza e estrat&eacute;gias acion&aacute;veis nesta &aacute;rea!",
+    "t3_role": "Shapemaker &middot; CRO e cofundador",
+    "t4_quote": "Achei o workshop DataDrivenConstruction muito interessante. Na minha opini&atilde;o, todos conseguiram acompanhar. D&aacute; para ver pelos teus slides quanto tempo, persever&ccedil;a e esfor&ccedil;o investiste. As apresenta&ccedil;&otilde;es ao vivo tamb&eacute;m foram &oacute;timas. A &uacute;nica coisa que criticaria seria a quantidade de slides &ndash; foram realmente demais. Mas isso &eacute; reclamar no mais alto n&iacute;vel. No conjunto, foi o melhor workshop em que estive. E al&eacute;m disso &eacute;s uma pessoa muito agrad&aacute;vel.",
+    "t4_role": "Dimexcon &middot; Engenheiro de software para automa&ccedil;&atilde;o BIM",
+    "t5_quote": "No geral, achei a forma&ccedil;&atilde;o DataDrivenConstruction realmente fascinante e muito enriquecedora. Gostei particularmente: do contexto &laquo;hist&oacute;rico&raquo; sobre os v&aacute;rios softwares CAD (foi fascinante de ouvir e tinha algo de jornalismo investigativo); da interessante abordagem &agrave; automa&ccedil;&atilde;o via DataFrames; dos teus exemplos pr&aacute;ticos de automa&ccedil;&atilde;o de processos na constru&ccedil;&atilde;o; e do olhar sobre tend&ecirc;ncias atuais como Claude Code e OpenClaw &mdash; deste vida ao tema. &Uacute;nica desvantagem: foi mesmo muita informa&ccedil;&atilde;o em apenas dois dias. Ao mesmo tempo, mostraste muito bem como podemos continuar a orientar-nos &mdash; por exemplo, registando os nossos processos de forma estruturada no quadro Miro. Muito obrigado pela forma&ccedil;&atilde;o e pela troca de ideias.",
+    "t5_role": "Herbert Gruppe &middot; L&iacute;der de equipa de pr&eacute;-fabrica&ccedil;&atilde;o",
+    "t6_quote": "Foi um workshop fant&aacute;stico com conte&uacute;dos emocionantes com os quais n&oacute;s, e eu pessoalmente, aprendemos muito. Obrigado por dedicares tanto tempo a n&oacute;s. Mal podemos esperar para experimentar o que aprendemos o quanto antes e integr&aacute;-lo nos nossos projetos! #bleedingedge",
+    "t6_role": "D&amp;S &middot; Gestor BIM",
+    "read_more": "Ler mais",
+    "read_less": "Mostrar menos"
   },
   "modgrid": {
     "eyebrow": "O que vem na caixa",
