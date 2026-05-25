@@ -62,129 +62,137 @@ export function OperationsSnapshotCard({ projects }: { projects?: ProjectRef[] }
   const dash = '—';
   const iconCls = 'text-content-tertiary';
 
-  const boq = byWidget('boq_summary');
-  const validation = byWidget('validation_score');
-  const clash = byWidget('clash_health');
-  const schedule = byWidget('schedule_critical');
-  const risk = byWidget('risk_top');
-  const hse = byWidget('hse_scorecard');
-  const proc = byWidget('procurement_pipeline');
-  const budget = byWidget('budget_variance');
-  const co = byWidget('change_orders');
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+  const boq = byWidget('boq_summary') as { total_boqs?: number; total_value_eur?: string | number } | null;
+  const validation = byWidget('validation_score') as { passed?: number; warnings?: number; errors?: number } | null;
+  const clash = byWidget('clash_health') as { total?: number; high?: number } | null;
+  const schedule = byWidget('schedule_critical') as { top?: unknown[] } | null;
+  const risk = byWidget('risk_top') as { top?: { score?: number }[] } | null;
+  const hse = byWidget('hse_scorecard') as { total?: number; last_30d?: number; days_since_last?: number | null } | null;
+  const proc = byWidget('procurement_pipeline') as { rfqs_pending?: number; pos_issued?: number; pos_received?: number } | null;
+  const budget = byWidget('budget_variance') as { top_over?: { pct?: number }[] } | null;
+  const co = byWidget('change_orders') as { open_count?: number; total_impact?: string | number; currency?: string } | null;
+
+  const boqTotal = num(boq?.total_boqs);
+  const valSum = num(validation?.passed) + num(validation?.warnings) + num(validation?.errors);
+  const clashTotal = num(clash?.total);
+  const scheduleTop = arr<unknown>(schedule?.top);
+  const riskTop = arr<{ score?: number }>(risk?.top);
+  const hseTotal = num(hse?.total);
+  const procSum = num(proc?.rfqs_pending) + num(proc?.pos_issued) + num(proc?.pos_received);
+  const budgetOver = arr<{ pct?: number }>(budget?.top_over);
+  const coOpen = num(co?.open_count);
 
   const tiles: Tile[] = [
     {
       key: 'boq',
       icon: <FileSpreadsheet size={14} className={iconCls} />,
       title: t('dashboard.layout.w_boq_summary', { defaultValue: 'BOQ Summary' }),
-      value: !boq || boq.total_boqs === 0
-        ? dash
-        : `${boq.total_boqs} · ${fmtMoney(boq.total_value_eur, fallbackCurrency)}`,
+      value: boqTotal === 0 ? dash : `${boqTotal} · ${fmtMoney(boq?.total_value_eur, fallbackCurrency)}`,
       href: '/boq',
-      empty: !boq || boq.total_boqs === 0,
+      empty: boqTotal === 0,
     },
     {
       key: 'validation',
       icon: <CheckSquare size={14} className={iconCls} />,
       title: t('dashboard.layout.w_validation', { defaultValue: 'Validation Health' }),
-      value: !validation || (validation.passed + validation.warnings + validation.errors) === 0
+      value: valSum === 0
         ? dash
-        : `${validation.passed} / ${validation.warnings} / ${validation.errors}`,
+        : `${num(validation?.passed)} / ${num(validation?.warnings)} / ${num(validation?.errors)}`,
       href: '/validation',
-      empty: !validation || (validation.passed + validation.warnings + validation.errors) === 0,
+      empty: valSum === 0,
     },
     {
       key: 'clash',
       icon: <Cog size={14} className={iconCls} />,
       title: t('dashboard.layout.w_clash', { defaultValue: 'Clash Health' }),
-      value: !clash || clash.total === 0
+      value: clashTotal === 0
         ? dash
         : t('dashboard.snapshot_clash_v', {
             defaultValue: '{{open}} open · {{high}} high',
-            open: clash.total,
-            high: clash.high,
+            open: clashTotal,
+            high: num(clash?.high),
           }),
       href: '/clash',
-      empty: !clash || clash.total === 0,
+      empty: clashTotal === 0,
     },
     {
       key: 'schedule',
       icon: <GitBranch size={14} className={iconCls} />,
       title: t('dashboard.layout.w_schedule', { defaultValue: 'Critical Path' }),
-      value: !schedule || schedule.top.length === 0
+      value: scheduleTop.length === 0
         ? dash
-        : t('dashboard.snapshot_schedule_v', {
-            defaultValue: '{{n}} at risk',
-            n: schedule.top.length,
-          }),
+        : t('dashboard.snapshot_schedule_v', { defaultValue: '{{n}} at risk', n: scheduleTop.length }),
       href: '/schedule',
-      empty: !schedule || schedule.top.length === 0,
+      empty: scheduleTop.length === 0,
     },
     {
       key: 'risk',
       icon: <ShieldAlert size={14} className={iconCls} />,
       title: t('dashboard.layout.w_risk', { defaultValue: 'Top Risks' }),
-      value: !risk || risk.top.length === 0
+      value: riskTop.length === 0
         ? dash
         : t('dashboard.snapshot_risk_v', {
             defaultValue: '{{n}} risks · top {{s}}',
-            n: risk.top.length,
-            s: Math.round(risk.top[0]?.score ?? 0),
+            n: riskTop.length,
+            s: Math.round(num(riskTop[0]?.score)),
           }),
       href: '/risk-register',
-      empty: !risk || risk.top.length === 0,
+      empty: riskTop.length === 0,
     },
     {
       key: 'hse',
       icon: <HardHat size={14} className={iconCls} />,
       title: t('dashboard.layout.w_hse', { defaultValue: 'HSE Scorecard' }),
-      value: !hse || hse.total === 0
+      value: hseTotal === 0
         ? dash
         : t('dashboard.snapshot_hse_v', {
             defaultValue: '{{n}} in 30d · LTI {{d}}d',
-            n: hse.last_30d,
-            d: hse.days_since_last ?? 0,
+            n: num(hse?.last_30d),
+            d: num(hse?.days_since_last),
           }),
       href: '/hse',
-      empty: !hse || hse.total === 0,
+      empty: hseTotal === 0,
     },
     {
       key: 'procurement',
       icon: <ShoppingCart size={14} className={iconCls} />,
       title: t('dashboard.layout.w_procurement', { defaultValue: 'Procurement' }),
-      value: !proc || (proc.rfqs_pending + proc.pos_issued + proc.pos_received) === 0
+      value: procSum === 0
         ? dash
         : t('dashboard.snapshot_proc_v', {
             defaultValue: '{{r}} RFQ · {{p}} PO',
-            r: proc.rfqs_pending,
-            p: proc.pos_issued,
+            r: num(proc?.rfqs_pending),
+            p: num(proc?.pos_issued),
           }),
       href: '/procurement',
-      empty: !proc || (proc.rfqs_pending + proc.pos_issued + proc.pos_received) === 0,
+      empty: procSum === 0,
     },
     {
       key: 'budget',
       icon: <Wallet size={14} className={iconCls} />,
       title: t('dashboard.layout.w_budget', { defaultValue: 'Budget Variance' }),
-      value: !budget || budget.top_over.length === 0
+      value: budgetOver.length === 0
         ? dash
         : t('dashboard.snapshot_budget_v', {
             defaultValue: '{{n}} over · +{{p}}%',
-            n: budget.top_over.length,
-            p: budget.top_over[0]?.pct ?? 0,
+            n: budgetOver.length,
+            p: num(budgetOver[0]?.pct),
           }),
       href: '/finance',
-      empty: !budget || budget.top_over.length === 0,
+      empty: budgetOver.length === 0,
     },
     {
       key: 'co',
       icon: <ClipboardList size={14} className={iconCls} />,
       title: t('dashboard.layout.w_changeorders', { defaultValue: 'Change Orders' }),
-      value: !co || co.open_count === 0
+      value: coOpen === 0
         ? dash
-        : `${co.open_count} · ${fmtMoney(co.total_impact, co.currency ?? fallbackCurrency)}`,
+        : `${coOpen} · ${fmtMoney(co?.total_impact, co?.currency ?? fallbackCurrency)}`,
       href: '/change-orders',
-      empty: !co || co.open_count === 0,
+      empty: coOpen === 0,
     },
   ];
 
