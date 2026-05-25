@@ -138,7 +138,10 @@ export function MoneyDisplay({
       formatted = new Intl.NumberFormat(numberLocale, opts).format(numericValue);
     }
   } catch {
-    formatted = `${numericValue.toFixed(minorUnits)} ${safeCurrency}`;
+    // numericValue is guaranteed numeric (parseFloat above) but be paranoid
+    // — Number.isFinite guards against ±Infinity sneaking past the NaN gate.
+    const n = Number.isFinite(numericValue) ? numericValue : 0;
+    formatted = `${n.toFixed(minorUnits)} ${safeCurrency}`;
   }
 
   const colorClass = colorize

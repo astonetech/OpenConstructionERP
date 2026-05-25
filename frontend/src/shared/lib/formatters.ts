@@ -39,19 +39,23 @@ export function getIntlLocale(): string {
 }
 
 /** Currency-style number formatter (e.g. 1,234.56) using current locale. */
-export function fmtNumber(value: number, decimals = 2): string {
+export function fmtNumber(value: number | string | null | undefined, decimals = 2): string {
+  const n = typeof value === 'number' ? value : Number(value ?? 0);
+  const safe = Number.isFinite(n) ? n : 0;
   return new Intl.NumberFormat(getIntlLocale(), {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(value);
+  }).format(safe);
 }
 
 /** Compact number formatter (e.g. 1.2M) using current locale. */
-export function fmtCompact(value: number): string {
+export function fmtCompact(value: number | string | null | undefined): string {
+  const n = typeof value === 'number' ? value : Number(value ?? 0);
+  const safe = Number.isFinite(n) ? n : 0;
   return new Intl.NumberFormat(getIntlLocale(), {
     notation: 'compact',
     maximumFractionDigits: 1,
-  }).format(value);
+  }).format(safe);
 }
 
 /**
@@ -67,7 +71,13 @@ export function fmtCompact(value: number): string {
  * Callers that genuinely want a EUR fallback (legacy LanceDB rows
  * that pre-date currency stamping) can still pass ``"EUR"`` explicitly.
  */
-export function fmtCurrency(value: number, currency?: string | null): string {
+export function fmtCurrency(value: number | string | null | undefined, currency?: string | null): string {
+  // Defence-in-depth against the project-wide Decimal-as-string money
+  // contract leaking past TypeScript: coerce here so `.toFixed` in the
+  // catch path can never crash, and so Intl.NumberFormat never sees a
+  // string it might surprise-format.
+  const n = typeof value === 'number' ? value : Number(value ?? 0);
+  const safe = Number.isFinite(n) ? n : 0;
   const trimmed = (currency || '').trim().toUpperCase();
   const isValid = /^[A-Z]{3}$/.test(trimmed);
   if (!isValid) {
@@ -75,16 +85,16 @@ export function fmtCurrency(value: number, currency?: string | null): string {
     // without a currency symbol. Prevents the EUR-on-USD-project bug.
     return new Intl.NumberFormat(getIntlLocale(), {
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(safe);
   }
   try {
     return new Intl.NumberFormat(getIntlLocale(), {
       style: 'currency',
       currency: trimmed,
       maximumFractionDigits: 0,
-    }).format(value);
+    }).format(safe);
   } catch {
-    return `${value.toFixed(0)} ${trimmed}`;
+    return `${safe.toFixed(0)} ${trimmed}`;
   }
 }
 
