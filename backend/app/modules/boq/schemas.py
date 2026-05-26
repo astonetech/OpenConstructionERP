@@ -264,11 +264,11 @@ class PositionCreate(BaseModel):
     )
     source: str = Field(
         default="manual",
-        pattern=r"^(manual|cad_import|ai_takeoff|gaeb_import|excel_import|takeoff|smart_import|smart_import_ai|cad_import_ai|cost_database|assembly|cwicr|enriched|ai_match)$",
+        pattern=r"^(manual|cad_import|ai_takeoff|gaeb_import|excel_import|bc3_import|takeoff|smart_import|smart_import_ai|cad_import_ai|cost_database|assembly|cwicr|enriched|ai_match)$",
         description=(
             "Data source. One of: manual, cad_import, ai_takeoff, gaeb_import, "
-            "excel_import, takeoff, smart_import, smart_import_ai, cad_import_ai, "
-            "cost_database, assembly, cwicr, enriched, ai_match."
+            "excel_import, bc3_import, takeoff, smart_import, smart_import_ai, "
+            "cad_import_ai, cost_database, assembly, cwicr, enriched, ai_match."
         ),
         examples=["manual"],
     )

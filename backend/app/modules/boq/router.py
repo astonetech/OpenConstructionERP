@@ -66,7 +66,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -4494,15 +4504,22 @@ def _parse_rows_from_excel(
 
 @router.post(
     "/boqs/{boq_id}/import/excel/",
-    summary="Import positions from Excel/CSV",
+    summary="Import positions from Excel/CSV (deprecated — use /import/auto/)",
     dependencies=[Depends(RequirePermission("boq.update"))],
 )
 async def import_boq_excel(
     boq_id: uuid.UUID,
+    response: Response,
     file: UploadFile = File(..., description="Excel (.xlsx) or CSV (.csv) file"),
     service: BOQService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Import BOQ positions from an Excel or CSV file.
+
+    .. deprecated::
+        Epic I5 — clients should call ``POST /import/auto/`` and let
+        the dispatcher pick the importer. This route remains supported
+        for backwards compatibility but emits a ``Deprecation: true``
+        response header.
 
     Accepts a multipart file upload. The file must be .xlsx or .csv.
 
@@ -4518,6 +4535,13 @@ async def import_boq_excel(
     Returns:
         Summary with counts of imported, skipped, and error details per row.
     """
+    # Epic I5: deprecation signal — clients should migrate to /import/auto/.
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        '</api/v1/boq/boqs/{boq_id}/import/auto/>; rel="successor-version"'
+    )
+    response.headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT"
+
     # Verify BOQ exists (raises 404 if not found)
     await service.get_boq(boq_id)
 
@@ -4888,15 +4912,22 @@ async def import_boq_excel(
 
 @router.post(
     "/boqs/{boq_id}/import/gaeb/",
-    summary="Import positions from GAEB XML 3.3 (X83/X84)",
+    summary="Import positions from GAEB XML 3.3 (deprecated — use /import/auto/)",
     dependencies=[Depends(RequirePermission("boq.update"))],
 )
 async def import_boq_gaeb(
     boq_id: uuid.UUID,
+    response: Response,
     file: UploadFile = File(..., description="GAEB XML file (.x83, .x84, .xml)"),
     service: BOQService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Import BOQ positions from a GAEB XML 3.3 file (BUG-153).
+
+    .. deprecated::
+        Epic I5 — clients should call ``POST /import/auto/`` and let
+        the dispatcher pick the importer. This route remains supported
+        for backwards compatibility but emits a ``Deprecation: true``
+        response header.
 
     Supports the GAEB DA XML formats used across DACH tendering:
       - **X83 / DP 83** — Angebotsabgabe (bid submission)
@@ -4913,6 +4944,13 @@ async def import_boq_gaeb(
     import xml.etree.ElementTree as ET
 
     from defusedxml.ElementTree import fromstring as _safe_fromstring
+
+    # Epic I5: deprecation signal — clients should migrate to /import/auto/.
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        '</api/v1/boq/boqs/{boq_id}/import/auto/>; rel="successor-version"'
+    )
+    response.headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT"
 
     # Verify BOQ exists (raises 404 if not found)
     await service.get_boq(boq_id)
@@ -5240,6 +5278,234 @@ async def import_boq_gaeb(
     }
 
 
+# ── Auto-detect dispatcher (Epic I4) ─────────────────────────────────────────
+
+
+async def _persist_imported_boq(
+    boq_id: uuid.UUID,
+    imported: "ImportedBOQ",
+    *,
+    file_name: str,
+    service: BOQService,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Persist an :class:`ImportedBOQ` via the BOQService.
+
+    Returns ``(imported_count, errors)``. Errors collected on the
+    :class:`ImportedBOQ` (per-row parser errors) are flowed through to
+    the dispatcher response unchanged; this helper appends DB-level
+    persistence errors on top.
+    """
+    from decimal import Decimal
+
+    persistence_errors: list[dict[str, Any]] = []
+    imported_count = 0
+    for row in imported.positions:
+        try:
+            position_data = PositionCreate(
+                boq_id=boq_id,
+                ordinal=row.ordinal or str(imported_count + 1),
+                description=row.description,
+                unit=row.unit,
+                quantity=row.quantity,
+                unit_rate=Decimal(str(row.unit_rate)),
+                classification=row.classification,
+                source=row.source,
+                metadata={**row.metadata, "import_source": file_name},
+            )
+            await service.add_position(position_data)
+            imported_count += 1
+        except Exception as exc:  # noqa: BLE001 — surface row-level errors
+            persistence_errors.append(
+                {
+                    "ordinal": row.ordinal,
+                    "error": str(exc),
+                }
+            )
+            logger.warning(
+                "Auto-import row persistence error (BOQ %s, ord %s): %s",
+                boq_id,
+                row.ordinal,
+                exc,
+            )
+    return imported_count, persistence_errors
+
+
+@router.post(
+    "/boqs/{boq_id}/import/auto/",
+    summary="Auto-detect format and import BOQ positions",
+    dependencies=[Depends(RequirePermission("boq.update"))],
+)
+async def import_boq_auto(
+    boq_id: uuid.UUID,
+    user_id: CurrentUserId,
+    file: UploadFile = File(
+        ...,
+        description=(
+            "Any BOQ file. Dispatcher tries native importers (GAEB XML, "
+            "BC3 / FIEBDC-3, Excel/CSV) first; falls back to smart_import "
+            "(LLM) only on no match."
+        ),
+    ),
+    service: BOQService = Depends(_get_service),
+    session: SessionDep = None,  # type: ignore[assignment]
+) -> dict[str, Any]:
+    """Auto-detect a BOQ upload's format and dispatch to the matching importer.
+
+    Walks :data:`REGISTERED_IMPORTERS` in order, calling ``detect()`` on
+    each with the first 4 KB of the upload + the filename. The first
+    importer whose ``detect()`` returns ``True`` wins; its ``parse()`` is
+    invoked on the full buffer and the resulting positions persisted
+    via :func:`_persist_imported_boq`.
+
+    On no match the route delegates to the existing :func:`smart_import`
+    (LLM) path so legacy ``smart_import`` behaviour remains the
+    last-chance fallback.
+
+    Returns:
+        ``{imported, skipped, errors, warnings, source_format,
+          format_id, currency, validation_report, metadata, method}``.
+    """
+    # Import here to avoid a circular at module load (importers package
+    # depends on ``app.core.file_signature`` which is fine, but the
+    # registry is consulted only at request time).
+    from app.modules.boq.importers import REGISTERED_IMPORTERS, ImportedBOQ, ImporterParseError
+
+    # Verify BOQ exists (raises 404 if not found).
+    await service.get_boq(boq_id)
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+    file_name = file.filename or "upload"
+
+    head = content[:4096]
+    chosen: type | None = None
+    for importer in REGISTERED_IMPORTERS:
+        try:
+            if importer.detect(head, file_name):
+                chosen = importer
+                break
+        except Exception as exc:  # noqa: BLE001 — detect() must never raise
+            logger.warning(
+                "Importer %s.detect() raised on %s: %s",
+                importer.__name__,
+                file_name,
+                exc,
+            )
+            continue
+
+    if chosen is None:
+        # No native importer claimed the file — fall back to smart_import
+        # (LLM). Reset the upload buffer's position so smart_import can
+        # re-read it. UploadFile's underlying SpooledTemporaryFile
+        # supports seek() on the in-memory and on-disk variants alike.
+        try:
+            await file.seek(0)
+        except Exception:  # noqa: BLE001 — best-effort, smart_import is robust
+            pass
+        # Smart import owns its own Deprecation header but that is fine —
+        # the dispatcher is the path the caller wanted, so we set our own
+        # method marker on the response.
+        from fastapi import Response as _Response
+
+        fallback_response = _Response()
+        result = await smart_import(
+            boq_id=boq_id,
+            user_id=user_id,
+            response=fallback_response,
+            file=file,
+            service=service,
+            session=session,
+        )
+        result["method"] = "smart_fallback"
+        result["format_id"] = "smart"
+        return result
+
+    try:
+        imported_boq: ImportedBOQ = await chosen.parse(content, locale=get_locale())
+    except ImporterParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not parse file as {chosen.display_name}: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 — log + sanitise
+        logger.exception(
+            "Importer %s.parse() unexpected failure on BOQ %s: %s",
+            chosen.__name__,
+            boq_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not parse file as {chosen.display_name}: unexpected error.",
+        ) from exc
+
+    imported_count, persistence_errors = await _persist_imported_boq(
+        boq_id,
+        imported_boq,
+        file_name=file_name,
+        service=service,
+    )
+
+    # Persist top-level import metadata so the round-trip exporter can
+    # reproduce the original layout.
+    if imported_count > 0:
+        try:
+            boq_obj = await service.get_boq(boq_id)
+            meta = dict(boq_obj.metadata_) if isinstance(boq_obj.metadata_, dict) else {}
+            meta["last_import"] = {
+                "source_filename": file_name,
+                "source_format": imported_boq.source_format,
+                "format_id": chosen.format_id,
+                "currency": imported_boq.currency,
+                "total_imported": imported_count,
+                "import_date": datetime.now(UTC).isoformat(),
+                **imported_boq.metadata,
+            }
+            boq_obj.metadata_ = meta
+            await service.session.flush()
+            await service.session.commit()
+        except Exception:
+            logger.warning(
+                "Failed to persist auto-import metadata for BOQ %s",
+                boq_id,
+                exc_info=True,
+            )
+
+    # Run inline validation using the importer's declared rule packs
+    # (philosophy: validation is a first-class citizen of every import).
+    validation_report = None
+    if imported_count > 0:
+        validation_report = await _run_import_validation(
+            boq_id, service, service.session
+        )
+
+    logger.info(
+        "Auto-import (%s) for BOQ %s: imported=%d, skipped=%d, errors=%d",
+        chosen.format_id,
+        boq_id,
+        imported_count,
+        imported_boq.skipped,
+        len(imported_boq.errors) + len(persistence_errors),
+    )
+
+    return {
+        "imported": imported_count,
+        "skipped": imported_boq.skipped,
+        "errors": imported_boq.errors + persistence_errors,
+        "warnings": imported_boq.warnings,
+        "source_format": imported_boq.source_format,
+        "format_id": chosen.format_id,
+        "currency": imported_boq.currency,
+        "validation_report": validation_report,
+        "metadata": imported_boq.metadata,
+        "method": "native",
+    }
+
+
 # ── Smart import helpers ─────────────────────────────────────────────────────
 
 
@@ -5443,12 +5709,13 @@ async def _extract_from_cad(content: bytes, ext: str, filename: str) -> dict[str
 
 @router.post(
     "/boqs/{boq_id}/import/smart/",
-    summary="Smart import: any file via AI",
+    summary="Smart import: any file via AI (deprecated — use /import/auto/)",
     dependencies=[Depends(RequirePermission("boq.update"))],
 )
 async def smart_import(
     boq_id: uuid.UUID,
     user_id: CurrentUserId,
+    response: Response,
     file: UploadFile = File(
         ...,
         description="Any document file (Excel, CSV, PDF, image, or CAD/BIM: .rvt, .ifc, .dwg, .dgn)",
@@ -5457,6 +5724,14 @@ async def smart_import(
     session: SessionDep = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """Smart import: parse ANY file into BOQ positions using AI.
+
+    .. deprecated::
+        Epic I5 — clients should call ``POST /import/auto/`` instead.
+        The dispatcher picks a native importer first (GAEB / BC3 /
+        Excel) and only falls back to the LLM smart path on no match,
+        which is usually what callers actually want. This route remains
+        supported for backwards compatibility but emits a
+        ``Deprecation: true`` response header.
 
     Accepts Excel (.xlsx), CSV (.csv), PDF (.pdf), image files
     (.jpg, .jpeg, .png, .tiff, .bmp), and CAD/BIM files
@@ -5469,6 +5744,13 @@ async def smart_import(
     Returns:
         Summary with imported/error counts, method used, and AI model if applicable.
     """
+    # Epic I5: deprecation signal — clients should migrate to /import/auto/.
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        '</api/v1/boq/boqs/{boq_id}/import/auto/>; rel="successor-version"'
+    )
+    response.headers["Sunset"] = "Wed, 31 Dec 2026 23:59:59 GMT"
+
     # Verify BOQ exists, capture project currency for downstream LLM prompts.
     boq_obj = await service.get_boq(boq_id)
     _project_currency: str = ""
