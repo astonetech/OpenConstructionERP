@@ -488,6 +488,28 @@ class RFIService:
         )
         fresh = await self.repo.get_by_id(rfi_id)
 
+        # Epic H — universal audit trail. Service-layer log so the row
+        # lands in the same transaction as the business write; on
+        # rollback the audit row goes with it.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=responded_by,
+            entity_type="rfi",
+            entity_id=str(rfi_id),
+            action="status_changed",
+            from_status=old_status,
+            to_status="answered",
+            reason="RFI answered via respond_to_rfi()",
+            metadata={"rfi_number": rfi_number_s, "ball_in_court": raised_by_s},
+            module="rfi",
+            parent_entity_type="project",
+            parent_entity_id=project_id_s,
+            before_state={"status": old_status, "ball_in_court": assigned_s},
+            after_state={"status": "answered", "ball_in_court": raised_by_s},
+        )
+
         await _safe_publish(
             "rfi.responded",
             {
@@ -541,6 +563,25 @@ class RFIService:
 
         await self.repo.update_fields(rfi_id, status="closed", ball_in_court=None)
         fresh = await self.repo.get_by_id(rfi_id)
+
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=closed_by,
+            entity_type="rfi",
+            entity_id=str(rfi_id),
+            action="status_changed",
+            from_status=old_status,
+            to_status="closed",
+            reason="RFI closed via close_rfi()",
+            metadata={"rfi_number": rfi_number_s},
+            module="rfi",
+            parent_entity_type="project",
+            parent_entity_id=project_id_s,
+            before_state={"status": old_status},
+            after_state={"status": "closed", "ball_in_court": None},
+        )
 
         await _safe_publish(
             "rfi.closed",

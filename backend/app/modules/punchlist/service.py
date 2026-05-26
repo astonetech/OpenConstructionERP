@@ -261,6 +261,26 @@ class PunchListService:
             await self.repo.update_fields(item_id, **update_fields)
             await self.session.refresh(item)
 
+            # Epic H — universal audit trail (reopen branch).
+            from app.core.audit_log import log_activity as _log_activity
+
+            await _log_activity(
+                self.session,
+                actor_id=user_id,
+                entity_type="punch_item",
+                entity_id=str(item_id),
+                action="status_changed",
+                from_status=current,
+                to_status="open",
+                reason=transition.notes,
+                metadata={"reopened": True},
+                module="punchlist",
+                parent_entity_type="project",
+                parent_entity_id=str(item.project_id),
+                before_state={"status": current},
+                after_state={"status": "open"},
+            )
+
             await _safe_publish(
                 "punchlist.item.status_changed",
                 {
@@ -334,6 +354,26 @@ class PunchListService:
 
         await self.repo.update_fields(item_id, **update_fields)
         await self.session.refresh(item)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=user_id,
+            entity_type="punch_item",
+            entity_id=str(item_id),
+            action="status_changed",
+            from_status=current,
+            to_status=target,
+            reason=transition.notes,
+            metadata={"priority": item.priority},
+            module="punchlist",
+            parent_entity_type="project",
+            parent_entity_id=str(item.project_id),
+            before_state={"status": current},
+            after_state={"status": target},
+        )
 
         await _safe_publish(
             "punchlist.item.status_changed",

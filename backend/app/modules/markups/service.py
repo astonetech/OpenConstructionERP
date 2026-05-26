@@ -202,15 +202,59 @@ class MarkupsService:
         if not fields:
             return item
 
+        prior_status = item.status
+
         await self.markup_repo.update_fields(markup_id, **fields)
         await self.session.refresh(item)
+
+        # Epic H — universal audit trail. Only emit a status-changed row
+        # when status actually moved; ordinary geometry / colour edits
+        # land in the audit table under ``action="updated"``.
+        from app.core.audit_log import log_activity as _log_activity
+
+        new_status = fields.get("status")
+        action = (
+            "status_changed"
+            if new_status is not None and new_status != prior_status
+            else "updated"
+        )
+        await _log_activity(
+            self.session,
+            actor_id=None,  # router caller knows the actor; service stays neutral
+            entity_type="markup",
+            entity_id=str(markup_id),
+            action=action,
+            from_status=prior_status if action == "status_changed" else None,
+            to_status=new_status if action == "status_changed" else None,
+            metadata={"fields": list(fields.keys())},
+            module="markups",
+            parent_entity_type="project",
+            parent_entity_id=str(item.project_id),
+        )
 
         logger.info("Markup updated: %s (fields=%s)", markup_id, list(fields.keys()))
         return item
 
     async def delete_markup(self, markup_id: uuid.UUID) -> None:
         """Delete a markup."""
-        await self.get_markup(markup_id)  # Raises 404 if not found
+        item = await self.get_markup(markup_id)  # Raises 404 if not found
+
+        # Epic H — record deletion before the row vanishes.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=None,
+            entity_type="markup",
+            entity_id=str(markup_id),
+            action="deleted",
+            from_status=item.status,
+            module="markups",
+            parent_entity_type="project",
+            parent_entity_id=str(item.project_id),
+            before_state={"status": item.status, "type": item.type},
+        )
+
         await self.markup_repo.delete(markup_id)
         logger.info("Markup deleted: %s", markup_id)
 

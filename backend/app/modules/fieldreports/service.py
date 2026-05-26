@@ -326,6 +326,7 @@ class FieldReportService:
                 detail=f"Cannot approve report with status '{report.status}' — must be submitted",
             )
 
+        prior_status = report.status
         now = datetime.now(UTC)
         await self.repo.update_fields(
             report_id,
@@ -334,6 +335,26 @@ class FieldReportService:
             approved_at=now,
         )
         await self.session.refresh(report)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=user_id,
+            entity_type="field_report",
+            entity_id=str(report_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="approved",
+            reason="Field report approved",
+            module="fieldreports",
+            parent_entity_type="project",
+            parent_entity_id=str(report.project_id),
+            before_state={"status": prior_status},
+            after_state={"status": "approved"},
+        )
+
         logger.info("Field report approved: %s by %s", report_id, user_id)
         return report
 

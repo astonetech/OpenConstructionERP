@@ -758,12 +758,32 @@ class ServiceService:
     async def resolve_ticket(self, ticket_id: uuid.UUID) -> ServiceTicket:
         ticket = await self.get_ticket(ticket_id)
         assert_transition(ticket.status, "resolved", machine="ticket")
+        prior_status = ticket.status
         await self.ticket_repo.update_fields(
             ticket_id,
             status="resolved",
             resolved_at=_utcnow_iso(),
         )
         await self.session.refresh(ticket)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=None,
+            entity_type="service_ticket",
+            entity_id=str(ticket_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="resolved",
+            reason="Service ticket resolved",
+            metadata={"ticket_number": ticket.ticket_number},
+            module="service",
+            before_state={"status": prior_status},
+            after_state={"status": "resolved"},
+        )
+
         event_bus.publish_detached(
             "service.ticket.resolved",
             {
@@ -778,12 +798,32 @@ class ServiceService:
     async def close_ticket(self, ticket_id: uuid.UUID) -> ServiceTicket:
         ticket = await self.get_ticket(ticket_id)
         assert_transition(ticket.status, "closed", machine="ticket")
+        prior_status = ticket.status
         await self.ticket_repo.update_fields(
             ticket_id,
             status="closed",
             closed_at=_utcnow_iso(),
         )
         await self.session.refresh(ticket)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=None,
+            entity_type="service_ticket",
+            entity_id=str(ticket_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="closed",
+            reason="Service ticket closed",
+            metadata={"ticket_number": ticket.ticket_number},
+            module="service",
+            before_state={"status": prior_status},
+            after_state={"status": "closed"},
+        )
+
         event_bus.publish_detached(
             "service.ticket.closed",
             {"ticket_id": str(ticket_id), "ticket_number": ticket.ticket_number},

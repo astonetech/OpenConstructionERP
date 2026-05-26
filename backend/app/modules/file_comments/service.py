@@ -256,6 +256,27 @@ async def create_comment(
     mentions = await _extract_and_persist_mentions(
         session, comment.id, comment.body, exclude_user_id=author_id
     )
+
+    # Epic H — universal audit trail.
+    from app.core.audit_log import log_activity as _log_activity
+
+    await _log_activity(
+        session,
+        actor_id=str(author_id),
+        entity_type="file_comment",
+        entity_id=str(comment.id),
+        action="created",
+        metadata={
+            "file_kind": payload.file_kind,
+            "file_id": str(payload.file_id),
+            "mention_count": len(mentions),
+            "is_reply": payload.parent_id is not None,
+        },
+        module="file_comments",
+        parent_entity_type="project",
+        parent_entity_id=str(payload.project_id),
+        after_state={"body_len": len(payload.body or "")},
+    )
     return comment, mentions
 
 
@@ -403,6 +424,21 @@ async def soft_delete_comment(
         )
     )
     await session.flush()
+
+    # Epic H — universal audit trail.
+    from app.core.audit_log import log_activity as _log_activity
+
+    await _log_activity(
+        session,
+        actor_id=str(actor_id),
+        entity_type="file_comment",
+        entity_id=str(comment_id),
+        action="deleted",
+        reason="Soft delete by author",
+        module="file_comments",
+        parent_entity_type="project",
+        parent_entity_id=str(comment.project_id),
+    )
     return True
 
 

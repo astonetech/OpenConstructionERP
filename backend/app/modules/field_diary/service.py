@@ -342,6 +342,7 @@ class FieldDiaryService:
             )
         if entry.status == "approved":
             return entry  # idempotent
+        prior_status = entry.status
         now = now_utc()
         await self.entry_repo.update_fields(
             entry_id,
@@ -350,6 +351,26 @@ class FieldDiaryService:
             approved_by=approver_id,
         )
         await self.session.refresh(entry)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=str(approver_id),
+            entity_type="diary_entry",
+            entity_id=str(entry_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="approved",
+            reason="Daily diary entry approved",
+            module="field_diary",
+            parent_entity_type="project",
+            parent_entity_id=str(entry.project_id),
+            before_state={"status": prior_status},
+            after_state={"status": "approved"},
+        )
+
         return entry
 
     async def list_diary_entries(

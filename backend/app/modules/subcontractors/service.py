@@ -698,6 +698,7 @@ class SubcontractorService:
             await self.prequal.update_fields(prequal_id, status="under_review")
             entity.status = "under_review"
         _assert_transition(entity.status, "approved", _PREQUAL_TRANSITIONS, "prequalification")
+        prior_status = entity.status
         await self.prequal.update_fields(
             prequal_id,
             status="approved",
@@ -710,6 +711,26 @@ class SubcontractorService:
             entity.subcontractor_id, prequalification_status="approved",
         )
         await self.session.refresh(entity)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=reviewer_id,
+            entity_type="subcontractor_prequalification",
+            entity_id=str(prequal_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="approved",
+            reason=notes,
+            module="subcontractors",
+            parent_entity_type="subcontractor",
+            parent_entity_id=str(entity.subcontractor_id),
+            before_state={"status": prior_status},
+            after_state={"status": "approved"},
+        )
+
         event_bus.publish_detached(
             "subcontractors.prequalification.approved",
             {"prequalification_id": str(entity.id), "subcontractor_id": str(entity.subcontractor_id)},
@@ -727,6 +748,7 @@ class SubcontractorService:
         if entity is None:
             raise HTTPException(status_code=404, detail=translate("errors.prequalification_not_found", locale=get_locale()))
         _assert_transition(entity.status, "rejected", _PREQUAL_TRANSITIONS, "prequalification")
+        prior_status = entity.status
         await self.prequal.update_fields(
             prequal_id,
             status="rejected",
@@ -738,6 +760,26 @@ class SubcontractorService:
             entity.subcontractor_id, prequalification_status="rejected",
         )
         await self.session.refresh(entity)
+
+        # Epic H — universal audit trail.
+        from app.core.audit_log import log_activity as _log_activity
+
+        await _log_activity(
+            self.session,
+            actor_id=reviewer_id,
+            entity_type="subcontractor_prequalification",
+            entity_id=str(prequal_id),
+            action="status_changed",
+            from_status=prior_status,
+            to_status="rejected",
+            reason=notes,
+            module="subcontractors",
+            parent_entity_type="subcontractor",
+            parent_entity_id=str(entity.subcontractor_id),
+            before_state={"status": prior_status},
+            after_state={"status": "rejected"},
+        )
+
         return entity
 
     # ── Certificate management ──────────────────────────────────────────
