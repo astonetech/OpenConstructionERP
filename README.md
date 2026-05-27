@@ -12,10 +12,10 @@ Professional BOQ, 4D scheduling, 5D cost model, and tendering — all in one ope
 
 <table>
 <tr>
-<td align="center" width="16.66%"><b>55K+</b><br/><sub>cost items</sub></td>
+<td align="center" width="16.66%"><b>55K+</b><br/><sub>cost&nbsp;items</sub></td>
 <td align="center" width="16.66%"><b>24</b><br/><sub>languages</sub></td>
 <td align="center" width="16.66%"><b>48</b><br/><sub>regions</sub></td>
-<td align="center" width="16.66%"><b>6</b><br/><sub>CAD formats</sub></td>
+<td align="center" width="16.66%"><b>6</b><br/><sub>CAD&nbsp;formats</sub></td>
 <td align="center" width="16.66%"><b>100+</b><br/><sub>modules</sub></td>
 <td align="center" width="16.66%"><b>12</b><br/><sub>sections</sub></td>
 </tr>
@@ -38,8 +38,6 @@ Professional BOQ, 4D scheduling, 5D cost model, and tendering — all in one ope
 </video>
 
 <sub><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/device-camera-video-dark.svg"><img src="docs/readme-icons/device-camera-video-light.svg" width="14" align="center" alt=""></picture> <b>1-minute teaser above</b> · for the full 12-minute walkthrough → <a href="https://www.youtube.com/watch?v=X06cIaroAeI"><b>watch on YouTube</b></a> · onboarding → BoQ → BIM → DWG → PDF → AI → dashboard</sub>
-
-*100% open source · 55,000+ cost items · AI estimation · 27 languages · 111 modules · Self-hosted*
 
 </div>
 
