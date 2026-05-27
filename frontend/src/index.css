@@ -1513,6 +1513,18 @@ tbody tr:nth-child(20) { animation-delay: 570ms; }
 .animate-blob-slow-3 { animation: blob-slow-3 18s ease-in-out infinite; }
 .animate-blob-slow-4 { animation: blob-slow-4 24s ease-in-out infinite; }
 
+/* Ledger row deep-link flash — triggered when /markups deep-links to a
+   specific measurement (TakeoffViewerModule + MeasurementLedger). The
+   animation auto-removes itself after ~1.6s so a re-select re-runs it. */
+@keyframes ledgerRowFlash {
+  0%   { background-color: rgba(59, 130, 246, 0.40); }
+  60%  { background-color: rgba(59, 130, 246, 0.18); }
+  100% { background-color: transparent; }
+}
+.ledger-row-flash {
+  animation: ledgerRowFlash 1.4s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-blob-slow-1,
   .animate-blob-slow-2,

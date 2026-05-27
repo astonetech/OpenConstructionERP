@@ -6,7 +6,7 @@
  * math so the component itself stays purely presentational.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
 import {
@@ -101,6 +101,28 @@ export function MeasurementLedger({
     for (const s of subtotals) map.set(s.group, s);
     return map;
   }, [subtotals]);
+
+  /* ── Scroll the selected row into view + brief flash ──────────────────
+   * Triggered when ``selectedMeasurementId`` changes from outside (e.g.
+   * the /markups deep-link or programmatic selection from the viewer
+   * canvas). The flash class is removed after the CSS animation has had
+   * time to play so a subsequent re-select on the same row re-runs it. */
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selectedMeasurementId) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const row = container.querySelector<HTMLTableRowElement>(
+      `tr[data-measurement-id="${CSS.escape(selectedMeasurementId)}"]`,
+    );
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('ledger-row-flash');
+    const timer = window.setTimeout(() => {
+      row.classList.remove('ledger-row-flash');
+    }, 1600);
+    return () => window.clearTimeout(timer);
+  }, [selectedMeasurementId, rows]);
 
   const toggleSort = (col: LedgerSortColumn) => {
     if (sortCol === col) {
@@ -240,7 +262,7 @@ export function MeasurementLedger({
           })}
         </p>
       ) : (
-        <div className="max-h-[500px] overflow-auto">
+        <div ref={scrollContainerRef} className="max-h-[500px] overflow-auto">
           <table
             className="w-full text-[11px] tabular-nums"
             data-testid="ledger-table"

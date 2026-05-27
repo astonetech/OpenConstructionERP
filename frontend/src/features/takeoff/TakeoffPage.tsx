@@ -915,6 +915,18 @@ export function TakeoffPage() {
   /** Currently opened document in the Measurements viewer. */
   const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
 
+  /** Set when a deep-link references a measurement so the viewer can
+   *  select + scroll-to it after the document and measurement list load. */
+  const [initialMeasurementId, setInitialMeasurementId] = useState<string | null>(
+    () => searchParams.get('measurementId'),
+  );
+
+  /** True when a `?docId=` deep-link couldn't be resolved against either
+   *  the takeoff documents catalogue or the project documents module —
+   *  drives a friendly empty-state with a "back to /markups" link instead
+   *  of a blank viewer. Reset every time the docId param changes. */
+  const [deepLinkNotFound, setDeepLinkNotFound] = useState(false);
+
   /* ── Handle ?doc= / ?name= deep link from Documents / BOQ link icon ─ */
 
   useEffect(() => {
@@ -1055,6 +1067,68 @@ export function TakeoffPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  /* ── /markups deep-link: ?docId=<filename|uuid>&measurementId=<uuid> ───
+   *
+   * The unified Markups hub builds deep-links from `measurement.document_id`,
+   * which the PDF-takeoff backend stores as the **filename** (see
+   * useMeasurementPersistence — takeoffApi.list is keyed by filename, and
+   * MeasurementCreate.document_id is the same string). So `docId` here is
+   * usually a filename, occasionally a real takeoff_documents UUID. We try
+   * both: exact filename match against the takeoff docs catalogue first,
+   * then UUID id match as a fallback.
+   *
+   * On hit: open the PDF in the Measurements viewer and stash the
+   * measurementId so TakeoffViewerModule can select + scroll-to it once
+   * the persistence hook has loaded the measurement list.
+   *
+   * On miss: surface a "document not found" empty state with a back link
+   * to /markups — far less confusing than the previous silent blank page.
+   */
+  useEffect(() => {
+    const docId = searchParams.get('docId');
+    const measurementId = searchParams.get('measurementId');
+    const tab = searchParams.get('tab');
+    // Track the measurementId param so the viewer can act on it once the
+    // measurement list lands (don't gate on serverDocuments here — viewer
+    // module fetches its own measurement list keyed by filename).
+    setInitialMeasurementId(measurementId);
+
+    if (!docId) {
+      setDeepLinkNotFound(false);
+      return;
+    }
+    if (tab === 'measurements') {
+      setActiveTab('measurements');
+    }
+    if (viewerDoc) return; // already opened from a prior effect
+    if (!serverDocuments) return; // wait for the catalogue to load
+
+    const decodedDocId = decodeURIComponent(docId);
+    const lowered = decodedDocId.toLowerCase();
+    // Try filename match (most common — the hub stores filenames as
+    // document_id), then fall back to id match for legacy UUID deeplinks.
+    const match =
+      serverDocuments.find(
+        (d) =>
+          d.filename.toLowerCase() === lowered ||
+          d.filename.toLowerCase() === lowered.replace(/\.[^.]+$/, ''),
+      ) ?? serverDocuments.find((d) => d.id === decodedDocId);
+
+    if (match) {
+      setDeepLinkNotFound(false);
+      setActiveDocId(match.id);
+      setViewerDoc({
+        url: `/api/v1/takeoff/documents/${match.id}/download/`,
+        name: match.filename,
+      });
+      setActiveTab('measurements');
+    } else if (serverDocuments.length >= 0) {
+      // Catalogue is loaded but no row matches — surface a friendly miss.
+      setDeepLinkNotFound(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, serverDocuments]);
 
   /* ── Mutations ──────────────────────────────────────────────────────── */
 
@@ -1781,18 +1855,46 @@ export function TakeoffPage() {
         // viewer enough to force an internal scrollbar on laptop screens.
         <div className="flex flex-col h-[calc(100vh-var(--oe-header-height,52px)-7rem)] min-h-0 overflow-x-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 size={24} className="animate-spin text-oe-blue" />
+            {deepLinkNotFound && !viewerDoc ? (
+              <div
+                className="mx-auto my-8 max-w-md rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/20 px-6 py-8 text-center"
+                data-testid="takeoff-deeplink-not-found"
+              >
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">
+                  <AlertTriangle size={24} className="text-amber-600" strokeWidth={1.5} />
                 </div>
-              }
-            >
-              <TakeoffViewerModule
-                initialPdfUrl={viewerDoc?.url}
-                initialPdfName={viewerDoc?.name}
-              />
-            </Suspense>
+                <h3 className="text-sm font-semibold text-content-primary mb-1">
+                  {t('takeoff.deeplink_not_found_title', { defaultValue: 'Document not found' })}
+                </h3>
+                <p className="text-xs text-content-tertiary mb-4">
+                  {t('takeoff.deeplink_not_found_desc', {
+                    defaultValue:
+                      "The annotation references a document that isn't in this project's takeoff library. It may have been deleted or belong to a different project.",
+                  })}
+                </p>
+                <a
+                  href="/markups"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-light bg-surface-primary px-3 py-1.5 text-xs font-medium text-oe-blue hover:bg-oe-blue-subtle transition-colors"
+                >
+                  <ArrowRight size={12} className="rotate-180" />
+                  {t('takeoff.back_to_markups', { defaultValue: 'Back to Markups' })}
+                </a>
+              </div>
+            ) : (
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center py-20">
+                    <Loader2 size={24} className="animate-spin text-oe-blue" />
+                  </div>
+                }
+              >
+                <TakeoffViewerModule
+                  initialPdfUrl={viewerDoc?.url}
+                  initialPdfName={viewerDoc?.name}
+                  initialMeasurementId={initialMeasurementId}
+                />
+              </Suspense>
+            )}
           </div>
 
           {/* Bottom filmstrip — list previously uploaded takeoff documents. */}

@@ -230,11 +230,16 @@ interface TakeoffViewerModuleProps {
   initialPdfUrl?: string;
   /** Optional filename to associate with the pre-loaded PDF (used for persistence key). */
   initialPdfName?: string;
+  /** Optional measurement id to auto-select + scroll-to once the measurement
+   *  list lands (used by the /markups → /takeoff deep-link). Matches either
+   *  the frontend id or the server-side UUID. */
+  initialMeasurementId?: string | null;
 }
 
 export default function TakeoffViewerModule({
   initialPdfUrl,
   initialPdfName,
+  initialMeasurementId,
 }: TakeoffViewerModuleProps = {}) {
   const { t } = useTranslation();
 
@@ -379,6 +384,32 @@ export default function TakeoffViewerModule({
     setScale: (s) => setScale(s),
     projectId: activeProjectId,
   });
+
+  /* ── Deep-link: auto-select measurement from /markups ─────────────────
+   * The /markups hub deep-links here with ``?measurementId=<uuid>``. After
+   * the persistence hook hydrates the measurement list we look up the row
+   * by either the frontend id or the server-side UUID, switch to its page
+   * if needed, swap the sidebar to the Ledger tab (so the scroll-to-flash
+   * has somewhere visible to land) and select it. The MeasurementLedger
+   * scrolls the matching row into view + flashes via CSS.
+   *
+   * Guarded by a ref so we only consume the param once per mount — the
+   * user is free to click around afterwards without us yanking them back. */
+  const deepLinkConsumedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialMeasurementId) return;
+    if (deepLinkConsumedRef.current === initialMeasurementId) return;
+    if (measurements.length === 0) return;
+    const match = measurements.find(
+      (m) => m.id === initialMeasurementId || m.serverId === initialMeasurementId,
+    );
+    if (!match) return;
+    deepLinkConsumedRef.current = initialMeasurementId;
+    const targetPage = Math.max(1, Math.min(match.page || 1, totalPages || 1));
+    if (targetPage !== currentPage) setCurrentPage(targetPage);
+    setSidebarTab('ledger');
+    setSelectedMeasurementId(match.id);
+  }, [initialMeasurementId, measurements, totalPages, currentPage]);
 
   /* ── Load PDF ────────────────────────────────────────────────────── */
 
