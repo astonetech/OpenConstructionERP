@@ -996,6 +996,103 @@ export async function deleteElementGroup(groupId: string): Promise<void> {
   await apiDelete(`/v1/bim_hub/element-groups/${encodeURIComponent(groupId)}`);
 }
 
+/* ── Smart Views — canonical-format rule builder ─────────────────────── */
+
+/** Operators supported by the Smart View rule evaluator.
+ *
+ *  String operators: =, !=, contains, starts_with, ends_with, regex, in,
+ *  not_in, is_empty, is_not_empty.  Numeric: =, !=, >, <, >=, <=, between,
+ *  in, not_in, is_empty, is_not_empty.  The UI shows / hides operators
+ *  based on the property's inferred data_type. */
+export type SmartViewOp =
+  | '='
+  | '!='
+  | 'contains'
+  | 'starts_with'
+  | 'ends_with'
+  | 'regex'
+  | '>'
+  | '<'
+  | '>='
+  | '<='
+  | 'between'
+  | 'in'
+  | 'not_in'
+  | 'is_empty'
+  | 'is_not_empty';
+
+/** One leaf rule in the tree — a single (field, op, value) predicate. */
+export interface SmartViewLeaf {
+  field: string;
+  op: SmartViewOp;
+  value?: unknown;
+}
+
+/** A group node — combines child rules with AND or OR. */
+export interface SmartViewGroup {
+  op: 'AND' | 'OR';
+  rules: Array<SmartViewLeaf | SmartViewGroup>;
+}
+
+/** Property catalog entry returned by GET /smart-views/properties.
+ *
+ *  - field: canonical path (e.g. "geometry.area_m2", "properties.material")
+ *  - group: Identity / Geometry / Quantities / Properties
+ *  - data_type: drives operator + value-input pickers in the UI
+ *  - source_formats: badges shown on each row ("RVT" / "IFC" / "DWG" …)
+ *  - sample_values: distinct values seen in the model (caps at 25 by default)
+ */
+export interface SmartViewProperty {
+  field: string;
+  label: string;
+  group: 'identity' | 'geometry' | 'quantities' | 'properties';
+  data_type: 'string' | 'number' | 'enum' | 'boolean';
+  source_formats: string[];
+  sample_values: string[];
+  distinct_count: number;
+  truncated: boolean;
+}
+
+export interface SmartViewPropertyCatalog {
+  model_id: string | null;
+  source_format: string;
+  element_count: number;
+  entries: SmartViewProperty[];
+}
+
+export interface SmartViewPreviewResult {
+  matched_count: number;
+  sample_element_ids: string[];
+  truncated: boolean;
+  normalised_rule_tree: SmartViewGroup;
+}
+
+/** Fetch the property catalog for one model.  Used to seed the
+ *  Property Picker dropdown in the Smart View builder. */
+export async function fetchSmartViewProperties(
+  modelId: string,
+): Promise<SmartViewPropertyCatalog> {
+  const qs = new URLSearchParams({ model_id: modelId });
+  return apiGet<SmartViewPropertyCatalog>(
+    `/v1/bim_hub/smart-views/properties?${qs.toString()}`,
+  );
+}
+
+/** Evaluate a rule tree without saving — returns count + sample ids.
+ *  Drives the live "234 elements match" counter in the builder. */
+export async function previewSmartView(payload: {
+  model_id?: string | null;
+  project_id?: string | null;
+  rule_tree?: SmartViewGroup | null;
+  filter_criteria?: BIMGroupFilterCriteria | null;
+  sample_limit?: number;
+}): Promise<SmartViewPreviewResult> {
+  return apiPost<SmartViewPreviewResult, typeof payload>(
+    '/v1/bim_hub/smart-views/preview',
+    payload,
+  );
+}
+
 /* ── Cross-module link wrappers (Documents / Tasks / Schedule) ───────── */
 
 /** A document ↔ BIM element link. */
