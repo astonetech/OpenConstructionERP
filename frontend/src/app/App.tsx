@@ -697,15 +697,15 @@ export default function App() {
         } />
 
         {/* App — all protected, all real pages */}
-        {/* BUG-215 — authenticated users hitting `/` land on /projects.
-            Unauthenticated users fall through to <P>, which calls
-            RequireAuth and bounces them to /login (preserving the
-            marketing-flavoured public landing path). */}
+        {/* BUG-215 — authenticated users hitting `/` land on the dashboard
+            (the canonical post-login surface). Unauthenticated users fall
+            through to <P>, which calls RequireAuth and bounces them to
+            /login (preserving the marketing-flavoured public landing path). */}
         <Route
           path="/"
           element={
             isAuthenticated
-              ? <Navigate to="/projects" replace />
+              ? <Navigate to="/dashboard" replace />
               : <P title="Dashboard"><DashboardPage /></P>
           }
         />
