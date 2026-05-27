@@ -213,6 +213,8 @@ internal-notes/orphan_test_backups/
 internal-notes/_pat.txt
 internal-notes/_pat
 internal-notes/token.txt
+internal-notes/pypi-api-token.txt
+internal-notes/pypi.token
 internal-notes/_three_cards_*.txt
 internal-notes/_three_ddc_cards.txt
 internal-notes/RELEASE_NOTES_*.md
