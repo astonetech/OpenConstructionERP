@@ -9,8 +9,8 @@ Professional BOQ, 4D/5D planning, AI-powered estimation, CAD/BIM takeoff — all
 [▶ Watch the 12-min walkthrough](https://www.youtube.com/watch?v=X06cIaroAeI) · [Demo](https://openconstructionerp.com) · [Documentation](https://openconstructionerp.com/docs) · [Discussions](https://t.me/datadrivenconstruction) · [Report Bug](https://github.com/datadrivenconstruction/OpenConstructionERP/issues)
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![Version](https://img.shields.io/github/v/release/datadrivenconstruction/OpenConstructionERP?label=version&color=green)](https://github.com/datadrivenconstruction/OpenConstructionERP/releases/latest)
-[![PyPI](https://img.shields.io/pypi/v/openconstructionerp?color=informational&label=pypi)](https://pypi.org/project/openconstructionerp/)
+[![Version](https://img.shields.io/github/v/release/datadrivenconstruction/OpenConstructionERP?label=version&color=green&v=5.2.5)](https://github.com/datadrivenconstruction/OpenConstructionERP/releases/latest)
+[![PyPI](https://img.shields.io/pypi/v/openconstructionerp?color=informational&label=pypi&v=5.2.5)](https://pypi.org/project/openconstructionerp/)
 [![Downloads (pepy · per month)](https://static.pepy.tech/personalized-badge/openconstructionerp?period=month&units=international_system&left_color=grey&right_color=blue&left_text=downloads%20(pepy%20%C2%B7%20per%20month))](https://pepy.tech/project/openconstructionerp)
 [![Stars](https://img.shields.io/github/stars/datadrivenconstruction/OpenConstructionERP?style=flat&logo=github)](https://github.com/datadrivenconstruction/OpenConstructionERP/stargazers)
 <br/>
@@ -137,51 +137,42 @@ Star OpenConstructionERP on GitHub and be instantly notified of new releases.
 
 ---
 
-## <picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/sparkle-fill-dark.svg"><img src="docs/readme-icons/sparkle-fill-light.svg" width="14" align="center" alt=""></picture> What's New in v4.6.0 — Floating chat + Accommodation + Geo overlay + 10 dashboard widgets
+## <picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/sparkle-fill-dark.svg"><img src="docs/readme-icons/sparkle-fill-light.svg" width="14" align="center" alt=""></picture> What's New in v5.2.5 — International BOQ + Universal audit trail + Install-crash fix
 
-The **v4.6.0** wave adds a floating ERP-aware chat on every page, a new **Accommodation** module that unifies worker camps / rentals / hotels, **10 new dashboard widgets** with server-synced layout, **DWG/PDF raster overlay** in the Geo Hub globe, and **6 per-module guided tours**. **111 modules** ship in the box; the `/api/v1/*` surface remains the public contract.
+The **v5.2.x** line graduates the platform to **116 modules** with three foundation epics from the Deep-Coordination initiative, plus **Epic I — International BOQ** for worldwide tender formats. **v5.2.5** specifically unblocks fresh `pip install` — the previous 4.5.0 wheel on PyPI crashed at startup because of a FastAPI 0.115.x regression on `@router.delete(status_code=204)` routes, and v5.2.5 pins `fastapi>=0.116`. Everyone stuck on 4.5.0 can now simply `pip install --upgrade openconstructionerp`.
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/comment-discussion-dark.svg"><img src="docs/readme-icons/comment-discussion-light.svg" width="14" align="center" alt=""></picture> Floating chat — every page, talks to your ERP DB**
-Bottom-right FAB on every screen opens a panel backed by 17 database tools (projects, BOQ, schedule, validation, risks, CWICR search, BIM elements, semantic search across all modules). Streamed responses with tool-call cards rendered inline.
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/bell-dark.svg"><img src="docs/readme-icons/bell-light.svg" width="14" align="center" alt=""></picture> Epic B — Unified notifications dispatcher**
+Single subscriber model that fans every cross-module event (RFI replies, snag assignments, approval requests, schedule shifts, …) out to in-app inbox + email recipients. Replaces 8 ad-hoc senders. SMTP path validated end-to-end (port 465 SSL, port 587 STARTTLS).
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/home-dark.svg"><img src="docs/readme-icons/home-light.svg" width="14" align="center" alt=""></picture> Accommodation module — worker camps + rentals + hotels**
-- One module for three lodging kinds (`worker_camp` / `rental` / `hotel`) with kind-filter tabs and per-card capacity.
-- **Rooms** with status (available · occupied · maintenance · blocked) and BIM element id linkage.
-- **Bookings** state machine: `reserved → checked_in → checked_out` (or `cancelled` from any non-final state), 409 on bookings into maintenance/blocked rooms.
-- **Charges** (base rent, extras, deposits, refunds) with Decimal precision and per-room currency inheritance.
-- **PropDev bootstrap** — one-click iterate a development block's plots → 1:1 rooms, idempotent.
-- **HR autobook** — suggest lowest-labelled available `worker_camp` room for an employee contact, human-confirmed.
-- BIM `bim_element_id` + Geo `lat/lon` integration; cards show a "Geo" deeplink when coords are set.
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/file-dark.svg"><img src="docs/readme-icons/file-light.svg" width="14" align="center" alt=""></picture> Epic C — File versioning unification**
+`oe_file_version` is now the canonical table for every uploaded artefact: BIM models, BOQ imports, doc-template attachments, BCF 3.0 issue containers, RFI replies, drawing markups. **751 v1 rows backfilled** on the live demo VPS. Each upload carries a monotonic version + immutable parent ref — full audit history per file.
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/graph-dark.svg"><img src="docs/readme-icons/graph-light.svg" width="14" align="center" alt=""></picture> 10 new dashboard widgets + server-synced customizer**
-BOQ Summary · Critical Path · Top Risks · HSE Scorecard · Procurement Pipeline · Budget Variance · Change Orders · Clash Health · Validation Score · Weather Site. Layout persists server-side via `UserPreference` (no more device-local drift).
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/log-dark.svg"><img src="docs/readme-icons/log-light.svg" width="14" align="center" alt=""></picture> Epic H — Universal audit trail**
+`oe_activity_log` records every state-changing action across all 116 modules (who · what · when · before/after). Visible in `/settings?tab=audit` and queryable per-record from every detail page. Compliance-ready (GDPR Art. 30, ISO 19650).
 
 </td>
 <td width="50%" valign="top">
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/globe-dark.svg"><img src="docs/readme-icons/globe-light.svg" width="14" align="center" alt=""></picture> Geo Hub raster overlay (DWG/PDF on the globe)**
-- Upload a PDF or image, drag four corners onto the globe → raster appears as a draped overlay.
-- **Polygon crop** with vertex drag; degenerate-bbox guard + "Needs corners" CTA when pixel→geo math under-determines the placement.
-- Infinite-loop guard removed (component now stable under repeated re-mounts).
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/globe-dark.svg"><img src="docs/readme-icons/globe-light.svg" width="14" align="center" alt=""></picture> Epic I — International BOQ formats**
+Native I/O for the four formats covering **~70% of the Tier-1 construction market**:
+- **GAEB X81 / X83 / X84** (DACH) — hierarchical positions, GTU codes, FX-correct totals.
+- **BC3 (FIEBDC-3)** (Spain) — capítulo/partida tree, mediciones, precios descompuestos.
+- **NRM Excel** (UK) — work sections, NRM1 element codes, BCIS-compatible measurement rules.
+- **MasterFormat Excel** (US) — division/section structure, Procore-compatible export.
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/mortar-board-dark.svg"><img src="docs/readme-icons/mortar-board-light.svg" width="14" align="center" alt=""></picture> 6 per-module guided tours**
-BOQ · BIM · Geo · PropDev · Dashboard · Accommodation each ship a hand-written tour wired through `ModuleHelpButton tourId="…"`. 192 i18n strings translated EN/DE/RU at native quality.
+New `/regional-exchange` page ties them together with one drag-and-drop import surface.
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/bug-dark.svg"><img src="docs/readme-icons/bug-light.svg" width="14" align="center" alt=""></picture> Reliability fixes**
-- Dashboard widget endpoints: **12 4xx → 0** (URL paths were drifting from router prefixes).
-- Marketing-site SMTP: port 465 now correctly uses `SMTP_SSL` (port 587 stays STARTTLS).
-- Geo overlay: fix infinite re-render loop on initial open; degenerate bbox now shows actionable CTA instead of a blank globe.
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/bug-dark.svg"><img src="docs/readme-icons/bug-light.svg" width="14" align="center" alt=""></picture> v5.2.5 install-crash fix (#157)**
+- `fastapi>=0.116.0,<1` pinned in `backend/pyproject.toml` so the buggy `Status code 204 must not have a response body` assertion never resolves again on a fresh install.
+- Authenticated `/` now redirects to `/dashboard` (was `/projects` per #215 fix — restored canonical landing).
+- W22: `deleteDiary` API helper added in the Daily Diary client.
+- W25: `FinancePage.Payment.amount` widened to `string | number` + new `currency_code` field.
 
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/lock-dark.svg"><img src="docs/readme-icons/lock-light.svg" width="14" align="center" alt=""></picture> Cumulative since v4.0.0**
-- v4.1–v4.3 Round 4 + Round 5 security: ~73 IDOR closures across 11 modules.
-- BIM Requirements (IDS/COBie), Coordination Hub, Smart Views, Clash AI Triage, BCF 3.0/OpenCDE.
-- PropDev complete Lead → SPA → Handover → Warranty clickflow + Geo Hub Cesium 3D Tiles.
-
-**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/broadcast-dark.svg"><img src="docs/readme-icons/broadcast-light.svg" width="14" align="center" alt=""></picture> Latest alembic head**: `v3121` (Accommodation + Geo raster overlay) · single-head invariant maintained across every wave.
+**<picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme-icons/broadcast-dark.svg"><img src="docs/readme-icons/broadcast-light.svg" width="14" align="center" alt=""></picture> Latest alembic head**: `v3144` (Wave 1 Deep-Coordination: notifications + file versioning + audit trail) · single-head invariant maintained across every wave.
 
 </td>
 </tr>
