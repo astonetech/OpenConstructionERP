@@ -5,6 +5,63 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-05-27
+
+**Last stable 5.x cut.** Six audit bundles consolidated on the v5.2.8 base.
+No schema changes — alembic stays at `v3144`. Module count unchanged at 116.
+
+### Added
+- **Brazil Tier-1 invoice support**: `BRL` in finance currency shortlist,
+  500-line `br_invoice_pdf.py` RPS-layout renderer with prestador/tomador
+  blocks and retenções (ISS/PIS/COFINS/CSLL/INSS/IRRF). Two new validation
+  rules `NBR12721ClassificationRequired` + `NBR12721ValidSection` (S1–S11
+  cost groups). BOQ importer recognises `nbr`+`sinapi` codes; São Paulo
+  defaults to SINAPI as regional cost reference. 15 new tests.
+- **/reporting in-page renderer**: View button per report row opens
+  `ReportViewerModal` with sandboxed `<iframe srcDoc>` for HTML reports.
+  Distinct error states for 410 (expired) / 404 / network. Blob URL for
+  new-tab link.
+- **Daily Diary delete**: Trash2 ghost button gated on `!sealed`, wired
+  through `useConfirm()` with danger-styled `ConfirmDialog`. 4 new tests.
+- **Dashboard rollup endpoint**: new `RollupRequest` schema with 10
+  configurable widget IDs and bounds validation (+136 LOC). Project
+  dashboard goes from 13 per-widget requests to 6. 41 new tests covering
+  IDOR isolation and rollup parity.
+- **Geo Hub `sweep_deleted_raster_overlays(older_than_days=30)`** janitor
+  helper for retroactive cleanup of soft-deleted overlay bytes.
+
+### Fixed
+- **`set_user_module_access` metadata payload silently dropped** —
+  SQLAlchemy `DeclarativeBase` reserves the `metadata` attribute name;
+  the column is aliased as `metadata_` but the router wrote
+  `metadata=metadata` instead of `metadata_=metadata`. (Author-attributed
+  community PR #164 by `@Mourdi59`.)
+- **Geo Hub `delete_tileset` storage leak**: deleted the DB row but left
+  tileset bytes orphaned in MinIO. Now calls
+  `storage_backend.delete_prefix(obj.prefix)` before the DB delete.
+- **Geo Hub `accuracy_m` runaway**: schema now caps at `le=10_000` so a
+  stray fat-finger can't blow up the whole map.
+- **`map_config` N+1**: `development_id` filter now pushed into SQL
+  instead of post-fetch Python filter.
+- **`ProjectGeoPage` iOS Safari URL bar collapse**: `100vh` → `100dvh`.
+- **/login dark-mode contrast**: 7 scoped overrides on `LoginPage.tsx` —
+  form column backdrop `dark:bg-[#070912]`, demo buttons
+  `dark:bg-white/[0.06]`, credential cards `dark:bg-white/[0.07]` with
+  `dark:border-white/15`, subtitle promoted from tertiary to secondary
+  ink. Light mode untouched.
+- **WCAG-AA contrast — top axe-core offender**: 51 files / 126 line
+  replacements moving `text-oe-blue` → `text-oe-blue-dark` where
+  `bg-oe-blue-subtle` co-occurs (3.1:1 → 4.5:1+ AA pass). Includes the
+  global project-picker chip in `Header.tsx` and the blue variant of
+  `Badge.tsx`.
+
+### Docs
+- Backfilled three v3 release announcements on the marketing site
+  (`v3-0-0.html`, `v3-6-0.html`, `v3-11-0.html`) using the v5-2-8
+  template with the `.chip.v3` indigo style.
+- Fixed broken `og:image` on `news.html` (was a stale path under
+  `/pro/shared/media/`; now points at `/screenshots/hero-overview.jpg`).
+
 ## [5.0.0] - 2026-05-26
 
 **Second stable major.** First release to land community contributor work

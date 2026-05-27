@@ -29,6 +29,14 @@ interface ChangelogEntry {
 // Sorted newest → oldest. Sort is enforced at runtime below (semver-aware) so
 // out-of-order entries here still display correctly.
 const CHANGELOG: ChangelogEntry[] = [
+  // ── v5.x — second stable major, last stable cut v5.3.0 ───────────────────
+  { version: '5.3.0', date: '2026-05-27', tag: 'NEW',       summary: 'Last stable 5.x — Geo Hub round 2 (storage sweep + 10km accuracy cap + 100dvh), Brazil Tier-1 (BRL + NBR 12721 + RPS PDF), /login dark-mode, /reporting renderer, Daily Diary delete, WCAG-AA contrast pass on 51 files, dashboard rollup' },
+  { version: '5.2.8', date: '2026-05-27', tag: 'FIX',       summary: '/geo tabs reliability + /markups → /takeoff deep-link + /resources inline edit + danger-styled delete' },
+  { version: '5.2.7', date: '2026-05-27', tag: 'NEW',       summary: 'Project-detail widget grid (responsive 1/2/3-col) + one-click in-app upgrade with captured pip log' },
+  { version: '5.2.0', date: '2026-05-26', tag: 'NEW',       summary: 'International BOQ exchange (GAEB X83/X84 + BC3 + NRM Excel + MasterFormat Excel) — Epic I Phase 1' },
+  { version: '5.1.1', date: '2026-05-26', tag: 'NEW',       summary: 'Deep coordination Wave 1 — file versioning + notifications dispatcher + universal audit trail' },
+  { version: '5.0.0', date: '2026-05-26', tag: 'MILESTONE', summary: 'Second stable major — AI providers (Kimi/Ollama/vLLM), BIM degraded-viewable status, Vector DB row engine label, community PRs landed on main' },
+
   // ── v4.x — stable major ──────────────────────────────────────────────────
   { version: '4.1.0', date: '2026-05-21', tag: 'NEW',       summary: 'P1 wave rollup — BIM diagnostic UX, CPM Slice 1, Assembly Library, PWA installable, marketing-site i18n complete' },
   { version: '4.0.1', date: '2026-05-20', tag: 'FIX',       summary: 'BIM ViewCube orbit-lock fix, marketing forms migrated off formsubmit, denser module cards' },
