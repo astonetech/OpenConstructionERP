@@ -69,7 +69,6 @@ import { ClipManager } from './ClipManager';
 import { SectionBox } from './SectionBox';
 import { WalkMode } from './WalkMode';
 import { MeasureTool } from './MeasureTool';
-import { ViewerToolbar } from './ViewerToolbar';
 import { deriveGeometry, deriveRelations } from './canonicalElementDetails';
 import { BIMContextMenu } from './BIMContextMenu';
 import type { BIMContextMenuState } from './BIMContextMenu';
@@ -522,6 +521,12 @@ export function BIMViewer({
   /** True while WalkMode currently owns the pointer lock — drives the
    *  on-screen "Mouse: look · WASD: move" hint overlay. */
   const [walkLocked, setWalkLocked] = useState(false);
+  /** True while the top-toolbar Walk button is toggled on. Mirrors
+   *  ``walkModeRef.current.isEnabled()`` so the button gets a pressed
+   *  state. Decoupled from ``walkLocked`` because pointer lock can drop
+   *  (browser releases via Esc) while the toolbar button stays armed
+   *  until the user explicitly disables it. */
+  const [walkActive, setWalkActive] = useState(false);
   const categoryOpacity = useBIMViewerStore((s) => s.categoryOpacity);
   const hiddenCategories = useBIMViewerStore((s) => s.hiddenCategories);
   const measureActive = useBIMViewerStore((s) => s.measureActive);
@@ -1690,6 +1695,27 @@ export function BIMViewer({
       mgr.clearGhost();
     }
   }, [ghostActive, selectedElementIds, elements]);
+
+  // Escape exits walk mode — replaces the listener the removed
+  // ``ViewerToolbar`` used to install. Browser-driven Escape only
+  // releases pointer lock; the helper's ``_enabled`` flag stays true
+  // until disable() is called, so without this the user would be
+  // stranded with no cursor capture and no easy way to flip back to
+  // OrbitControls.
+  useEffect(() => {
+    if (!walkActive) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      const helper = walkModeRef.current;
+      if (!helper) return;
+      helper.disable();
+      const ctrl = sceneRef.current?.controls;
+      if (ctrl) ctrl.enabled = true;
+      setWalkActive(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [walkActive]);
 
   // Expose a tiny camera bridge on `window.__oeBim` so sibling right-panel
   // tabs can snapshot/restore the camera without a direct SceneManager handle.
@@ -3140,6 +3166,44 @@ export function BIMViewer({
           variant="group"
           testId="bim-clip-toggle"
         />
+        {/* Begehung / walk-mode toggle — moved up from the previous
+            bottom-left ``ViewerToolbar`` cluster (2026-05-28) so all
+            view controls live in one row. ``WalkMode.enable()`` throws
+            unless OrbitControls is already off, so we flip the control
+            flag here before/after toggling the helper. The on-screen
+            "Mouse: look · WASD: move" hint is driven separately by
+            ``walkLocked`` (pointer-lock change). */}
+        {viewerToolsReady && walkModeRef.current && (
+          <ToolbarButton
+            icon={Move3d}
+            label={t('viewerTools.walk', { defaultValue: 'Walk' })}
+            onClick={() => {
+              const helper = walkModeRef.current;
+              if (!helper) return;
+              const ctrl = sceneRef.current?.controls;
+              if (helper.isEnabled()) {
+                helper.disable();
+                if (ctrl) ctrl.enabled = true;
+                setWalkActive(false);
+              } else {
+                if (ctrl) ctrl.enabled = false;
+                try {
+                  helper.enable();
+                  setWalkActive(true);
+                } catch (err) {
+                  // Defensive: restore controls if WalkMode's own
+                  // OrbitControls guard rejected our enable() call.
+                  if (ctrl) ctrl.enabled = true;
+                  // eslint-disable-next-line no-console
+                  console.warn('Walk mode enable failed:', err);
+                }
+              }
+            }}
+            active={walkActive}
+            variant="group"
+            testId="bim-walk-toggle"
+          />
+        )}
         <ToolbarButton
           icon={EyeOffIcon}
           label={t('bim.ghost_toggle', {
@@ -3152,93 +3216,14 @@ export function BIMViewer({
         />
       </div>
 
-      {/* BIMcollab-style additive viewer tools — Section Box / Walk /
-          Measure. Anchored bottom-left, immediately to the right of the
-          Site Compass ViewCube so the cube + tools form a single floating
-          control cluster (per UX request 2026-05-23). Renders only once
-          the scene-init effect has built the helper trio.
-
-          Cluster math:
-            - ViewCube origin: left = leftPanelOpen ? leftPanelWidth + 16 : 12
-            - ViewCube width:  112 px (BIMViewCube size prop)
-            - Gap to toolbar:  10 px
-          → toolbar leftOffset = cube_origin + 112 + 10 */}
-      {viewerToolsReady &&
-        sectionBoxRef.current &&
-        walkModeRef.current &&
-        measureToolRef.current && (
-          <ViewerToolbar
-            sectionBox={sectionBoxRef.current}
-            walkMode={walkModeRef.current}
-            measureTool={measureToolRef.current}
-            position="bottom-left"
-            leftOffset={(leftPanelOpen ? leftPanelWidth + 16 : 12) + 112 + 10}
-            onBeforeToolEnable={(next) => {
-              // Walk mode CANNOT coexist with OrbitControls — the helper's
-              // own guard throws if controls.enabled is still true. We
-              // disable them here BEFORE the toolbar calls walkMode.enable(),
-              // and re-enable them on the matching `onAfterToolDisable`.
-              if (next === 'walk') {
-                const ctrl = sceneRef.current?.controls;
-                if (ctrl) ctrl.enabled = false;
-              }
-              return true;
-            }}
-            onAfterToolDisable={(prev) => {
-              if (prev === 'walk') {
-                const ctrl = sceneRef.current?.controls;
-                if (ctrl) ctrl.enabled = true;
-              }
-            }}
-            onSectionAction={(action) => {
-              // Wire section actions to the live selection + element
-              // manager when available. The helper itself enforces the
-              // INWARD-facing planes; we just feed it the right AABB.
-              const sb = sectionBoxRef.current;
-              const elementMgr = elementMgrRef.current;
-              const selectionMgr = selectionMgrRef.current;
-              if (!sb) return;
-              if (action === 'reset') {
-                sb.disable();
-                return;
-              }
-              if (action === 'fit_selection' && elementMgr && selectionMgr) {
-                const ids = selectionMgr.getSelectedIds();
-                const meshes = ids
-                  .map((id) => elementMgr.getMesh(id))
-                  .filter((m): m is NonNullable<typeof m> => m != null);
-                if (meshes.length > 0) {
-                  sb.setBoundsToSelection(meshes);
-                  sb.enable();
-                }
-                return;
-              }
-              if (action === 'fit_all' && sceneRef.current) {
-                const scene = sceneRef.current.scene;
-                const allMeshes: Array<{ isObject3D: true } & object> = [];
-                scene.traverse((obj) => {
-                  // Re-use the helper's own filter: anything not the
-                  // overlay + meshes only.
-                  if (
-                    (obj as { isMesh?: boolean }).isMesh &&
-                    !obj.userData?.isSectionBoxOverlay &&
-                    !obj.userData?.isMeasureLine &&
-                    !obj.userData?.isMeasureMarker &&
-                    !obj.userData?.isClipCap
-                  ) {
-                    allMeshes.push(obj as unknown as { isObject3D: true } & object);
-                  }
-                });
-                if (allMeshes.length > 0) {
-                  sb.setBoundsToSelection(
-                    allMeshes as unknown as import('three').Object3D[],
-                  );
-                  sb.enable();
-                }
-              }
-            }}
-          />
-        )}
+      {/* (Removed 2026-05-28) — The bottom-left ``ViewerToolbar`` cluster
+          previously hosted Section Box / Walk / Measure buttons, but
+          Ruler (measure) and Scissors (section/clip) already live in the
+          top toolbar above and Walk was just hoisted up next to them.
+          The ``ViewerToolbar`` component itself is kept around for
+          FederatedViewer / future re-use, and the SectionBox / WalkMode /
+          MeasureTool helpers stay wired so the top-toolbar Walk button
+          and any future re-introduction can grab them. */}
 
       {/* Walk mode on-screen hint — only visible while the pointer is
           actually locked (i.e. WASD/mouse actively control the camera).
