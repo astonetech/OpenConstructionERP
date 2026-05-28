@@ -22,6 +22,7 @@ import { GeoEmptyState, type GeoEmptyKind } from './GeoEmptyState';
 import { GeoModePicker } from './GeoModePicker';
 import { GeoOverlayHud } from './GeoOverlayHud';
 import { TilesetSidebar } from './TilesetSidebar';
+import { useTilesetOverlayState } from './hooks/useTilesetOverlayState';
 import type { Tileset } from './types';
 
 interface DevelopmentSummary {
@@ -94,7 +95,17 @@ export function DevelopmentGeoPage() {
     staleTime: 30_000,
   });
 
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
+  // Per-tileset visibility + opacity, keyed by the dev id so the dev-scoped
+  // view's preferences are independent of the project-scoped view's. Both
+  // surfaces share the same hook + storage prefix; only the key differs.
+  const tilesetOverlay = useTilesetOverlayState(devId ?? null);
+  const hiddenIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const [id, entry] of Object.entries(tilesetOverlay.state)) {
+      if (entry.visible === false) s.add(id);
+    }
+    return s;
+  }, [tilesetOverlay.state]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState<boolean>(
     readTilesetsCollapsed,
@@ -278,6 +289,7 @@ export function DevelopmentGeoPage() {
               mode="development"
               mapConfig={viewerMapConfig}
               focusedTilesetId={focusedTilesetId}
+              tilesetOverlayState={tilesetOverlay.state}
               onMouseMove={setCursorCoords}
               onCameraChange={setCameraState}
               overlay={
@@ -297,15 +309,10 @@ export function DevelopmentGeoPage() {
                     isLoading={loading}
                     hiddenIds={hiddenIds}
                     focusedId={focusedId}
-                    onToggleVisibility={(id) =>
-                      setHiddenIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        return next;
-                      })
-                    }
+                    onToggleVisibility={tilesetOverlay.toggleVisible}
                     onFocus={(ts) => setFocusedId(ts.id)}
+                    getOpacity={tilesetOverlay.getOpacity}
+                    onChangeOpacity={tilesetOverlay.setOpacity}
                   />
                   {emptyKind && (
                     <GeoEmptyState kind={emptyKind} projectId={projectId} />

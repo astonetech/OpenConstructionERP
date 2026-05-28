@@ -32,6 +32,7 @@ import {
   type PinCluster,
 } from './projectPinUtils';
 import type { AnchoredProject, GeoPinBundle, MapConfig } from './types';
+import type { TilesetOverlayState } from './hooks/useTilesetOverlayState';
 
 type ViewerMode = 'global' | 'project' | 'development';
 
@@ -130,6 +131,14 @@ interface CesiumViewerProps {
   onViewerReady?: (
     payload: { cesium: unknown; viewer: unknown } | null,
   ) => void;
+  /**
+   * Per-tileset show/hide + opacity. Applied via ``tileset.show`` and
+   * ``tileset.style = new Cesium3DTileStyle({ color: 'color("white", N)' })``
+   * on each load + whenever this map changes. Tilesets missing from the
+   * map render with the implicit default ``{ visible: true, opacity: 1 }``
+   * so unaware callers see the legacy behaviour.
+   */
+  tilesetOverlayState?: TilesetOverlayState;
 }
 
 /** Stable signature for the viewer effect: rebuild only when the
@@ -252,6 +261,13 @@ interface CesiumLike {
   Cesium3DTileset: {
     fromUrl: (url: string) => Promise<unknown>;
   };
+  /**
+   * Constructor for the styling expression that controls per-tile colour
+   * (and thus opacity via the alpha channel). Optional in the shim so
+   * older Cesium builds without the symbol degrade to a no-op rather
+   * than throwing — we feature-detect before instantiating.
+   */
+  Cesium3DTileStyle?: new (options: Record<string, unknown>) => unknown;
   ScreenSpaceEventHandler: new (canvas: HTMLCanvasElement) => CesiumScreenSpaceEventHandlerLike;
   ScreenSpaceEventType: {
     MOUSE_MOVE: number;
@@ -310,6 +326,7 @@ export function CesiumViewer({
   onMouseMove,
   onCameraChange,
   onViewerReady,
+  tilesetOverlayState,
 }: CesiumViewerProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -333,6 +350,12 @@ export function CesiumViewer({
   const onCameraChangeRef = useRef(onCameraChange);
   onMouseMoveRef.current = onMouseMove;
   onCameraChangeRef.current = onCameraChange;
+  // Latest overlay-state ref — used during the *initial* tileset load
+  // loop so the first frame respects saved user prefs. The dedicated
+  // ``tilesetOverlayState`` effect re-applies on every change, so this
+  // ref only matters for the boot-time snapshot.
+  const tilesetOverlayStateRef = useRef(tilesetOverlayState);
+  tilesetOverlayStateRef.current = tilesetOverlayState;
   // ``absent`` = ``import('cesium')`` itself failed (community build w/o
   //   the optional dep — actionable hint: ``npm install cesium``).
   // ``init_failed`` = module loaded but ``new Viewer()`` threw — most
@@ -476,6 +499,33 @@ export function CesiumViewer({
               // when ``focusedTilesetId`` matches. Cleared on cleanup
               // along with the rest of the viewer state.
               loadedTilesetsRef.current.set(ts.id, tileset);
+              // Apply any pre-existing show/opacity prefs immediately so
+              // the user doesn't briefly see a hidden tileset flash in
+              // before the dedicated state-effect catches up. Reads the
+              // *current* prop via closure — fine because the dedicated
+              // effect re-applies on every state change so any updates
+              // between init and now will be reconciled.
+              try {
+                const entry = tilesetOverlayStateRef.current?.[ts.id];
+                const tile = tileset as {
+                  show?: boolean;
+                  style?: unknown;
+                };
+                if (entry?.visible === false) tile.show = false;
+                if (
+                  entry &&
+                  typeof entry.opacity === 'number' &&
+                  entry.opacity < 1 &&
+                  cesium.Cesium3DTileStyle
+                ) {
+                  const clamped = Math.max(0, Math.min(1, entry.opacity));
+                  tile.style = new cesium.Cesium3DTileStyle({
+                    color: `color("white", ${clamped})`,
+                  });
+                }
+              } catch {
+                /* style/show assignment failed — defer to the dedicated effect */
+              }
             } catch (err) {
               // One bad tileset must not kill the viewer.
               // eslint-disable-next-line no-console
@@ -1122,6 +1172,86 @@ export function CesiumViewer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchPin?.lat, searchPin?.lon, searchPin?.name, cesiumStatus]);
+
+  // ── Per-tileset visibility + opacity ────────────────────────────────
+  //
+  // Applies the parent-owned ``tilesetOverlayState`` to every loaded
+  // ``Cesium3DTileset`` in ``loadedTilesetsRef``. Visibility is a simple
+  // ``tileset.show = boolean``; opacity in 3D Tiles is exposed only via
+  // the styling pipeline (``tileset.style``) using a ``color()`` literal
+  // whose alpha channel is the desired opacity. We always assign a fresh
+  // style — Cesium's style evaluator caches by reference, so mutating the
+  // existing one in place silently no-ops on most builds.
+  //
+  // Tilesets missing from the state map fall back to the defaults
+  // (``visible: true`` / ``opacity: 1``) so callers who don't pass the
+  // prop get the legacy "everything rendered, no dimming" behaviour.
+  //
+  // Re-runs on:
+  //   * cesiumStatus flip ('pending' → 'loaded') — the loaded map starts
+  //     populating as tilesets resolve, so we have to re-apply once the
+  //     viewer is ready.
+  //   * signature change — destroys + re-creates the viewer, so the
+  //     loaded map is rebuilt with new ids; effect re-applies the saved
+  //     prefs to the freshly-loaded primitives.
+  //   * tilesetOverlayState change — user toggled visibility or moved
+  //     a slider; cheap update path that does NOT touch the viewer.
+  useEffect(() => {
+    if (cesiumStatus !== 'loaded') return;
+    const cesium = cesiumRef.current;
+    if (!cesium) return;
+    const state = tilesetOverlayState ?? {};
+    const StyleCtor = cesium.Cesium3DTileStyle;
+    // Snapshot once per effect so async tileset resolution doesn't race
+    // against the next render.
+    const entries = Array.from(loadedTilesetsRef.current.entries());
+    for (const [id, ts] of entries) {
+      const tile = ts as {
+        show?: boolean;
+        style?: unknown;
+      } | null;
+      if (!tile) continue;
+      const entry = state[id];
+      const visible = entry?.visible !== false;
+      // Clamp defensively even though the hook does it too — the prop
+      // could be set externally / via tests with out-of-range numbers.
+      const opacityRaw = entry?.opacity;
+      const opacity =
+        typeof opacityRaw === 'number' && Number.isFinite(opacityRaw)
+          ? Math.min(1, Math.max(0, opacityRaw))
+          : 1;
+      try {
+        tile.show = visible;
+      } catch {
+        /* primitive already disposed — ignore */
+      }
+      // Skip the style assignment when opacity is fully opaque AND no
+      // style was previously assigned — keeps the default rendering path
+      // (textured tiles unmodified) which is the most natural look.
+      // Once we've dimmed once we always keep the style around so going
+      // back to 1.0 just sets alpha to 1 in the existing color literal.
+      if (!StyleCtor) {
+        // Older Cesium build without the styling API — show/hide still
+        // works, opacity degrades silently. Logged once per session
+        // would be ideal but a quiet no-op avoids console noise.
+        continue;
+      }
+      try {
+        // ``color("white", N)`` multiplies each tile's natural colour by
+        // white (no tint) and sets alpha to ``N``. Cesium parses the
+        // expression once and reuses it; assigning a fresh instance is
+        // the documented way to update.
+        tile.style = new StyleCtor({
+          color: `color("white", ${opacity})`,
+        });
+      } catch {
+        /* malformed style or primitive disposed — degrade silently */
+      }
+    }
+    // ``signature`` is included so the effect re-applies after the viewer
+    // is rebuilt (which empties + re-fills loadedTilesetsRef).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tilesetOverlayState, cesiumStatus, signature]);
 
   return (
     <div className="relative h-full w-full">

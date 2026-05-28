@@ -31,6 +31,7 @@ import { ApiError } from '@/shared/lib/api';
 import { projectsApi } from '@/features/projects/api';
 
 import { AnchorAdjustPanel } from './AnchorAdjustPanel';
+import { useTilesetOverlayState } from './hooks/useTilesetOverlayState';
 import {
   fetchDiaryPhotoPins,
   fetchHsePins,
@@ -157,7 +158,21 @@ export function ProjectGeoPage() {
     [hsePinsQuery.data, punchlistPinsQuery.data, diaryPinsQuery.data],
   );
 
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
+  // Per-tileset visibility + opacity (localStorage-backed; per-project).
+  // The hook is the single source of truth — both the sidebar (eye + slider)
+  // and the Cesium viewer (``tileset.show`` + ``Cesium3DTileStyle``) read
+  // from the same state, so toggles are coherent across UI + render.
+  const tilesetOverlay = useTilesetOverlayState(projectId);
+  // Derive the legacy ``hiddenIds`` Set from the overlay state so the
+  // existing sidebar contract (which expects a Set + a toggler) keeps
+  // working unchanged.
+  const hiddenIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const [id, entry] of Object.entries(tilesetOverlay.state)) {
+      if (entry.visible === false) s.add(id);
+    }
+    return s;
+  }, [tilesetOverlay.state]);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState<boolean>(
     readTilesetsCollapsed,
@@ -412,6 +427,7 @@ export function ProjectGeoPage() {
               mapConfig={viewerMapConfig}
               pins={pins}
               focusedTilesetId={focusedTilesetId}
+              tilesetOverlayState={tilesetOverlay.state}
               onMouseMove={setCursorCoords}
               onCameraChange={setCameraState}
               onViewerReady={setCesiumRuntime}
@@ -432,15 +448,10 @@ export function ProjectGeoPage() {
                     isLoading={isLoading}
                     hiddenIds={hiddenIds}
                     focusedId={focusedId}
-                    onToggleVisibility={(id) =>
-                      setHiddenIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(id)) next.delete(id);
-                        else next.add(id);
-                        return next;
-                      })
-                    }
+                    onToggleVisibility={tilesetOverlay.toggleVisible}
                     onFocus={(ts) => setFocusedId(ts.id)}
+                    getOpacity={tilesetOverlay.getOpacity}
+                    onChangeOpacity={tilesetOverlay.setOpacity}
                   />
                   <OverlayPanel
                     projectId={projectId}
