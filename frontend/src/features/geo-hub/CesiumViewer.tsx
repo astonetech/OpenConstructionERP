@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Globe2, Download, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Globe2, Download, AlertTriangle, RefreshCw, Locate } from 'lucide-react';
 
 import {
   clusterProjects,
@@ -292,6 +292,15 @@ interface CesiumLike {
    * than throwing — we feature-detect before instantiating.
    */
   Cesium3DTileStyle?: new (options: Record<string, unknown>) => unknown;
+  /**
+   * Sphere math used by the "Fit to data" auto-zoom. Built-in to every
+   * Cesium build we ship; we still guard the call sites at runtime so a
+   * stripped vendor build degrades to a no-op rather than crashing.
+   */
+  BoundingSphere?: {
+    fromPoints: (points: unknown[]) => unknown;
+    fromBoundingSpheres: (spheres: unknown[]) => unknown;
+  };
   ScreenSpaceEventHandler: new (canvas: HTMLCanvasElement) => CesiumScreenSpaceEventHandlerLike;
   ScreenSpaceEventType: {
     MOUSE_MOVE: number;
@@ -400,6 +409,11 @@ export function CesiumViewer({
   // Single entity for the address-search pin so the dedicated effect can
   // swap / clear it without disturbing project / HSE / punch / diary pins.
   const searchPinEntityRef = useRef<CesiumEntityLike | null>(null);
+  // True once the auto-zoom on first mount has run. Subsequent overlay /
+  // tileset arrivals must NOT re-trigger the camera fly so a user who has
+  // manually navigated stays where they are. The "Fit to data" button
+  // bypasses this flag — it always re-runs the zoom on demand.
+  const hasAutoZoomedRef = useRef<boolean>(false);
   // Latest callback refs so the viewer effect doesn't have to re-run
   // when only the parent's handler identity changes.
   const onMouseMoveRef = useRef(onMouseMove);
@@ -790,6 +804,8 @@ export function CesiumViewer({
       pinEntitiesRef.current = [];
       searchPinEntityRef.current = null;
       loadedTilesetsRef.current = new Map();
+      // A freshly-mounted viewer always gets a chance to auto-zoom again.
+      hasAutoZoomedRef.current = false;
       try {
         onViewerReady?.(null);
       } catch (cbErr) {
@@ -1359,6 +1375,125 @@ export function CesiumViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tilesetOverlayState, cesiumStatus, signature]);
 
+  // ── Fit-to-data ────────────────────────────────────────────────────
+  //
+  // Computes the aggregate bounding sphere over every visible piece of
+  // data (loaded 3D Tilesets + pin layers + search pin + map anchor) and
+  // flies the camera to it. Used by:
+  //
+  //   * The auto-zoom effect on first mount once at least one piece of
+  //     data has arrived. ``hasAutoZoomedRef`` guards against re-runs.
+  //   * The floating "Fit to data" button that lets the user re-trigger
+  //     the same zoom after manual navigation.
+  //
+  // Best-effort throughout — silently no-ops when there is nothing to
+  // zoom to (keeps the default world view) or when Cesium's BoundingSphere
+  // helpers aren't available in the bundled build.
+  const fitToData = useCallback((): boolean => {
+    const v = viewerRef.current;
+    const cesium = cesiumRef.current;
+    if (!v || !cesium) return false;
+    if (!cesium.BoundingSphere || typeof cesium.BoundingSphere.fromPoints !== 'function') {
+      return false;
+    }
+    const points: unknown[] = [];
+    const spheres: unknown[] = [];
+
+    // 1. Tileset bounding spheres — these are the most spatially-
+    //    meaningful, so prefer them when present.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const tileset of loadedTilesetsRef.current.values() as Iterable<any>) {
+        const sphere = tileset?.boundingSphere;
+        if (sphere) spheres.push(sphere);
+      }
+    } catch {
+      /* iterating a swept map — ignore */
+    }
+
+    // 2. Pin layers (HSE / punch / diary / projects).
+    const pushPoint = (lonRaw: unknown, latRaw: unknown): void => {
+      const lon = Number(lonRaw);
+      const lat = Number(latRaw);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
+      try {
+        points.push(cesium.Cartesian3.fromDegrees(lon, lat, 0));
+      } catch {
+        /* fromDegrees defensive — skip bad coord */
+      }
+    };
+    if (pins) {
+      for (const p of pins.hse) pushPoint(p.lon, p.lat);
+      for (const p of pins.punchlist) pushPoint(p.lon, p.lat);
+      for (const p of pins.diary) pushPoint(p.lon, p.lat);
+      for (const p of pins.projects ?? []) pushPoint(p.lon, p.lat);
+    }
+
+    // 3. Search pin + map anchor.
+    if (searchPin) pushPoint(searchPin.lon, searchPin.lat);
+    if (mapConfig?.anchor) pushPoint(mapConfig.anchor.lon, mapConfig.anchor.lat);
+
+    // Nothing to zoom to — keep the default view.
+    if (points.length === 0 && spheres.length === 0) return false;
+
+    try {
+      // Compose: points → one BoundingSphere, then union with tileset
+      // spheres via fromBoundingSpheres.
+      let aggregate: unknown = null;
+      if (points.length > 0) {
+        aggregate = cesium.BoundingSphere.fromPoints(points);
+      }
+      if (spheres.length > 0 && typeof cesium.BoundingSphere.fromBoundingSpheres === 'function') {
+        const allSpheres = aggregate ? [aggregate, ...spheres] : spheres;
+        aggregate = cesium.BoundingSphere.fromBoundingSpheres(allSpheres);
+      } else if (!aggregate && spheres.length === 1) {
+        aggregate = spheres[0];
+      }
+      if (!aggregate) return false;
+      if (typeof v.camera.flyToBoundingSphere === 'function') {
+        v.camera.flyToBoundingSphere(aggregate, { duration: 1.5 });
+        return true;
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[geo_hub] fitToData failed', err);
+    }
+    return false;
+  }, [pins, searchPin, mapConfig]);
+
+  // Manual "Fit to data" button handler — bypasses the auto-zoom guard
+  // so the user can always re-run the fit even after panning the camera.
+  const handleFitToDataClick = useCallback(() => {
+    fitToData();
+  }, [fitToData]);
+
+  // Initial-mount auto-zoom. Runs whenever the viewer becomes loaded OR
+  // any data the fit depends on changes; the ``hasAutoZoomedRef`` flag
+  // means it only actually flies the camera ONCE per viewer lifetime,
+  // satisfying "don't re-zoom when user manually navigates and a new
+  // overlay loads later". A small timeout gives 3D Tilesets a chance to
+  // populate their boundingSphere after fromUrl() resolves.
+  const pinDataLen = (pins?.hse.length ?? 0)
+    + (pins?.punchlist.length ?? 0)
+    + (pins?.diary.length ?? 0)
+    + (pins?.projects?.length ?? 0);
+  const tilesetCount = mapConfig?.tilesets?.filter(
+    (t) => t.status === 'ready' && t.tileset_json_uri,
+  ).length ?? 0;
+  useEffect(() => {
+    if (cesiumStatus !== 'loaded') return;
+    if (hasAutoZoomedRef.current) return;
+    // Wait briefly so tilesets that are still resolving have a chance to
+    // register in ``loadedTilesetsRef`` and populate ``boundingSphere``.
+    const handle = window.setTimeout(() => {
+      if (hasAutoZoomedRef.current) return;
+      const flew = fitToData();
+      if (flew) hasAutoZoomedRef.current = true;
+    }, tilesetCount > 0 ? 800 : 200);
+    return () => window.clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cesiumStatus, pinDataLen, tilesetCount, searchPin?.lat, searchPin?.lon]);
+
   return (
     <div className="relative h-full w-full">
       {/* Scoped style overrides for Cesium widget chrome.
@@ -1635,6 +1770,41 @@ export function CesiumViewer({
             </div>
           </div>
         </div>
+      )}
+      {/* Floating "Fit to data" button — re-runs the auto-zoom that
+          centred the camera on first mount. Useful after the user pans
+          off into empty space or wants to re-frame after toggling
+          overlays. Bottom-right keeps it clear of the left-rail
+          anchored-projects panel and the bottom-left licenses pill.
+          Only rendered once Cesium is up — hidden during 'pending' /
+          'absent' / 'init_failed' because the action would no-op. */}
+      {cesiumStatus === 'loaded' && (
+        <button
+          type="button"
+          onClick={handleFitToDataClick}
+          data-testid="geo-hub-fit-to-data"
+          className={[
+            'absolute bottom-3 right-3 z-10',
+            'inline-flex items-center gap-1.5 rounded-md',
+            'border border-white/15 bg-slate-900/75 px-2.5 py-1.5',
+            'text-xs font-medium text-slate-100 shadow-lg backdrop-blur-md',
+            'transition hover:bg-slate-800/85 hover:text-white',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60',
+          ].join(' ')}
+          title={t('geo_hub.fit_to_data_hint', {
+            defaultValue: 'Zoom the camera to fit all visible data',
+          })}
+          aria-label={t('geo_hub.fit_to_data_label', {
+            defaultValue: 'Fit camera to data',
+          })}
+        >
+          <Locate size={13} strokeWidth={2.25} />
+          <span>
+            {t('geo_hub.fit_to_data', {
+              defaultValue: 'Fit to data',
+            })}
+          </span>
+        </button>
       )}
       {/* Overlay slot — HUD, empty states, badges. Mounted last so it
           paints over the canvas; ``cesium`` canvas listens for input
