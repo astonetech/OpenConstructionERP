@@ -1062,24 +1062,21 @@ async def advisor_chat(
             model=model_override,
         )
         answer = text
-    except (ValueError, Exception) as exc:
-        # Provider error bodies (especially from third-party LLM APIs) can
-        # echo back masked key prefixes, org IDs, or stale CORS headers.
-        # We log the full error for ops, but only show the user a generic
-        # localized fallback — never the raw upstream message.
+    except ValueError as exc:
+        # call_ai (and resolve_provider_key_model) raise *sanitized* ValueErrors
+        # — they never echo credentials, only actionable detail such as the
+        # rejected model id, "invalid/expired key", "rate limit", or "no key
+        # configured". Surface that real message instead of collapsing every
+        # failure into a vague "AI is not configured" (which mis-described
+        # invalid-key and stale-model cases). The full error is also logged.
         logger.warning(
             "advisor_chat: AI call failed for user=%s provider-error=%r",
             user_id,
             exc,
         )
-        # ai_client raises a sanitized ValueError (only the model id +
-        # truncated provider text — no credentials) when the provider
-        # rejects the *model name*. Surface a clear, localized, actionable
-        # message in that case so users with a stale model id (issue #129)
-        # know to change it instead of seeing a vague "not configured".
-        is_model_problem = isinstance(exc, ValueError) and (
-            "set the model name" in str(exc) or "denied access to model" in str(exc)
-        )
+        # For the stale-model-name case (issue #129) prefer a localized,
+        # explicitly actionable message; otherwise forward the sanitized text.
+        is_model_problem = "set the model name" in str(exc) or "denied access to model" in str(exc)
         if is_model_problem:
             _model_msgs = {
                 "ru": "Имя модели ИИ устарело или недоступно. Откройте Настройки > ИИ и укажите актуальное имя модели.",
@@ -1093,13 +1090,23 @@ async def advisor_chat(
                 "and set a currently valid model name for your provider.",
             )
         else:
-            _err_msgs = {
-                "ru": "ИИ не настроен. Пожалуйста, добавьте API-ключ в Настройках.",
-                "de": "KI nicht konfiguriert. Bitte fügen Sie Ihren API-Schlüssel in den Einstellungen hinzu.",
-                "fr": "IA non configurée. Veuillez ajouter votre clé API dans les Paramètres.",
-                "es": "IA no configurada. Agregue su clave API en Configuración.",
-            }
-            answer = _err_msgs.get(locale, "AI is not configured. Please set up an AI provider in Settings.")
+            answer = str(exc)
+        used_db = False
+    except Exception as exc:
+        # Truly unexpected (non-ValueError) failure — body may carry raw
+        # upstream detail, so fall back to a generic localized message.
+        logger.warning(
+            "advisor_chat: unexpected AI error for user=%s error=%r",
+            user_id,
+            exc,
+        )
+        _err_msgs = {
+            "ru": "ИИ не настроен. Пожалуйста, добавьте API-ключ в Настройках.",
+            "de": "KI nicht konfiguriert. Bitte fügen Sie Ihren API-Schlüssel in den Einstellungen hinzu.",
+            "fr": "IA non configurée. Veuillez ajouter votre clé API dans les Paramètres.",
+            "es": "IA no configurada. Agregue su clave API en Configuración.",
+        }
+        answer = _err_msgs.get(locale, "AI is not configured. Please set up an AI provider in Settings.")
         used_db = False
 
     # 6. Build source references — only include if items seem relevant

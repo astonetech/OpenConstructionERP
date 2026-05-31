@@ -592,9 +592,13 @@ class AIService:
                 model_used=provider,
                 duration_ms=duration_ms,
             )
+            # Forward the precise, already-sanitized message from call_ai (e.g.
+            # "invalid key", "model rejected", "rate limit") instead of masking
+            # it — call_ai never echoes secrets, so this is safe to show and
+            # tells the user exactly what to fix.
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="AI estimation failed due to invalid input. Please check your request.",
+                detail=str(exc),
             ) from exc
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -770,9 +774,11 @@ class AIService:
                 model_used=provider,
                 duration_ms=duration_ms,
             )
+            # Forward the precise, already-sanitized message from call_ai
+            # instead of masking it (call_ai never echoes secrets).
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="AI photo analysis failed due to invalid input. Please check your request.",
+                detail=str(exc),
             ) from exc
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -1092,9 +1098,11 @@ class AIService:
                 model_used=provider,
                 duration_ms=duration_ms,
             )
+            # Forward the precise, already-sanitized message from call_ai
+            # instead of masking it (call_ai never echoes secrets).
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="AI file analysis failed due to invalid input. Please check your request.",
+                detail=str(exc),
             ) from exc
         except Exception as exc:
             duration_ms = int((time.monotonic() - start_time) * 1000)

@@ -1612,10 +1612,28 @@ def create_app() -> FastAPI:
         """
         import asyncio
         import hashlib
+        import sys
 
         import httpx
 
         from app.modules.boq.cad_import import find_converter
+
+        # The git-blob SHA comparison below only applies to the Windows `.exe`
+        # builds fetched from the GitHub repo. On Linux/macOS the converters come
+        # from the signed apt repo (or aren't natively available), so there is no
+        # per-file SHA to compare — return a benign, non-alarming result so the
+        # dashboard never shows a false "update available" banner off-Windows.
+        if sys.platform != "win32":
+            return {
+                "network_ok": True,
+                "any_outdated": False,
+                "results": [],
+                "platform": sys.platform,
+                "note": (
+                    "Converter version checks apply to the Windows builds; this "
+                    "platform uses the DDC apt repository (Linux) or has no native build."
+                ),
+            }
 
         # Per-format directory inside the repo. Mirrors `_WINDOWS_CONVERTER_DIRS`
         # in takeoff/router.py — duplicated here so the system endpoint

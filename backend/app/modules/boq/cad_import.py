@@ -44,10 +44,65 @@ _LINUX_CONVERTERS: dict[str, str] = {
     "dgn": "DgnExporter",
 }
 
+
+def _deb_arch_tag() -> str:
+    """Debian architecture tag (``amd64``/``arm64``) for the running machine.
+
+    Mirrors ``takeoff.router._deb_arch`` so ``find_converter`` can locate the
+    per-arch directory the Linux auto-downloader extracts into.
+    """
+    import platform as _platform
+
+    m = (_platform.machine() or "").lower()
+    if m in ("x86_64", "amd64"):
+        return "amd64"
+    if m in ("aarch64", "arm64"):
+        return "arm64"
+    return m or "amd64"
+
+
+def _converter_subprocess_env(converter_path: Path) -> dict[str, str] | None:
+    """Build the subprocess environment for launching a DDC converter.
+
+    On Linux the proprietary ODA/DDC shared objects live next to the binary's
+    install tree (``usr/lib/datadrivenconstruction`` + ``usr/lib``). The
+    binaries carry an ``$ORIGIN``-relative RUNPATH that resolves their *direct*
+    dependencies, but the converters also ``dlopen`` runtime plugins at
+    conversion time (e.g. ``AecScheduleData.tx`` for DWG/DGN) that are NOT
+    covered by RUNPATH. We therefore prepend the SDK lib dirs to
+    ``LD_LIBRARY_PATH`` so every dependency — linked or dlopen'd — resolves.
+    Harmless when RUNPATH already covers everything.
+
+    Returns ``None`` on Windows/macOS (inherit the parent environment unchanged;
+    Windows resolves its bundled Qt6 DLLs from the converter's own directory via
+    the subprocess ``cwd``). Returning ``None`` is the signal for callers to
+    pass ``env=None`` to ``subprocess.run`` — i.e. inherit, no override.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    usr_dir = converter_path.parent.parent  # .../usr/bin/<bin> -> .../usr
+    lib_dirs = [
+        usr_dir / "lib" / "datadrivenconstruction",
+        usr_dir / "lib",
+        usr_dir / "lib" / "x86_64-linux-gnu",
+    ]
+    existing = [str(d) for d in lib_dirs if d.is_dir()]
+    if not existing:
+        return None
+    env = dict(os.environ)
+    prev = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = os.pathsep.join([*existing, prev]) if prev else os.pathsep.join(existing)
+    return env
+
 # Active mapping for the running platform — kept under the legacy name
 # `CONVERTERS` so external callers (and the takeoff router) don't need
 # to know about platform branching.
-CONVERTERS: dict[str, str] = _LINUX_CONVERTERS if sys.platform.startswith("linux") else _WINDOWS_CONVERTERS
+#
+# Windows uses the bundled `.exe`; every POSIX platform (Linux + macOS) uses
+# the no-suffix CapitalCamelCase ELF/Mach-O names. macOS has no native DDC
+# build (``ensure_converter`` raises a clear, actionable message there), but it
+# must NEVER resolve to a Windows `.exe`, so darwin maps to the POSIX names too.
+CONVERTERS: dict[str, str] = _WINDOWS_CONVERTERS if sys.platform == "win32" else _LINUX_CONVERTERS
 
 SUPPORTED_CAD_EXTENSIONS: set[str] = set(CONVERTERS.keys())
 
@@ -197,7 +252,18 @@ def find_converter(extension: str) -> Path | None:
     # imported on Windows but is being asked about a Linux install (the
     # cross-platform smoke-test scenario is unusual but cheap to cover).
     linux_exe = _LINUX_CONVERTERS.get(extension, exe_name.removesuffix(".exe"))
+    # Per-arch no-root extract dir written by the auto-downloader
+    # (takeoff.router._download_converter_files_linux): the real ELF binary
+    # lands at ~/.openestimator/converters/_ddc_linux_<arch>/usr/bin/{Format}Exporter
+    # with the ODA libs alongside (resolved at launch via LD_LIBRARY_PATH set in
+    # _converter_subprocess_env). Probe it FIRST so an auto-downloaded converter
+    # is found with no apt install and no service restart.
+    per_arch_linux_bin = (
+        Path.home() / ".openestimator" / "converters"
+        / f"_ddc_linux_{_deb_arch_tag()}" / "usr" / "bin" / linux_exe
+    )
     linux_apt_candidates = [
+        per_arch_linux_bin,
         Path("/usr/bin") / linux_exe,
         Path("/usr/local/bin") / linux_exe,
         # Legacy probe paths from earlier instructions — kept for users
@@ -438,29 +504,26 @@ def ensure_converter(fmt: str) -> Path:
     if existing is not None:
         return existing
 
-    if not _is_windows():
-        # The DDC console converters are Windows PE binaries. On Linux they
-        # are installed via the signed apt source (handled by the BIM page
-        # Install button, which returns the apt command); on macOS there is
-        # no build. Fail with a clear, non-crashing message.
-        if sys.platform.startswith("linux"):
-            raise ConverterUnavailableError(
-                f"The .{fmt.upper()} converter is not installed. On Linux it is "
-                f"provided as an apt package (ddc-{fmt}converter) from the signed "
-                f"source at pkg.datadrivenconstruction.io. Install it from the "
-                f"Quantities / BIM page, or run "
-                f"`sudo apt install -y ddc-{fmt}converter` once the DDC apt "
-                f"source is configured."
-            )
+    # macOS has no native DDC build. Never fall through to a Windows `.exe`
+    # (the platform selector already excludes that) — give clear guidance.
+    if sys.platform == "darwin":
+        raise ConverterUnavailableError(
+            f"There is no native macOS build of the .{fmt.upper()} converter. "
+            f"Run OpenConstructionERP in Docker (Linux container — the converter "
+            f"is downloaded automatically there) or on a Linux host, or convert "
+            f"the file to IFC first (IFC also has a built-in text fallback parser "
+            f"that works on macOS)."
+        )
+    if sys.platform != "win32" and not sys.platform.startswith("linux"):
         raise ConverterUnavailableError(
             f"The .{fmt.upper()} converter is not available on this platform "
-            f"({sys.platform}). Convert the file to IFC on a Windows machine "
-            f"first — IFC also has a built-in text fallback parser that works "
-            f"on every platform."
+            f"({sys.platform}). Convert the file to IFC first — IFC has a "
+            f"built-in text fallback parser that works on every platform."
         )
 
-    # Windows: download under a per-format lock so concurrent uploads of
-    # the same format don't both fetch into the same directory.
+    # Windows AND Linux both auto-download under a per-format lock so concurrent
+    # uploads of the same format don't both fetch into the same directory. The
+    # lock is cross-platform (Windows O_EXCL / POSIX flock).
     try:
         with _ConverterInstallLock(fmt):
             # Double-checked: another upload may have completed the install
@@ -477,17 +540,31 @@ def ensure_converter(fmt: str) -> Path:
             # import-time cost of cad_import. Importing it here, only on the
             # cold-download path, is cheap and cycle-free.
             try:
-                from app.modules.takeoff.router import _download_converter_files_windows
+                if sys.platform == "win32":
+                    from app.modules.takeoff.router import (
+                        _download_converter_files_windows as _download_converter,
+                    )
+                else:
+                    from app.modules.takeoff.router import (
+                        _download_converter_files_linux as _download_converter,
+                    )
             except Exception as exc:  # noqa: BLE001 — import failure must be actionable
                 raise ConverterUnavailableError(
                     f"Could not load the converter installer for .{fmt}: {exc}"
                 ) from exc
 
             try:
-                exe_path = _download_converter_files_windows(fmt)
+                exe_path = _download_converter(fmt)
             except Exception as exc:  # noqa: BLE001 — surface a clean message
+                hint = ""
+                if sys.platform.startswith("linux"):
+                    hint = (
+                        f" Alternatively install it from the signed apt source: "
+                        f"`sudo apt install -y ddc-{fmt}converter` "
+                        f"(repo pkg.datadrivenconstruction.io)."
+                    )
                 raise ConverterUnavailableError(
-                    f"Automatic download of the .{fmt.upper()} converter failed: {exc}"
+                    f"Automatic download of the .{fmt.upper()} converter failed: {exc}.{hint}"
                 ) from exc
 
             logger.info("Converter for .%s downloaded to %s", fmt, exe_path)
@@ -669,6 +746,7 @@ def smoke_test_converter(extension: str, force: bool = False) -> ConverterHealth
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(exe_path.parent),
+            env=_converter_subprocess_env(exe_path),
             input=b"\n",
             timeout=8,
         )
@@ -1274,6 +1352,7 @@ def detect_converter_capabilities(extension: str) -> dict[str, Any]:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(exe.parent),
+                env=_converter_subprocess_env(exe),
                 input=b"\n",
                 timeout=8,
             )
@@ -1457,6 +1536,7 @@ async def convert_cad_to_excel(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(converter_dir),
+                env=_converter_subprocess_env(converter),
                 input=b"\n",  # handle "Press Enter to continue..." prompt
                 timeout=300,
             )

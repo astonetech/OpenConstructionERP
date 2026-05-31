@@ -310,6 +310,321 @@ _LINUX_APT_PACKAGES: dict[str, str] = {
     "dgn": "ddc-dgnconverter",
 }
 
+# ── Linux converter auto-download (signed apt repo, no root) ──────────────────
+#
+# Unlike the Windows path (raw `.exe` files in a public GitHub repo), the Linux
+# converter binaries ship as proprietary `.deb` packages on the signed DDC apt
+# repository. We do NOT shell out to `apt` (that needs root + a sources.list
+# rewrite). Instead we fetch the repo's `Packages` index ourselves, resolve the
+# converter's transitive `ddc-*` dependencies, download the `.deb` set, and
+# extract it with `dpkg-deb -x` into a per-arch, user-writable root — exactly
+# the zero-user-action flow the Windows installer provides. Validated
+# end-to-end against the live repo (amd64; arm64 is advertised in Release but
+# currently ships an empty index, so that arch falls back to a clear apt hint).
+_DDC_APT_BASE_URL = os.environ.get(
+    "OE_CONVERTER_APT_URL", "https://pkg.datadrivenconstruction.io"
+).rstrip("/")
+_DDC_APT_SUITE = os.environ.get("OE_CONVERTER_APT_SUITE", "stable")
+
+# converter_id -> the real ELF binary name shipped under usr/bin (no suffix).
+_LINUX_CONVERTER_BINARIES: dict[str, str] = {
+    "rvt": "RvtExporter",
+    "ifc": "IfcExporter",
+    "dwg": "DwgExporter",
+    "dgn": "DgnExporter",
+}
+
+# Deterministic fallback used only when the apt `Packages` index can't be
+# fetched/parsed (transient outage, or an arch whose index is empty). Mirrors
+# the exact transitive dependency chains validated in WSL. If the published
+# versions drift, the live-index path (primary) self-heals and this fallback
+# simply 404s into a clear "run apt install" message.
+_DDC_DEB_DEPS: dict[str, list[str]] = {
+    "rvt": ["ddc-rvtconverter", "ddc-deps-kernel", "ddc-deps-revit", "ddc-thirdparty"],
+    "ifc": ["ddc-ifcconverter", "ddc-deps-kernel", "ddc-deps-ifc", "ddc-thirdparty"],
+    "dwg": ["ddc-dwgconverter", "ddc-deps-kernel", "ddc-deps-drawings",
+            "ddc-deps-architecture", "ddc-thirdparty"],
+    "dgn": ["ddc-dgnconverter", "ddc-deps-kernel", "ddc-deps-drawings",
+            "ddc-deps-architecture", "ddc-thirdparty"],
+}
+_DDC_DEB_VERSIONS: dict[str, str] = {
+    "ddc-rvtconverter": "18.4.1.0", "ddc-ifcconverter": "18.4.1.0",
+    "ddc-dwgconverter": "18.4.1.0", "ddc-dgnconverter": "18.4.1.0",
+    "ddc-thirdparty": "18.4.1.0",
+    "ddc-deps-kernel": "27.2", "ddc-deps-revit": "27.2", "ddc-deps-ifc": "27.2",
+    "ddc-deps-drawings": "27.2", "ddc-deps-architecture": "27.2",
+}
+
+
+def _ddc_apt_hosts() -> frozenset[str]:
+    """Allow-listed hosts for apt `.deb` downloads (the configured repo only)."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(_DDC_APT_BASE_URL).hostname or "").lower()
+    return frozenset({host}) if host else frozenset()
+
+
+def _deb_arch() -> str:
+    """Debian architecture tag (amd64/arm64) for the running machine."""
+    import platform as _platform
+
+    m = (_platform.machine() or "").lower()
+    if m in ("x86_64", "amd64"):
+        return "amd64"
+    if m in ("aarch64", "arm64"):
+        return "arm64"
+    return m or "amd64"
+
+
+def _ddc_linux_root(arch: str | None = None) -> Path:
+    """Per-arch, user-writable install root for the no-root `.deb` extraction."""
+    return (_CONVERTER_INSTALL_DIR / f"_ddc_linux_{arch or _deb_arch()}").resolve()
+
+
+def _check_apt_url_allowed(url: str) -> None:
+    """Reject apt download URLs whose host isn't the configured DDC repo."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"https", "http"}:
+        raise RuntimeError(f"Refused to download {url!r} — non-HTTP(S) scheme")
+    host = (parsed.hostname or "").lower()
+    allowed = _ddc_apt_hosts()
+    if host not in allowed:
+        raise RuntimeError(
+            f"Refused to download {url!r} — host {host!r} is not the configured "
+            f"DDC apt host {sorted(allowed)}"
+        )
+
+
+def _parse_apt_packages(text: str) -> dict[str, dict[str, str]]:
+    """Parse a Debian ``Packages`` index into ``{package: {field: value}}``."""
+    out: dict[str, dict[str, str]] = {}
+    for stanza in text.replace("\r\n", "\n").split("\n\n"):
+        fields: dict[str, str] = {}
+        key: str | None = None
+        for line in stanza.split("\n"):
+            if not line:
+                continue
+            if line[0] in " \t" and key:  # folded continuation line
+                fields[key] += " " + line.strip()
+                continue
+            name, sep, val = line.partition(":")
+            if sep:
+                key = name.strip()
+                fields[key] = val.strip()
+        pkg = fields.get("Package")
+        if pkg:
+            out[pkg] = fields
+    return out
+
+
+def _resolve_deb_deps(root_pkg: str, index: dict[str, dict[str, str]]) -> list[str]:
+    """Transitively resolve a package's ``ddc-*`` deps (root first, then deps)."""
+    order: list[str] = []
+    seen: set[str] = set()
+
+    def visit(pkg: str) -> None:
+        if pkg in seen:
+            return
+        seen.add(pkg)
+        order.append(pkg)
+        for dep in (index.get(pkg, {}).get("Depends", "") or "").split(","):
+            dep = dep.strip()
+            if not dep:
+                continue
+            # First alternative; drop any "(>= x)" version constraint.
+            name = dep.split("|")[0].split("(")[0].strip()
+            if name.startswith("ddc-") and name in index:
+                visit(name)
+
+    visit(root_pkg)
+    return order
+
+
+def _fetch_apt_index(arch: str) -> dict[str, dict[str, str]] | None:
+    """Fetch + parse the apt ``Packages`` index for ``arch`` (uncompressed or .gz)."""
+    import gzip
+    import urllib.error
+    import urllib.request
+
+    base = f"{_DDC_APT_BASE_URL}/dists/{_DDC_APT_SUITE}/main/binary-{arch}"
+    for name in ("Packages", "Packages.gz"):
+        url = f"{base}/{name}"
+        try:
+            _check_apt_url_allowed(url)
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "OpenConstructionERP-converter-installer"}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 — host allow-listed
+                raw = resp.read(_MAX_DOWNLOAD_BYTES + 1)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            logger.debug("apt index fetch failed for %s: %s", url, exc)
+            continue
+        if not raw:
+            continue
+        if name.endswith(".gz"):
+            try:
+                raw = gzip.decompress(raw)
+            except OSError:
+                continue
+        index = _parse_apt_packages(raw.decode("utf-8", errors="replace"))
+        if index:
+            return index
+    return None
+
+
+def _download_converter_files_linux(converter_id: str) -> Path:
+    """Auto-download + extract the DDC Linux converter for ``converter_id``.
+
+    The Linux mirror of :func:`_download_converter_files_windows`: resolve the
+    converter's transitive ``ddc-*`` `.deb` set from the signed apt repo, stream
+    each package (host allow-listed, size-capped), then ``dpkg-deb -x`` it into
+    a per-arch, user-writable root under
+    ``~/.openestimator/converters/_ddc_linux_<arch>`` — preserving the
+    ``usr/bin`` + ``usr/lib/datadrivenconstruction`` layout so the binary's
+    ``$ORIGIN`` RUNPATH resolves (``LD_LIBRARY_PATH`` is also set at launch by
+    :func:`app.modules.boq.cad_import._converter_subprocess_env` to cover
+    dlopen'd runtime plugins such as ``AecScheduleData.tx``).
+
+    Returns the extracted ``usr/bin/{Format}Exporter`` path. Raises
+    ``RuntimeError`` with an actionable message on any failure.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    import urllib.error
+    import urllib.request
+
+    binary_name = _LINUX_CONVERTER_BINARIES.get(converter_id)
+    apt_pkg = _LINUX_APT_PACKAGES.get(converter_id)
+    if not binary_name or not apt_pkg:
+        raise RuntimeError(f"No Linux converter package is defined for '{converter_id}'.")
+
+    if shutil.which("dpkg-deb") is None:
+        raise RuntimeError(
+            "dpkg-deb is required to unpack the Linux converter packages but was "
+            "not found. It ships with every Debian/Ubuntu base image; install the "
+            f"`dpkg` package, or run `sudo apt install -y {apt_pkg}` once the DDC "
+            "apt source (pkg.datadrivenconstruction.io) is configured."
+        )
+
+    arch = _deb_arch()
+    root = _ddc_linux_root(arch)
+    bin_path = root / "usr" / "bin" / binary_name
+    if bin_path.exists() and bin_path.stat().st_size > 1024:
+        bin_path.chmod(0o755)
+        return bin_path
+
+    # Resolve the ordered .deb set: prefer the live apt index (auto-adapts to
+    # version bumps); fall back to the validated hard-coded chain + versions.
+    _set_install_progress(
+        converter_id, stage="listing", current=0, total=0, bytes_done=0,
+        file=None, started_at=_time.time(),
+    )
+    index = _fetch_apt_index(arch)
+    plan: list[tuple[str, str]] = []  # (package, filename relative to base URL)
+    if index and apt_pkg in index:
+        for pkg in _resolve_deb_deps(apt_pkg, index):
+            fn = index.get(pkg, {}).get("Filename")
+            if not fn:
+                plan = []
+                break
+            plan.append((pkg, fn.lstrip("/")))
+    if not plan:
+        deps = _DDC_DEB_DEPS.get(converter_id)
+        if not deps:
+            raise RuntimeError(
+                f"Could not resolve the .deb set for '{converter_id}' from the apt "
+                f"index and no deterministic fallback chain is defined."
+            )
+        for pkg in deps:
+            ver = _DDC_DEB_VERSIONS.get(pkg)
+            if not ver:
+                raise RuntimeError(f"No fallback version known for package '{pkg}'.")
+            plan.append((pkg, f"pool/main/{pkg[0]}/{pkg}/{pkg}_{ver}_{arch}.deb"))
+        logger.info(
+            "Linux converter %s using deterministic .deb fallback (%d packages)",
+            converter_id, len(plan),
+        )
+
+    logger.info(
+        "Linux converter %s resolves to %d .deb packages: %s",
+        converter_id, len(plan), [p for p, _ in plan],
+    )
+
+    root.mkdir(parents=True, exist_ok=True)
+    n = len(plan)
+    with tempfile.TemporaryDirectory(prefix="ddc_deb_") as tmp:
+        tmpdir = Path(tmp)
+        total = 0
+        for i, (pkg, rel) in enumerate(plan, 1):
+            deb_url = f"{_DDC_APT_BASE_URL}/{rel}"
+            _check_apt_url_allowed(deb_url)
+            dest = tmpdir / f"{i:02d}_{pkg}.deb"
+            _set_install_progress(
+                converter_id, stage="downloading", current=i, total=n,
+                bytes_done=total, file=f"{pkg}.deb",
+            )
+            req = urllib.request.Request(
+                deb_url, headers={"User-Agent": "OpenConstructionERP-converter-installer"}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 — allow-listed
+                    size = 0
+                    with open(dest, "wb") as fh:
+                        while True:
+                            chunk = resp.read(1024 * 256)
+                            if not chunk:
+                                break
+                            size += len(chunk)
+                            total += len(chunk)
+                            if size > _MAX_DOWNLOAD_BYTES:
+                                raise RuntimeError(
+                                    f"{pkg}.deb exceeds the per-file cap "
+                                    f"({_MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB)."
+                                )
+                            if total > _MAX_INSTALL_BYTES:
+                                raise RuntimeError(
+                                    f"Converter download exceeds the total cap "
+                                    f"({_MAX_INSTALL_BYTES // (1024 * 1024)} MB)."
+                                )
+                            fh.write(chunk)
+            except urllib.error.HTTPError as exc:
+                raise RuntimeError(
+                    f"Download failed for {pkg} (HTTP {exc.code}) from {deb_url}. "
+                    f"This architecture ({arch}) may not be published — install via "
+                    f"`sudo apt install -y {apt_pkg}` instead."
+                ) from exc
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                raise RuntimeError(f"Download failed for {pkg}: {exc}") from exc
+
+        _set_install_progress(
+            converter_id, stage="extracting", current=n, total=n,
+            bytes_done=total, file=None,
+        )
+        for i, (pkg, _rel) in enumerate(plan, 1):
+            deb = tmpdir / f"{i:02d}_{pkg}.deb"
+            proc = subprocess.run(  # noqa: S603 — fixed argv, no shell
+                ["dpkg-deb", "-x", str(deb), str(root)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"dpkg-deb extraction of {pkg} failed: "
+                    f"{proc.stderr.decode('utf-8', 'replace')[:300]}"
+                )
+
+    if not bin_path.exists():
+        raise RuntimeError(
+            f"Converter binary {binary_name} was not found after extraction "
+            f"(expected at {bin_path})."
+        )
+    bin_path.chmod(0o755)
+    logger.info("Linux converter %s ready at %s", converter_id, bin_path)
+    return bin_path
+
+
 _CONVERTER_CACHE_DIR = Path.home() / ".openestimator" / "cache" / "converters"
 _CONVERTER_INSTALL_DIR = Path.home() / ".openestimator" / "converters"
 
@@ -1006,80 +1321,92 @@ async def install_converter(
             }
 
         if platform.startswith("linux"):
-            # Linux: surface apt instructions instead of auto-installing.
-            # We do not write to /etc/apt or sudo from a web handler —
-            # that needs root and a privilege-elevation policy we
-            # don't ship by default.
-            #
-            # The apt repo at `pkg.datadrivenconstruction.io` is signed,
-            # serves amd64+arm64, and the `.deb` packages drop a single
-            # ELF binary into `/usr/bin/{Format}Exporter`. find_converter()
-            # picks it up automatically on the next status poll.
+            # Linux: auto-download the `.deb` set from the signed apt repo and
+            # extract it WITHOUT root (mirrors the Windows path) so the Install
+            # button is genuinely one-click. The binaries are user-private under
+            # ~/.openestimator/converters/_ddc_linux_<arch>/ — we never touch
+            # /etc/apt or sudo. If the auto-download can't complete (unpublished
+            # arch, no dpkg-deb, network failure) we fall back to surfacing the
+            # one-time apt instructions so the user can install system-wide.
             apt_pkg = _LINUX_APT_PACKAGES.get(converter_id, f"ddc-{converter_id}converter")
-            linux_binary_name = (meta["exe"] or "").removesuffix(".exe")
-            binary_path = f"/usr/bin/{linux_binary_name}" if linux_binary_name else None
-
-            # Detect whether the user has already added the DDC apt
-            # source. If yes, we can skip the source-setup lines and
-            # surface a one-line install command instead.
-            apt_source_path = Path("/etc/apt/sources.list.d/ddc.list")
-            source_already_present = apt_source_path.exists()
-
-            if source_already_present:
-                instructions = f"sudo apt update && sudo apt install -y {apt_pkg}"
-                short_message = (
-                    f"DDC apt source already configured. Run "
-                    f"`sudo apt install -y {apt_pkg}` to install "
-                    f"{meta['name']}. find_converter picks it up "
-                    f"automatically on the next status poll — no service "
-                    f"restart needed."
+            try:
+                exe_path = await asyncio.to_thread(
+                    _download_converter_files_linux, converter_id
                 )
-            else:
-                instructions = (
-                    f"# 1. Add the DDC apt source (one-time setup)\n"
-                    f"echo 'deb [trusted=yes] https://pkg.datadrivenconstruction.io stable main' "
-                    f"| sudo tee /etc/apt/sources.list.d/ddc.list\n"
-                    f"sudo apt update\n\n"
-                    f"# 2. Install the {meta['name']} (lands at {binary_path or '/usr/bin/'})\n"
-                    f"sudo apt install -y {apt_pkg}"
+            except Exception as exc:  # noqa: BLE001 — fall back to apt instructions
+                logger.warning(
+                    "Linux converter auto-download failed for %s: %s", converter_id, exc
                 )
-                short_message = (
-                    f"One-time apt setup for {meta['name']}. Copy the "
-                    f"two-step `instructions` into a root terminal — apt "
-                    f"resolves the SDK shared libraries automatically and "
-                    f"drops the binary at {binary_path or '/usr/bin/'}. "
-                    f"find_converter picks it up on the next status poll, "
-                    f"no service restart needed."
-                )
+                _clear_install_progress(converter_id)
+                apt_source_path = Path("/etc/apt/sources.list.d/ddc.list")
+                source_already_present = apt_source_path.exists()
+                if source_already_present:
+                    instructions = f"sudo apt update && sudo apt install -y {apt_pkg}"
+                else:
+                    instructions = (
+                        f"echo 'deb [trusted=yes] {_DDC_APT_BASE_URL} {_DDC_APT_SUITE} main' "
+                        f"| sudo tee /etc/apt/sources.list.d/ddc.list\n"
+                        f"sudo apt update\n"
+                        f"sudo apt install -y {apt_pkg}"
+                    )
+                return {
+                    "converter_id": converter_id,
+                    "installed": False,
+                    "platform": "linux",
+                    "platform_unsupported": False,
+                    "apt_package": apt_pkg,
+                    "apt_source_present": source_already_present,
+                    "instructions": instructions,
+                    "message": (
+                        f"Automatic download failed: {exc}. Install {meta['name']} "
+                        f"manually with the apt commands in `instructions`, or retry."
+                    ),
+                }
 
+            # Auto-download succeeded — smoke-test it (verifies the ELF loads its
+            # ODA shared libs; LD_LIBRARY_PATH is set by _converter_subprocess_env).
+            from app.modules.boq.cad_import import (
+                invalidate_converter_health,
+                smoke_test_converter,
+            )
+
+            invalidate_converter_health(converter_id)
+            health = await asyncio.to_thread(smoke_test_converter, converter_id, True)
+            smoke_ok = health.get("status") == "ok"
+            try:
+                request.app.state._converter_version_cache = None
+            except AttributeError:
+                pass
+            _clear_install_progress(converter_id)
             return {
                 "converter_id": converter_id,
-                "installed": False,
+                "installed": smoke_ok,
+                "path": str(exe_path),
+                "already_installed": False,
+                "size_bytes": exe_path.stat().st_size if exe_path.exists() else 0,
                 "platform": "linux",
-                # `platform_unsupported` is kept for backwards-compat with
-                # frontend toast logic, but it's misleading now — Linux IS
-                # supported, just via a one-time apt setup. The frontend
-                # banner branches on `platform === 'linux'` to render the
-                # softer "One-time apt setup" wording.
-                "platform_unsupported": True,
+                "smoke_test_passed": smoke_ok,
                 "apt_package": apt_pkg,
-                "apt_source_present": source_already_present,
-                "expected_binary_path": binary_path,
-                "instructions": instructions,
-                "message": short_message,
+                "message": (
+                    f"{meta['name']} installed successfully at {exe_path}"
+                    if smoke_ok
+                    else (health.get("message")
+                          or f"{meta['name']} installed but the smoke test did not pass.")
+                ),
             }
 
-        # macOS / other — no DDC build available
+        # macOS / other — no native DDC build available.
         return {
             "converter_id": converter_id,
             "installed": False,
             "platform": platform,
             "platform_unsupported": True,
             "message": (
-                f"{meta['name']} is not yet available for {platform}. "
-                f"Convert to IFC on a Windows machine first, then upload the IFC "
-                f"file — IFC has a built-in text fallback parser that works on "
-                f"every platform."
+                f"{meta['name']} has no native build for {platform}. Run "
+                f"OpenConstructionERP in Docker (Linux container — the converter "
+                f"downloads automatically there) or on a Linux host, or convert the "
+                f"file to IFC first and upload the IFC — IFC has a built-in text "
+                f"fallback parser that works on every platform."
             ),
         }
     except HTTPException:

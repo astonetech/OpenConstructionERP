@@ -5,6 +5,34 @@ All notable changes to OpenConstructionERP are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.1.2] - 2026-05-31
+
+### Added
+
+- Linux CAD and BIM converters now download and install automatically on first
+  use, exactly like on Windows. The proprietary DDC converter binaries ship as
+  signed .deb packages; the app fetches the package index, resolves the
+  transitive dependencies, downloads them and unpacks them into a private
+  per-architecture directory under ~/.openestimator with no root, no Docker and
+  no apt setup. The same one-click flow backs the Install button on the
+  Quantities and BIM pages. amd64 is fully supported; on an architecture the
+  upstream repository does not publish yet, the app falls back to a clear apt
+  command instead of failing.
+
+### Fixed
+
+- macOS: the converters no longer try to launch a Windows .exe. There is no
+  native macOS build, so the app now says so plainly and points to the two
+  paths that work on a Mac: run in Docker, or upload an IFC file (IFC is read by
+  a built-in text parser that needs no native converter on any platform).
+- Claude and the other AI providers connect again. The model identifiers were
+  refreshed to the current Claude generation, the API key is now read from the
+  environment and from ~/.openestimate/config.json in addition to the database,
+  and provider and key problems are reported with the real reason instead of a
+  generic failure.
+- The converter version check no longer shows a false "update available" banner
+  on Linux and macOS, where the Windows binary comparison does not apply.
+
 ## [6.1.1] - 2026-05-31
 
 ### Fixed
