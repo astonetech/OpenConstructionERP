@@ -51,10 +51,13 @@ def _run(coro):
 def _pdf_with_lines(lines: list[str]) -> bytes:
     """Render text lines into a one-page PDF and return the bytes.
 
-    Uses pymupdf so the fixture is built with a dependency the platform
-    already ships; the parser then reconstructs the lines via its text
-    path (a pymupdf-drawn page carries no extractable table grid).
+    Uses pymupdf to build the fixture; the parser then reconstructs the
+    lines via its text path (a pymupdf-drawn page carries no extractable
+    table grid). pymupdf lives in the optional ``[cv]`` extra, not the
+    ``[dev]`` install the CI test job uses, so skip the tests that route
+    through this helper when it is absent rather than erroring at runtime.
     """
+    pytest.importorskip("pymupdf")
     import pymupdf
 
     doc = pymupdf.open()
