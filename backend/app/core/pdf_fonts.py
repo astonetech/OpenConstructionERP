@@ -142,4 +142,16 @@ def pdf_font(name: str, *, bold: bool = False) -> str:
     return name or BODY_FONT
 
 
+# Register eagerly, at import time. Generators capture the face names with
+# ``from app.core.pdf_fonts import BODY_FONT, BOLD_FONT``, which snapshots the
+# string values at the moment of import. If registration only ran later (inside
+# a generator), the Helvetica fallback - implemented by reassigning these module
+# globals on failure - would never reach the names those modules already bound,
+# so an install with the bundled TTFs missing would hand reportlab the
+# unregistered "DejaVuSans" and raise instead of degrading gracefully. Running
+# it here finalises BODY_FONT / BOLD_FONT before any importer can read them, and
+# the _registered gate keeps every later call a no-op.
+register_pdf_fonts()
+
+
 __all__ = ["BODY_FONT", "BOLD_FONT", "pdf_font", "register_pdf_fonts"]
