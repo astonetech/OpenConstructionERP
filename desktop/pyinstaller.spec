@@ -23,7 +23,15 @@ DATA_CATALOG = ROOT / "data" / "catalog"
 # Collect all backend module packages for hidden imports
 modules_dir = BACKEND / "app" / "modules"
 hidden_imports = [
-    "aiosqlite",
+    # Embedded PostgreSQL 16 + its drivers. SQLAlchemy picks the driver from
+    # the URL at runtime (create_engine), so PyInstaller's static import graph
+    # never sees asyncpg / psycopg2 and would otherwise omit them, leaving the
+    # frozen sidecar unable to connect to its own database. pixeltable_pgserver
+    # boots the cluster; its bundled PG binaries are collected by the
+    # hook-pixeltable_pgserver.py hook on hookspath below.
+    "asyncpg",
+    "psycopg2",
+    "pixeltable_pgserver",
     "uvicorn",
     "uvicorn.logging",
     "uvicorn.loops",
@@ -80,23 +88,49 @@ if FRONTEND_DIST.is_dir():
 # Translation files, validation rules, etc. from backend
 datas.append((str(BACKEND / "app"), "app"))
 
+# Ship pyproject.toml next to the bundled app package. _detect_version()
+# reads the version from the source tree first and only falls back to the
+# installed-wheel metadata if it cannot find a pyproject. In a frozen build
+# there is no source tree, so without this the sidecar would report whatever
+# openconstructionerp version happens to be pip-installed on the build
+# machine instead of the real product version. Landing it at the bundle root
+# (one level above app/) is exactly where _read_pyproject_version walks to.
+_pyproject = BACKEND / "pyproject.toml"
+if _pyproject.is_file():
+    datas.append((str(_pyproject), "."))
+
 a = Analysis(
     [str(BACKEND / "app" / "cli.py")],
     pathex=[str(BACKEND)],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,
-    hookspath=[],
+    # Local hooks dir holds hook-pixeltable_pgserver.py, which collects the
+    # ~40 MB pginstall/ tree (postgres, initdb, pg_ctl + runtime libs) the
+    # embedded cluster needs. Without it the sidecar starts then dies with
+    # "postgres executable not found".
+    hookspath=[str(Path(SPECPATH) / "hooks")],
     hooksconfig={},
     runtime_hooks=[],
+    # numpy / pandas / openpyxl / pyarrow are base runtime deps (cost-DB
+    # Excel/CSV/Parquet import), so they must NOT be excluded. Only the
+    # genuinely-unused heavy science / GUI stacks are dropped to slim the build.
+    # The Qt bindings are excluded because the sidecar is a headless HTTP
+    # server with no GUI; they are never imported at runtime. The exclusion
+    # also avoids PyInstaller's hard abort when a build machine happens to have
+    # more than one Qt binding installed (it refuses to bundle both PyQt and
+    # PySide), which would otherwise break the build on developer machines that
+    # carry a full scientific Python stack.
     excludes=[
         "tkinter",
         "matplotlib",
-        "numpy",
         "scipy",
-        "pandas",
         "torch",
         "tensorflow",
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        "PySide6",
     ],
     noarchive=False,
     cipher=block_cipher,
