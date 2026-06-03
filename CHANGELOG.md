@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A simple builder on the AI Agents page. Alongside more ready-made agents, you can now create your own from the screen: give it a name and a short description, pick the tools it may use and write its instructions, with no code involved. Your agents are saved to your account and run next to the built-in ones.
+- Activating a partner pack now narrows the whole workspace to that client. Only the pack's projects appear across the projects page, the dashboard and the rollup widgets, and the interface switches to the pack's language, so an operator running a single-client install sees a clean, localised workspace. The Batimatech pack, for example, comes up in French. Deactivating the pack reverses all of it, shown step by step with a progress bar: the projects are released back into the full list and the language returns to English.
 
 ### Changed
 
@@ -26,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validation no longer fails when it runs straight after a demo is installed. It was reaching for a related collection that the async database session had not loaded yet, so the run could error before producing a report. It now reads the positions with an explicit query and produces the report every time.
 - Reinstalling a demo project no longer stops on a duplicate resource code. The seeding step clears the demo's own resource rows by code before inserting them again, so a forced reinstall completes cleanly.
 - The cost database import and the catalogue picker no longer fail with a server error. Importing the Germany and DACH cost database and adding items from the catalogue both work again.
+- CAD conversion works on a headless Linux server. The DWG, Revit and IFC importers and the drawing-to-PDF export now point the bundled DDC cad2data converter at its own libraries when they run, which a no-root install keeps outside the system path. Before this an upload could report that the converter was installed and then fail on the server with nothing useful in the log. Windows and macOS were not affected.
+- The assemblies editor shows every Cost Drivers category again when you enter prices, rather than only the first group that matched.
 
 ## [6.6.0] - 2026-06-02
 
