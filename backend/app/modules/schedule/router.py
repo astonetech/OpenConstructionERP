@@ -808,12 +808,19 @@ async def create_relationship(
         session.add(rel)
         await session.flush()
 
+    # Snapshot the response BEFORE rebuilding the mirror. ``update_fields``
+    # calls ``session.expire_all()``, which expires ``rel``; serialising an
+    # expired ORM row afterwards would trigger an implicit async refresh that
+    # Pydantic cannot await from sync attribute access (MissingGreenlet). Build
+    # the detached response model now, while ``rel`` is still populated.
+    response = RelationshipResponse.model_validate(rel)
+
     # Rebuild the successor activity's derived ``dependencies`` JSON mirror from
     # the canonical rows so the convenience field never drifts from the table.
     derived = await service._derive_dependencies_json(data.successor_id)
     await service.activity_repo.update_fields(data.successor_id, dependencies=derived)
 
-    return RelationshipResponse.model_validate(rel)
+    return response
 
 
 @router.get(
