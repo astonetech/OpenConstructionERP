@@ -1,4 +1,4 @@
-"""‌⁠‍BIM Requirements service -- business logic for import/export.
+"""BIM Requirements service -- business logic for import/export.
 
 Handles file import orchestration, parser selection, DB persistence,
 and export generation.
@@ -24,7 +24,7 @@ _classifier = FormatClassifier()
 
 
 def _get_parser(format_name: str) -> Any:
-    """‌⁠‍Return the appropriate parser instance for a detected format.
+    """Return the appropriate parser instance for a detected format.
 
     The :class:`FormatClassifier` can emit *generic* labels for content it
     recognises only loosely (``GenericXML``, ``MVD``, ``ArchiCAD`` for any
@@ -73,7 +73,7 @@ def _get_parser(format_name: str) -> Any:
 
 
 class BIMRequirementService:
-    """‌⁠‍Business logic for BIM requirements import/export."""
+    """Business logic for BIM requirements import/export."""
 
     def __init__(self, session: AsyncSession) -> None:
         self.session = session

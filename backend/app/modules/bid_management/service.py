@@ -1444,6 +1444,23 @@ class BidManagementService:
             raise HTTPException(status_code=404, detail=translate("errors.rejection_not_found", locale=get_locale()))
         rejection.notified_at = _now_iso()
         await self.session.flush()
+        # stub fix (audit #5): previously this only stamped notified_at and
+        # returned, so "notify bidder of rejection" did nothing observable.
+        # Publish a domain event (mirroring dispatch_invitation_emails) so the
+        # notifications module can deliver the rejection. The timestamp records
+        # that the notification was dispatched.
+        event_bus.publish_detached(
+            "bid_management.bidder.rejected",
+            {
+                "package_id": str(rejection.package_id),
+                "bidder_id": str(rejection.bidder_id),
+                "rejection_id": str(rejection.id),
+                "rejection_code": rejection.rejection_code,
+                "reason": rejection.rejection_reason,
+                "notified_at": rejection.notified_at,
+            },
+            source_module="bid_management",
+        )
         return rejection
 
     async def delete_rejection(self, rejection_id: uuid.UUID) -> None:

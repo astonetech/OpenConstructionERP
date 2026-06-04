@@ -920,6 +920,23 @@ class BIDashboardsService:
         )
         return await self.repo.create_schedule(schedule)
 
+    async def list_schedules_visible_to(
+        self,
+        *,
+        owner_user_id: uuid.UUID | None,
+    ) -> list[ReportSchedule]:
+        """Return every schedule attached to a report the caller can see.
+
+        Ownership is inherited from the parent report definition, so we
+        first resolve the visible reports (own + shared global/role) and
+        then fetch all of their schedules. This keeps the IDOR contract
+        the rest of the module enforces: a caller never sees a schedule
+        for a report they could not list.
+        """
+        reports = await self.repo.list_reports(owner_user_id=owner_user_id)
+        report_ids = [r.id for r in reports]
+        return await self.repo.list_schedules_for_reports(report_ids)
+
     async def update_schedule(
         self,
         schedule_id: uuid.UUID,

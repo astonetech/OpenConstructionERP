@@ -314,6 +314,26 @@ class BIDashboardsRepository:
         stmt = stmt.order_by(ReportSchedule.next_run_at.asc().nullsfirst())
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def list_schedules_for_reports(
+        self,
+        report_ids: list[uuid.UUID],
+    ) -> list[ReportSchedule]:
+        """Return every schedule (enabled or not) for the given reports.
+
+        Unlike :meth:`list_schedules` — which is the scheduler's
+        due-soon picker and is restricted to ``enabled`` rows — this
+        returns the full set so the UI can show paused schedules too.
+        Returns an empty list for an empty ``report_ids`` (no SQL issued).
+        """
+        if not report_ids:
+            return []
+        stmt = (
+            select(ReportSchedule)
+            .where(ReportSchedule.report_definition_id.in_(report_ids))
+            .order_by(ReportSchedule.next_run_at.asc().nullslast())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def get_schedule(
         self,
         schedule_id: uuid.UUID,
