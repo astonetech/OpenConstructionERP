@@ -855,6 +855,10 @@ def _envelope_from_group(
 
     parts: list[str] = []
     # 1. Human category (translated IFC label) — anchors the embedding.
+    # ``ifc_labels.lookup`` aliases a raw Revit OST category ("Walls") to
+    # its canonical IFC class meta, so an RVT group inherits the right
+    # label + din276 / masterformat / nrm hints. Genuine IFC and non-BIM
+    # placeholder categories are unaffected.
     ifc_meta = ifc_labels.lookup(sample.category)
     category_label = ifc_meta.en_label
     # For free-text / BoQ sources the category is a placeholder
@@ -871,7 +875,14 @@ def _envelope_from_group(
     raw_text = _attr("raw_text", "description")
     if source in {"text", "boq"} and raw_text:
         parts.append(raw_text)
-    type_name = _attr("type_name", "Type", "Family", "name")
+    # ``type_name`` carries the discriminating Revit family/type
+    # ("Exterior - Brick on Mtl. Stud" / "Generic 150mm"). Prefer a real
+    # family/type over the bare category word: the BIM adapter already
+    # surfaces the RVT ``family`` as ``type_name``, but we also probe
+    # ``family`` here so a group keyed straight off the family attribute
+    # still feeds it into the dense query. Never let it collapse to the
+    # category label (that adds no signal beyond ``category_label`` above).
+    type_name = _attr("type_name", "family", "Family", "Type", "name")
     if type_name and type_name != category_label:
         parts.append(type_name)
     # 3. Material.
@@ -945,16 +956,19 @@ def _envelope_from_group(
         nominal_size_mm = int(round(diameter_mm))
 
     # Forward ``ifc_class`` only when it's an actual IFC class — BIM
-    # extractors set ``sample.category="IfcWall"`` / ``IfcSlab``, but BoQ /
-    # text / image adapters synthesise placeholders (``"BoQ"``, ``"Text"``)
-    # that aren't valid IFC identifiers. Promoting those to the v3
-    # SearchPlan's ``ifc_class`` hard filter eliminates every Qdrant hit
-    # (CWICR rates carry empty / IfcCovering / etc. for non-BIM rows) and
-    # collapses the search to the metadata-only fallback (score ≈ 0.0002).
-    # An explicit ``Ifc`` prefix is the cheapest, most defensive check —
-    # callers who know the IFC class for a BoQ row can put it in
+    # extractors set ``sample.category="IfcWall"`` / ``IfcSlab`` (and the
+    # adapter now crosswalks a Revit OST category into a canonical
+    # ``IfcXxx`` stored in ``attributes["ifc_class"]``), but BoQ / text /
+    # image adapters synthesise placeholders (``"BoQ"``, ``"Text"``) that
+    # aren't valid IFC identifiers. Promoting those to the v3 SearchPlan's
+    # ``ifc_class`` hard filter eliminates every Qdrant hit (CWICR rates
+    # carry empty / IfcCovering / etc. for non-BIM rows) and collapses the
+    # search to the metadata-only fallback (score ≈ 0.0002). An explicit
+    # ``Ifc`` prefix (case-insensitive) is the cheapest, most defensive
+    # check — callers who know the IFC class for a BoQ row can put it in
     # ``attributes["ifc_class"]`` (the BoqAdapter forwards that key
-    # verbatim).
+    # verbatim). Reading the normalized attribute first is what lets RVT
+    # groups now forward a real IFC class.
     raw_cat = (sample.category or "").strip()
     attr_ifc_class = _attr("ifc_class", "IfcClass")
     forwarded_ifc_class: str | None = None
@@ -962,6 +976,19 @@ def _envelope_from_group(
         forwarded_ifc_class = attr_ifc_class
     elif raw_cat.lower().startswith("ifc"):
         forwarded_ifc_class = raw_cat
+
+    # Material bucket for the x1.3 soft boost. Prefer an explicit material
+    # property. When a Revit model carries the material inside the family
+    # name instead ("Exterior - Brick on Mtl. Stud"), fall back to the
+    # type/family string so a confident bucket ("brick") still fires. The
+    # bucketiser is conservative (returns ``None`` when unsure), so this
+    # never invents a material — it only recovers one the property layer
+    # missed. The type-name fallback is scoped to non-IFC (Revit) inputs
+    # so a genuine IFC envelope's ``material_class`` stays exactly as
+    # before (IFC elements always carry their material as a property).
+    material_class = _normalise_material_class(material)
+    if material_class is None and not raw_cat.lower().startswith("ifc"):
+        material_class = _normalise_material_class(type_name)
 
     return ElementEnvelope(
         source=source,
@@ -973,8 +1000,12 @@ def _envelope_from_group(
         classifier_hint=classifier_hint,
         ifc_class=forwarded_ifc_class,
         ifc_predefined_type=_attr("ifc_predefined_type", "PredefinedType"),
-        ost_category=_attr("ost_category", "Category", "OST_Category"),
-        material_class=_normalise_material_class(material),
+        # The Revit OST category drives the x1.5 ``ost_category`` soft
+        # boost. The BIM adapter records it under both ``ost_category``
+        # and ``revit_category`` for any non-IFC (Revit) source, so it
+        # fires for RVT models that previously had no OST hint at all.
+        ost_category=_attr("ost_category", "revit_category", "Category", "OST_Category"),
+        material_class=material_class,
         nominal_size_mm=nominal_size_mm,
         is_external=_parse_tri_bool(is_external_raw),
         is_loadbearing=_parse_tri_bool(load_bearing_raw),
