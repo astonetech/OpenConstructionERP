@@ -11,6 +11,7 @@ import html
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -520,6 +521,29 @@ class ReportingService:
         else:
             effective_snapshot = {"currency": currency}
 
+        # ── Optional AI narrative enrichment (item #15) ──────────────────
+        # Opt-in only. A progress-report template enables it by setting
+        # ``template_data["ai_narrative"] = true`` (an existing JSONB
+        # column, no migration), or a one-off run can pass
+        # ``metadata["ai_narrative"] = true``. The narrative is a
+        # SUGGESTION the human reviews (architecture guide
+        # "AI-augmented, human-confirmed"): it is stamped into the snapshot
+        # under ``ai_narrative`` and the renderer marks it AI-generated with
+        # a confidence note. Graceful: no API key -> no narrative, no error.
+        if await self._narrative_opt_in(data):
+            try:
+                narrative = await self._build_ai_narrative(effective_snapshot)
+            except Exception:
+                logger.warning(
+                    "reporting.generate_report AI narrative enrichment failed "
+                    "for project_id=%s; the report renders without a narrative.",
+                    data.project_id,
+                    exc_info=True,
+                )
+                narrative = None
+            if narrative is not None:
+                effective_snapshot = {**effective_snapshot, "ai_narrative": narrative}
+
         report = GeneratedReport(
             project_id=data.project_id,
             template_id=data.template_id,
@@ -736,6 +760,68 @@ class ReportingService:
                 exc_info=True,
             )
         return str(project_id)
+
+    @staticmethod
+    def _flag_is_true(container: Any, key: str) -> bool:
+        """True iff ``container[key]`` is a truthy opt-in flag.
+
+        Accepts ``True`` or the strings ``"true"``/``"1"``/``"yes"``/``"on"``
+        (case-insensitive) so a flag set from JSON, a form, or Python all
+        read the same. Anything else (missing, ``False``, ``None``) is off.
+        """
+        if not isinstance(container, dict):
+            return False
+        value = container.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"true", "1", "yes", "on"}
+        return False
+
+    async def _narrative_opt_in(self, data: GenerateReportRequest) -> bool:
+        """Decide whether to enrich this report with an AI narrative.
+
+        Opt-in precedence (no DB migration needed for either source):
+
+        1. The request ``metadata["ai_narrative"]`` flag (one-off runs).
+        2. The bound template's ``template_data["ai_narrative"]`` flag.
+        """
+        if self._flag_is_true(data.metadata, "ai_narrative"):
+            return True
+        if data.template_id is None:
+            return False
+        try:
+            template = await self.template_repo.get_by_id(data.template_id)
+        except Exception:
+            return False
+        return template is not None and self._flag_is_true(
+            template.template_data,
+            "ai_narrative",
+        )
+
+    async def _build_ai_narrative(self, snapshot: dict | None) -> dict | None:
+        """Best-effort AI narrative for a report snapshot, or ``None``.
+
+        Delegates to the progress-reporter agent's
+        ``generate_progress_narrative``. Returns ``None`` (never raises) when
+        the agent is unavailable, no API key is configured, or the call
+        fails - the report then renders without a narrative section.
+        """
+        if not snapshot:
+            return None
+        try:
+            from app.modules.ai_agents.agents.progress_reporter import (
+                generate_progress_narrative,
+            )
+        except Exception:
+            logger.debug("Progress-reporter agent unavailable for narrative", exc_info=True)
+            return None
+
+        # No per-user AI settings exist in a system-triggered report run, so
+        # the provider/key resolver falls back to environment variables / the
+        # CLI config file. When neither carries a key the agent returns None
+        # and the report renders without a narrative.
+        return await generate_progress_narrative(snapshot, settings=None)
 
     async def _build_default_snapshot(
         self,

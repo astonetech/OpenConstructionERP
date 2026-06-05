@@ -48,6 +48,7 @@ import { DashboardProjectsMap } from './components/DashboardProjectsMap';
 import { ShowAllProjectsCard } from './components/ShowAllProjectsCard';
 import { WeatherSiteWidget } from './components/NewWidgets';
 import { OperationsSnapshotCard } from './components/OperationsSnapshotCard';
+import { LabourCostWidget } from './LabourCostWidget';
 import { DateDisplay } from '@/shared/ui/DateDisplay';
 import { DashboardLayoutManager } from './DashboardLayoutManager';
 import { DASHBOARD_WIDGET_IDS } from './widgetRegistry';
@@ -2197,6 +2198,7 @@ function DashboardPageInner() {
     //    registry, so the dashboard never renders them inline.
     operations_snapshot: <OperationsSnapshotCard projects={projects} />,
     weather_site: <WeatherSiteWidget projects={projects} />,
+    labour_cost: <LabourCostWidget />,
   };
 
   return (

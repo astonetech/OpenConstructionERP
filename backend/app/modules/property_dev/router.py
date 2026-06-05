@@ -25,6 +25,7 @@ from fastapi import (
     status,
 )
 
+from app.core.email import EmailAttachment, get_email_service
 from app.core.file_signature import (
     ALLOWED_PHOTO_TYPES,
     SIGNATURE_BYTES_REQUIRED,
@@ -4326,6 +4327,133 @@ async def preview_propdev_document(
             doc_type,
             contract_id or reservation_id or handover_id or instalment_id,
         ),
+    }
+
+
+_DOC_TYPE_TITLES: dict[str, str] = {
+    "reservation_receipt": "Reservation Receipt",
+    "sales_contract": "Sale-Purchase Agreement",
+    "payment_receipt": "Payment Receipt",
+    "handover_certificate": "Handover Certificate",
+    "warranty_certificate": "Warranty Certificate",
+    "noc": "No Objection Certificate",
+    "tenant_lease_agreement": "Tenant Lease Agreement",
+    "move_in_checklist": "Move-In Checklist",
+    "mortgage_clearance_letter": "Mortgage Clearance Letter",
+    "title_deed_transfer_request": "Title Deed Transfer Request",
+    "escrow_release_authorization": "Escrow Release Authorization",
+    "refund_authorization": "Refund Authorization",
+}
+
+# RFC 5322-lite: good enough to reject obvious typos before we hand the
+# address to the SMTP backend (which does the authoritative validation).
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@router.post("/documents/email")
+async def email_propdev_document(
+    body: dict[str, Any],
+    payload: CurrentUserPayload,
+    service: PropertyDevService = Depends(_svc),
+    _perm: None = Depends(RequirePermission("property_dev.update")),
+) -> dict[str, Any]:
+    """Generate the document PDF and email it to a recipient as an attachment.
+
+    Mirrors ``/documents/preview`` for entity resolution + IDOR closure,
+    then renders the PDF once and hands it to the core email service. The
+    recipient address is validated here; delivery itself never raises -
+    the structured ``DeliveryResult`` is reflected back so the UI can show
+    an honest success / failure toast (e.g. when SMTP is not configured the
+    console backend "logs" the send and reports ``ok``).
+    """
+
+    doc_type = _resolve_doc_type_or_404(str(body.get("doc_type", "")))
+    locale = _normalise_locale(str(body.get("locale", "en")))
+
+    recipient = str(body.get("recipient_email", "")).strip()
+    if not recipient or not _EMAIL_RE.match(recipient):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A valid recipient_email is required",
+        )
+    recipient_name = str(body.get("recipient_name", "")).strip() or None
+    note = str(body.get("note", "")).strip() or None
+
+    def _uuid(name: str) -> uuid.UUID | None:
+        raw = body.get(name)
+        if raw is None or raw == "":
+            return None
+        try:
+            return uuid.UUID(str(raw))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid UUID for {name}",
+            ) from exc
+
+    contract_id = _uuid("contract_id")
+    reservation_id = _uuid("reservation_id")
+    handover_id = _uuid("handover_id")
+    instalment_id = _uuid("instalment_id")
+
+    await _enforce_propdev_doc_owner(
+        service,
+        payload,
+        contract_id=contract_id,
+        reservation_id=reservation_id,
+        handover_id=handover_id,
+        instalment_id=instalment_id,
+    )
+    pdf_bytes = await service.generate_document(
+        doc_type=doc_type,
+        contract_id=contract_id,
+        reservation_id=reservation_id,
+        handover_id=handover_id,
+        instalment_id=instalment_id,
+        locale=locale,
+        payment_method=str(body.get("payment_method", "")),
+        payment_ref=body.get("payment_ref"),
+        requested_by=str(body.get("requested_by", "")),
+        structural_warranty_years=int(body.get("structural_warranty_years", 10)),
+        finishing_warranty_years=int(body.get("finishing_warranty_years", 1)),
+        noc_validity_days=int(body.get("noc_validity_days", 30)),
+    )
+
+    entity_id = contract_id or reservation_id or handover_id or instalment_id
+    filename = _filename_for(doc_type, entity_id)
+    document_name = _DOC_TYPE_TITLES.get(doc_type, "Document")
+
+    email_service = get_email_service()
+    result = await email_service.send_document(
+        recipient,
+        subject=f"{document_name} - OpenConstructionERP",
+        document_name=document_name,
+        attachment=EmailAttachment(
+            filename=filename,
+            content=pdf_bytes,
+            content_type="application/pdf",
+        ),
+        recipient_name=recipient_name,
+        note=note,
+    )
+
+    if not result.ok:
+        # Surface a 502 so the UI shows a failure toast rather than a false
+        # "sent" - the backend (SMTP) refused or could not deliver.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Email delivery failed: {result.reason}",
+        )
+
+    return {
+        "ok": True,
+        "recipient": recipient,
+        "backend": result.backend,
+        "doc_type": doc_type,
+        "filename": filename,
+        # When SMTP is not configured the dev/console fallback "logs" the
+        # message and still reports ok; tell the UI so it can hint honestly.
+        "delivered": result.backend in {"smtp", "memory"},
     }
 
 

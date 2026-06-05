@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import struct
+from datetime import datetime
 from typing import Any
 
 from app.core.match_service.envelope import ElementEnvelope
@@ -35,6 +36,13 @@ _GPS_LAT_REF = 0x0001
 _GPS_LAT = 0x0002
 _GPS_LON_REF = 0x0003
 _GPS_LON = 0x0004
+
+# Date/time tags. ``DateTimeOriginal`` (when the shutter fired) lives in the
+# Exif sub-IFD pointed to by tag 0x8769 in IFD0; ``DateTime`` (file change /
+# digitised) is a plain IFD0 tag and is used only as a fallback.
+_EXIF_IFD_TAG = 0x8769  # pointer (in IFD0) to the Exif sub-IFD
+_DATETIME_ORIGINAL = 0x9003  # in the Exif sub-IFD
+_DATETIME = 0x0132  # in IFD0
 
 # TIFF field type → (struct code, byte width). Only the types the GPS tags
 # actually use are handled; anything else is skipped.
@@ -222,6 +230,73 @@ def extract_exif_gps(image_bytes: bytes) -> tuple[float, float] | None:
         return round(lat, 7), round(lon, 7)
     except Exception:
         logger.debug("EXIF GPS extraction failed", exc_info=True)
+        return None
+
+
+def _decode_exif_datetime(raw: bytes) -> datetime | None:
+    """Decode an EXIF ASCII date string ``"YYYY:MM:DD HH:MM:SS"`` to ``datetime``.
+
+    EXIF stores timestamps in local camera time with no timezone, so the
+    returned ``datetime`` is naive (matching the naive-UTC convention the
+    ``ProjectPhoto.taken_at`` column round-trips elsewhere). Returns ``None``
+    for any unparseable / zero value rather than raising.
+    """
+    try:
+        text = raw.split(b"\x00", 1)[0].decode("ascii", "ignore").strip()
+    except Exception:
+        return None
+    if not text or text.startswith("0000"):
+        return None
+    try:
+        return datetime.strptime(text, "%Y:%m:%d %H:%M:%S")  # noqa: DTZ007 — EXIF has no tz
+    except ValueError:
+        return None
+
+
+def extract_exif_datetime(image_bytes: bytes) -> datetime | None:
+    """Parse the EXIF capture timestamp from a JPEG/TIFF image.
+
+    Prefers ``DateTimeOriginal`` (when the shutter fired, in the Exif
+    sub-IFD); falls back to the IFD0 ``DateTime`` tag. Returns a naive
+    ``datetime`` (EXIF carries no timezone) or ``None`` when no usable
+    timestamp is present. Never raises — any parse error degrades to
+    ``None`` so a malformed upload can't break the upload flow.
+    """
+    try:
+        tiff = _find_tiff_block(image_bytes)
+        if tiff is None or len(tiff) < 8:
+            return None
+
+        if tiff[:2] == b"II":
+            byte_order = "<"
+        elif tiff[:2] == b"MM":
+            byte_order = ">"
+        else:
+            return None
+
+        ifd0_offset = struct.unpack(byte_order + "I", tiff[4:8])[0]
+        ifd0 = _read_ifd_entries(tiff, ifd0_offset, byte_order)
+
+        # Preferred: DateTimeOriginal in the Exif sub-IFD.
+        exif_ptr = ifd0.get(_EXIF_IFD_TAG)
+        if exif_ptr is not None:
+            exif_ifd = _read_ifd_entries(tiff, exif_ptr[2], byte_order)
+            entry = exif_ifd.get(_DATETIME_ORIGINAL)
+            if entry is not None:
+                raw = _value_bytes(tiff, entry[0], entry[1], entry[2], byte_order)
+                dt = _decode_exif_datetime(raw)
+                if dt is not None:
+                    return dt
+
+        # Fallback: plain IFD0 DateTime.
+        entry = ifd0.get(_DATETIME)
+        if entry is not None:
+            raw = _value_bytes(tiff, entry[0], entry[1], entry[2], byte_order)
+            return _decode_exif_datetime(raw)
+
+        return None
+    except Exception:
+        logger.debug("EXIF datetime extraction failed", exc_info=True)
         return None
 
 

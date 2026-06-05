@@ -145,6 +145,14 @@ class RFIRespondRequest(BaseModel):
         return _sanitise_rfi_text(v) or ""
 
 
+class StartApprovalRequest(BaseModel):
+    """Request body for starting a routed approval workflow (feature 06)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    route_id: UUID
+
+
 class RFIResponse(BaseModel):
     """RFI returned from the API."""
 

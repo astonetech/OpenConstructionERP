@@ -755,12 +755,14 @@ def build_handover_package_zip(
     certificates: list[tuple[str, bytes]],
     documents: list[tuple[str, bytes]],
     snag_photos: list[tuple[str, bytes]],
+    manifest_json: str | None = None,
 ) -> bytes:
     """Assemble the closeout-package ZIP from already-resolved bytes.
 
     Pure (no DB / no network) so it can be unit-tested directly. Lays out:
 
         MANIFEST.txt
+        manifest.json   (machine-readable index, when ``manifest_json`` given)
         certificates/<name>.pdf
         docs/<name>
         snags/<name>
@@ -791,6 +793,8 @@ def build_handover_package_zip(
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("MANIFEST.txt", manifest_text)
+        if manifest_json is not None:
+            zf.writestr("manifest.json", manifest_json)
         for name, data in certificates:
             zf.writestr(_unique("certificates", _safe_zip_name(name, fallback="certificate.pdf")), data)
         for name, data in documents:
@@ -2421,6 +2425,7 @@ class PropertyDevService:
         Deterministic + degrades gracefully: a handover with no docs/snags
         still yields a valid ZIP containing the manifest + certificates.
         """
+        import json
         from pathlib import Path
 
         handover = await self.get_handover(handover_id)
@@ -2538,6 +2543,42 @@ class PropertyDevService:
                 snag_photos.append((leaf, data))
         manifest.append(f"  Photos included: {len(snag_photos)}")
 
+        # ── Machine-readable manifest.json ─────────────────────────────
+        # A structured index of everything the archive carries, so the
+        # buyer portal / downstream integrations can parse the package
+        # without scraping MANIFEST.txt.
+        manifest_obj = {
+            "format_version": "1.0",
+            "kind": "handover_closeout_package",
+            "plot": plot_number,
+            "handover_id": str(handover_id),
+            "generated": date_iso,
+            "completed_at": handover.completed_at or None,
+            "final_check_passed": bool(handover.final_check_passed),
+            "compliance": {
+                "delivered_count": bundle["delivered_count"],
+                "required_count": bundle["required_count"],
+                "missing_required": list(bundle["missing_required"]),
+                "ready_for_handover": bundle["ready_for_handover"],
+            },
+            "contents": {
+                "certificates": [name for name, _ in certificates],
+                "documents": [name for name, _ in documents],
+                "snags": [name for name, _ in snag_photos],
+            },
+            "documents": [
+                {
+                    "doc_type": d.doc_type,
+                    "title": d.title,
+                    "is_required": bool(d.is_required),
+                    "is_delivered": bool(d.is_delivered),
+                    "delivered_at": d.delivered_at or None,
+                    "file_url": d.file_url,
+                }
+                for d in docs
+            ],
+        }
+
         zip_bytes = build_handover_package_zip(
             plot_number=plot_number,
             date_iso=date_iso,
@@ -2545,6 +2586,7 @@ class PropertyDevService:
             certificates=certificates,
             documents=documents,
             snag_photos=snag_photos,
+            manifest_json=json.dumps(manifest_obj, indent=2, default=str),
         )
         filename = f"handover_{_safe_zip_name(plot_number, fallback='plot')}_{date_iso}.zip"
         return filename, zip_bytes

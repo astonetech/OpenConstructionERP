@@ -1119,6 +1119,18 @@ class PhotoService:
                     gps_lon = exif_lon
                 ai_meta["gps_source"] = "exif"
 
+        # 1b) Auto-extract the EXIF capture timestamp so photos sort and group
+        #     chronologically by when the shutter fired, not by upload time.
+        #     The CALLER's explicit ``taken_at`` stays authoritative — we only
+        #     fill it when left blank.
+        if taken_at is None:
+            from app.core.match_service.extractors.photo import extract_exif_datetime
+
+            exif_dt = extract_exif_datetime(content)
+            if exif_dt is not None:
+                taken_at = exif_dt
+                ai_meta["taken_at_source"] = "exif"
+
         # 2) Compute a defect-category SUGGESTION. This is NEVER auto-applied
         #    — it is stored in metadata for the user to confirm in the UI. The
         #    persisted ``category`` remains exactly what the caller chose.

@@ -70,6 +70,7 @@ from app.modules.subcontractors.schemas import (
     SubcontractorUpdate,
     TaxIdValidationRequest,
     TaxIdValidationResponse,
+    VendorEligibility,
     WorkPackageCreate,
     WorkPackageResponse,
     WorkPackageUpdate,
@@ -246,6 +247,44 @@ async def subcontractor_award_eligibility(
         subcontractor_id=sub_id,
         awardable=not result.blocked,
         reasons=result.reasons,
+    )
+
+
+@router.get(
+    "/vendors/by-contact/{contact_id}/eligibility",
+    response_model=VendorEligibility,
+)
+async def vendor_eligibility_by_contact(
+    contact_id: uuid.UUID,
+    session: SessionDep,
+    _user: CurrentUserId,
+    _perm: None = Depends(RequirePermission("subcontractors.read")),
+) -> VendorEligibility:
+    """Resolve a PO vendor's prequalification / block status (TOP-30 #20).
+
+    Procurement POs carry a CRM ``vendor_contact_id``, not a subcontractor
+    id. This endpoint maps that contact to the linked subcontractor and
+    returns the award-eligibility verdict so the procurement PO-row badge
+    and the create/issue gate can warn on non-prequalified vendors and
+    hard-block vendors that are flagged ``is_blocked``. When the contact is
+    not a registered subcontractor the verdict is ``known=false`` /
+    ``awardable=true`` - an ad-hoc supplier is never gated.
+    """
+    svc = SubcontractorService(session)
+    resolved = await svc.award_eligibility_for_contact(contact_id)
+    if resolved is None:
+        return VendorEligibility(contact_id=contact_id, known=False, awardable=True)
+    sub, block = resolved
+    return VendorEligibility(
+        contact_id=contact_id,
+        known=True,
+        subcontractor_id=sub.id,
+        legal_name=sub.legal_name,
+        awardable=not block.blocked,
+        prequalification_status=sub.prequalification_status,
+        is_blocked=bool(sub.is_blocked),
+        rating_score=str(sub.rating_score) if sub.rating_score is not None else None,
+        reasons=block.reasons,
     )
 
 

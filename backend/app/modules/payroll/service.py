@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException, status
@@ -21,7 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.costmodel.repository import BudgetLineRepository, _amount_in_base
 from app.modules.fieldreports.models import FieldReport, SiteWorkforceLog
-from app.modules.payroll.events import EVENT_PAYROLL_BATCH_FINALIZED, safe_publish
+from app.modules.payroll.events import (
+    EVENT_PAYROLL_BATCH_FINALIZED,
+    EVENT_PAYROLL_BATCH_POSTED,
+    EVENT_PAYROLL_BATCH_SUBMITTED,
+    safe_publish,
+)
 from app.modules.payroll.models import PayrollBatch, PayrollEntry
 from app.modules.payroll.repository import (
     PayrollBatchRepository,
@@ -31,14 +37,50 @@ from app.modules.payroll.repository import (
 logger = logging.getLogger(__name__)
 
 # Posting source family for labour-batch actuals. The cost spine is idempotent
-# on (source_kind, source_ref); finalize uses the batch id as the stable ref so
-# re-finalizing the same batch never double-posts its labour cost.
+# on (source_kind, source_ref); approve uses the batch id as the stable ref so
+# re-approving the same batch never double-posts its labour cost.
 _PAYROLL_SOURCE_KIND = "payroll_batch"
 # Cost category every labour-batch actual lands under in the cost spine.
 _PAYROLL_COST_CATEGORY = "labor"
-# Terminal status a finalized batch carries (the only state we post in).
+# Batch lifecycle (FSM). draft -> submitted -> approved -> posted.
 _STATUS_DRAFT = "draft"
+_STATUS_SUBMITTED = "submitted"
 _STATUS_APPROVED = "approved"
+_STATUS_POSTED = "posted"
+# GL account codes the posted batch debits/credits. Labour expense (debit)
+# against accrued-wages payable (credit) - a standard payroll accrual entry.
+_GL_LABOUR_EXPENSE_ACCOUNT = "5000"
+_GL_WAGES_PAYABLE_ACCOUNT = "2100"
+
+
+def _utcnow() -> datetime:
+    """Return a timezone-aware UTC now (column is timezone=True)."""
+    return datetime.now(UTC)
+
+
+def _coerce_user_id(user_id: str | None) -> uuid.UUID | None:
+    """Best-effort coerce a user-id string to a UUID, else None."""
+    if not user_id:
+        return None
+    try:
+        return uuid.UUID(str(user_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _coerce_date(value: str | None) -> date | None:
+    """Parse an ISO ``YYYY-MM-DD`` string into a ``date``, else None.
+
+    The field-report ``report_date`` is a DATE column, so a date bound must be a
+    real ``date`` object - PostgreSQL has no ``date >= varchar`` operator and
+    asyncpg will not bind a string to a date parameter.
+    """
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
 
 
 def _finalize_idempotency_key(batch_id: uuid.UUID) -> str:
@@ -135,10 +177,15 @@ class PayrollService:
             .join(FieldReport, SiteWorkforceLog.field_report_id == FieldReport.id)
             .where(FieldReport.project_id == project_id)
         )
-        if date_from:
-            stmt = stmt.where(FieldReport.report_date >= date_from)
-        if date_to:
-            stmt = stmt.where(FieldReport.report_date <= date_to)
+        # ``report_date`` is a DATE column; the bounds arrive as ISO strings, so
+        # parse them to ``date`` for the comparison (PostgreSQL has no
+        # ``date >= varchar`` operator).
+        df = _coerce_date(date_from)
+        dt = _coerce_date(date_to)
+        if df is not None:
+            stmt = stmt.where(FieldReport.report_date >= df)
+        if dt is not None:
+            stmt = stmt.where(FieldReport.report_date <= dt)
 
         result = await self.session.execute(stmt)
         rows: list[dict] = []
@@ -402,15 +449,63 @@ class PayrollService:
     async def list_entries(self, batch_id: uuid.UUID) -> list[PayrollEntry]:
         return await self.entry_repo.list_for_batch(batch_id)
 
-    # ── Finalize (draft -> approved, post labour cost to the cost spine) ─────
+    # ── Helpers shared by the lifecycle transitions ──────────────────────────
 
-    async def finalize_batch(self, batch_id: uuid.UUID) -> PayrollBatch:
-        """Approve a draft batch and post its labour cost to the cost spine.
+    async def _batch_total(self, batch: PayrollBatch) -> Decimal:
+        """Sum live entry amounts (project base), falling back to the stored total.
 
-        Idempotent and safe to retry:
+        Entries are persisted in the batch currency (project base) by the
+        generator, so this is a plain Decimal sum with no FX. Summing live
+        entries over the denormalised total reflects any hand-edit.
+        """
+        entries = await self.entry_repo.list_for_batch(batch.id)
+        if not entries:
+            return _to_decimal(batch.total_amount).quantize(Decimal("0.01"))
+        total = Decimal("0")
+        for entry in entries:
+            total += _to_decimal(entry.amount)
+        return total.quantize(Decimal("0.01"))
+
+    # ── FSM: submit (draft -> submitted) ─────────────────────────────────────
+
+    async def submit_batch(self, batch_id: uuid.UUID, *, user_id: str | None = None) -> PayrollBatch:
+        """Submit a draft batch for approval (no money moved).
+
+        Idempotent: an already-submitted batch is returned unchanged. Only a
+        ``draft`` batch can be submitted; any other status is a 400.
+        """
+        batch = await self.get_batch(batch_id)
+        if batch.status == _STATUS_SUBMITTED:
+            return batch
+        if batch.status != _STATUS_DRAFT:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot submit a batch in status '{batch.status}' (must be 'draft').",
+            )
+        await self.batch_repo.update_fields(
+            batch.id,
+            status=_STATUS_SUBMITTED,
+            submitted_at=_utcnow(),
+            submitted_by=_coerce_user_id(user_id),
+        )
+        await self.session.refresh(batch)
+        await safe_publish(
+            EVENT_PAYROLL_BATCH_SUBMITTED,
+            {"project_id": str(batch.project_id), "batch_id": str(batch.id)},
+        )
+        return batch
+
+    # ── FSM: approve (submitted/draft -> approved, post labour cost) ─────────
+
+    async def finalize_batch(self, batch_id: uuid.UUID, *, user_id: str | None = None) -> PayrollBatch:
+        """Approve a batch and post its labour cost to the cost spine.
+
+        Accepts a ``draft`` (single-step approve) OR a ``submitted`` batch so the
+        two-step submit/approve flow and the direct approve both work. Idempotent
+        and safe to retry:
             * 404 when the batch does not exist.
-            * Already ``approved`` -> returns the batch unchanged (no re-post).
-            * Any other (non-draft) status -> 400 (cannot finalize).
+            * Already ``approved`` / ``posted`` -> returned unchanged (no re-post).
+            * Any other status -> 400.
             * Otherwise: sums the batch entries (already in project base
               currency), posts the labour actual onto the project's cost-spine
               labour budget line via the shared
@@ -419,57 +514,26 @@ class PayrollService:
               flips ``status`` to ``approved`` and emits
               ``payroll.batch.finalized``.
 
-        The posting amount is the batch's denormalised ``total_amount`` (the sum
-        of its entry amounts), which the generator already converted to the
-        project base currency - finalize only sums, it never re-applies FX, so a
-        rate change after generation cannot retroactively move a finalized
-        amount. A zero-entry / zero-total batch still transitions to approved but
-        posts nothing (the spine is a pure accumulator; posting 0 is a harmless
-        no-op, but we skip it to avoid a noisy 0.00 posting trail entry).
-
-        Args:
-            batch_id: The batch to finalize.
-
-        Returns:
-            The updated (or already-approved) :class:`PayrollBatch`.
-
-        Raises:
-            HTTPException: 404 if the batch is missing, 400 if it is in a status
-                that cannot be finalized.
+        The posting amount never re-applies FX (the generator already converted
+        to base), so a rate change after generation cannot retroactively move an
+        approved amount. A zero-total batch still transitions to approved but
+        posts nothing (skipped to avoid a noisy 0.00 posting trail entry).
         """
         batch = await self.get_batch(batch_id)
 
-        # Idempotent: a second finalize on an already-approved batch is a 200
-        # no-op. The cost-spine posting is independently idempotent, but short
-        # -circuiting here avoids re-touching the row and re-emitting the event.
-        if batch.status == _STATUS_APPROVED:
+        if batch.status in (_STATUS_APPROVED, _STATUS_POSTED):
             return batch
 
-        if batch.status != _STATUS_DRAFT:
+        if batch.status not in (_STATUS_DRAFT, _STATUS_SUBMITTED):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot finalize a batch in status '{batch.status}' (must be 'draft').",
+                detail=f"Cannot approve a batch in status '{batch.status}' (must be 'draft' or 'submitted').",
             )
 
-        # Sum the entry amounts. These are persisted in the batch currency
-        # (project base) by the generator, so this is a plain Decimal sum with
-        # no FX. We prefer summing live entries over trusting the denormalised
-        # total so a hand-edited entry is reflected, then fall back to the
-        # stored total if (defensively) no entries are returned.
-        entries = await self.entry_repo.list_for_batch(batch_id)
-        total = Decimal("0")
-        for entry in entries:
-            total += _to_decimal(entry.amount)
-        if not entries:
-            total = _to_decimal(batch.total_amount)
-        total = total.quantize(Decimal("0.01"))
-
+        total = await self._batch_total(batch)
         currency = (batch.currency or "").strip().upper()
         budget_line_id: uuid.UUID | None = None
 
-        # Post the labour actual to the cost spine. Skip a strictly-zero amount:
-        # the spine is a pure accumulator and a 0.00 posting only clutters the
-        # audit trail without changing any total.
         if total > 0:
             if not currency:
                 raise HTTPException(
@@ -492,8 +556,13 @@ class PayrollService:
             budget_line_id = line.id
 
         # Flip status only after a successful post (post raises on failure, so a
-        # failed posting leaves the batch in draft for a safe retry).
-        await self.batch_repo.update_fields(batch.id, status=_STATUS_APPROVED)
+        # failed posting leaves the batch unchanged for a safe retry).
+        await self.batch_repo.update_fields(
+            batch.id,
+            status=_STATUS_APPROVED,
+            approved_at=_utcnow(),
+            approved_by=_coerce_user_id(user_id),
+        )
         await self.session.refresh(batch)
 
         await safe_publish(
@@ -508,7 +577,7 @@ class PayrollService:
         )
 
         logger.info(
-            "Payroll batch finalized: project=%s batch=%s amount=%s %s budget_line=%s",
+            "Payroll batch approved: project=%s batch=%s amount=%s %s budget_line=%s",
             batch.project_id,
             batch.id,
             total,
@@ -516,6 +585,183 @@ class PayrollService:
             budget_line_id,
         )
         return batch
+
+    # ── FSM: post (approved -> posted, hand to the finance GL) ───────────────
+
+    async def post_batch(self, batch_id: uuid.UUID, *, user_id: str | None = None) -> PayrollBatch:
+        """Post an approved batch to the finance general ledger.
+
+        Writes a balanced double-entry payroll accrual (debit labour expense,
+        credit wages payable) via the shared finance ledger service, then flips
+        the batch to the terminal ``posted`` status. Idempotent: an already
+        ``posted`` batch is returned unchanged (and we never write a second
+        journal - the stored ``gl_transaction_ref`` is the guard). Only an
+        ``approved`` batch can be posted.
+        """
+        batch = await self.get_batch(batch_id)
+        if batch.status == _STATUS_POSTED:
+            return batch
+        if batch.status != _STATUS_APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot post a batch in status '{batch.status}' (must be 'approved').",
+            )
+
+        total = await self._batch_total(batch)
+        currency = (batch.currency or "").strip().upper()
+        # Stable, collision-safe ledger ref derived from the batch id.
+        gl_ref = f"PAYROLL-{batch.id}"
+
+        if total > 0:
+            if not currency:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Batch has no currency - cannot post to the ledger.",
+                )
+            from app.modules.finance.models import LedgerEntry
+            from app.modules.finance.schemas import LedgerEntryCreate
+            from app.modules.finance.service import FinanceService
+
+            # Guard against a double journal if the status flip failed after a
+            # prior ledger write: skip the write when a row already carries the ref.
+            existing = await self.session.execute(
+                select(LedgerEntry.id).where(LedgerEntry.transaction_ref == gl_ref).limit(1)
+            )
+            already = existing.first() is not None
+            if not already:
+                finance = FinanceService(self.session)
+                await finance.create_ledger_transaction(
+                    LedgerEntryCreate(
+                        project_id=batch.project_id,
+                        transaction_ref=gl_ref,
+                        debit_account=_GL_LABOUR_EXPENSE_ACCOUNT,
+                        credit_account=_GL_WAGES_PAYABLE_ACCOUNT,
+                        debit_amount=str(total),
+                        credit_amount=str(total),
+                        description=f"Payroll batch {batch.period_label}",
+                        currency_code=currency,
+                        source_type=_PAYROLL_SOURCE_KIND,
+                        source_id=str(batch.id),
+                        created_by=user_id,
+                    )
+                )
+
+        await self.batch_repo.update_fields(
+            batch.id,
+            status=_STATUS_POSTED,
+            posted_at=_utcnow(),
+            posted_by=_coerce_user_id(user_id),
+            gl_transaction_ref=gl_ref,
+        )
+        await self.session.refresh(batch)
+
+        await safe_publish(
+            EVENT_PAYROLL_BATCH_POSTED,
+            {
+                "project_id": str(batch.project_id),
+                "batch_id": str(batch.id),
+                "amount": str(total),
+                "currency": currency,
+                "gl_transaction_ref": gl_ref,
+            },
+        )
+        logger.info(
+            "Payroll batch posted to GL: project=%s batch=%s ref=%s amount=%s %s",
+            batch.project_id,
+            batch.id,
+            gl_ref,
+            total,
+            currency,
+        )
+        return batch
+
+    # ── Reconciliation (batch hours vs live field hours) ─────────────────────
+
+    async def reconcile_batch(self, batch_id: uuid.UUID) -> dict:
+        """Reconcile a batch against the live field-labour sources.
+
+        Re-collects field-report + diary hours for the batch's project over its
+        period, aggregates them per (worker-key, date), and compares against the
+        batch's own entries. Returns a per-row delta plus a balanced flag. This
+        is a read-only diagnostic - it never mutates the batch.
+        """
+        batch = await self.get_batch(batch_id)
+
+        # Live source hours, keyed the same way the generator keys entries:
+        # resource_id when present, else worker_type label, paired with date.
+        source_rows = await self._collect_workforce_logs(
+            batch.project_id, date_from=batch.period_start, date_to=batch.period_end
+        )
+        source_rows += await self._collect_diary_hours(
+            batch.project_id, date_from=batch.period_start, date_to=batch.period_end
+        )
+        agg_rows, _base, _fx = await self._aggregate(batch.project_id, source_rows)
+
+        source_by_key: dict[tuple[str, str | None], Decimal] = {}
+        for agg in agg_rows:
+            key = (str(agg.resource_id) if agg.resource_id else agg.worker, agg.work_date)
+            source_by_key[key] = source_by_key.get(key, Decimal("0")) + agg.hours
+
+        entries = await self.entry_repo.list_for_batch(batch_id)
+        batch_by_key: dict[tuple[str, str | None], tuple[Decimal, uuid.UUID | None, str]] = {}
+        for e in entries:
+            key = (str(e.resource_id) if e.resource_id else e.worker, e.work_date)
+            prev_hours, _rid, _w = batch_by_key.get(key, (Decimal("0"), e.resource_id, e.worker))
+            batch_by_key[key] = (prev_hours + _to_decimal(e.hours), e.resource_id, e.worker)
+
+        rows: list[dict] = []
+        batch_total = Decimal("0")
+        source_total = Decimal("0")
+        all_keys = set(batch_by_key) | set(source_by_key)
+        for key in sorted(all_keys, key=lambda k: (k[1] or "", k[0])):
+            b_hours, rid, worker = batch_by_key.get(key, (Decimal("0"), None, key[0]))
+            s_hours = source_by_key.get(key, Decimal("0"))
+            delta = (b_hours - s_hours).quantize(Decimal("0.01"))
+            batch_total += b_hours
+            source_total += s_hours
+            rows.append(
+                {
+                    "worker_key": worker,
+                    "work_date": key[1],
+                    "resource_id": rid,
+                    "batch_hours": str(b_hours.quantize(Decimal("0.01"))),
+                    "source_hours": str(s_hours.quantize(Decimal("0.01"))),
+                    "delta_hours": str(delta),
+                    "matched": delta == 0,
+                }
+            )
+
+        delta_total = (batch_total - source_total).quantize(Decimal("0.01"))
+        return {
+            "batch_id": batch.id,
+            "project_id": batch.project_id,
+            "batch_total_hours": str(batch_total.quantize(Decimal("0.01"))),
+            "source_total_hours": str(source_total.quantize(Decimal("0.01"))),
+            "delta_total_hours": str(delta_total),
+            "balanced": delta_total == 0,
+            "rows": rows,
+        }
+
+    # ── Export (ERP handoff) ─────────────────────────────────────────────────
+
+    async def export_rows(self, batch_id: uuid.UUID) -> tuple[PayrollBatch, list[dict]]:
+        """Return the batch plus its export rows (used by JSON and CSV export)."""
+        batch = await self.get_batch(batch_id)
+        entries = await self.entry_repo.list_for_batch(batch_id)
+        rows = [
+            {
+                "worker": e.worker,
+                "resource_id": str(e.resource_id) if e.resource_id else "",
+                "work_date": e.work_date or "",
+                "hours": e.hours,
+                "rate": e.rate,
+                "amount": e.amount,
+                "currency": e.currency,
+                "source": e.source,
+            }
+            for e in entries
+        ]
+        return batch, rows
 
     # ── Labour cost rollup (for surfacing alongside the cost model) ──────────
 

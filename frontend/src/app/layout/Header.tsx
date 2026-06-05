@@ -135,6 +135,7 @@ const TITLE_I18N_MAP: Record<string, string> = {
   'Procurement': 'procurement.title',
   // Analytics
   'Reports': 'nav.reports',
+  'Project Controls': 'nav.project_controls',
   'BI Dashboards': 'nav.bi_dashboards',
   'Dashboards': 'nav.snapshots',
   'Reporting Dashboards': 'nav.reporting_dashboards',

@@ -515,6 +515,12 @@ class ApprovalRouteService:
             "decision": payload.decision,
             "step_id": str(step.id),
             "step_ordinal": step.ordinal,
+            # The deciding approver, so a consumer subscriber that drives a
+            # domain FSM off a terminal decision (submittals / rfi feature 06)
+            # can attribute the resulting status change to the right actor in
+            # its own audit trail instead of recording it as anonymous.
+            "decided_by": str(approver_id) if approver_id else None,
+            "comment": payload.comment,
         }
 
         if payload.decision == "rejected":

@@ -20,6 +20,7 @@ async def on_startup() -> None:
     from app.modules.ai_agents.agents.cost_classifier import register_cost_classifier
     from app.modules.ai_agents.agents.document_analyst import register_document_analyst
     from app.modules.ai_agents.agents.estimate_reviewer import register_estimate_reviewer
+    from app.modules.ai_agents.agents.progress_reporter import register_progress_reporter
     from app.modules.ai_agents.agents.project_analyst import register_project_analyst
     from app.modules.ai_agents.agents.rate_benchmarker import register_rate_benchmarker
     from app.modules.ai_agents.permissions import register_ai_agents_permissions
@@ -36,5 +37,6 @@ async def on_startup() -> None:
     register_document_analyst()
     register_project_analyst()
     register_rate_benchmarker()
+    register_progress_reporter()
     # Prompt-only advisory agents (help me think / draft / structure):
     register_advisor_agents()

@@ -15,6 +15,7 @@ import {
   Ban,
   RotateCcw,
   ArrowRight,
+  FileText,
 } from 'lucide-react';
 import {
   Button,
@@ -49,8 +50,9 @@ import {
   type AccessRule,
   type AccessPermission,
 } from './api';
+import { ProgressReportsTab } from './ProgressReportsTab';
 
-type Tab = 'users' | 'access_rules' | 'audit_log';
+type Tab = 'users' | 'access_rules' | 'audit_log' | 'progress_reports';
 
 const ROLES: PortalRole[] = [
   'client',
@@ -307,6 +309,13 @@ export function PortalPage() {
                 label: t('portal.audit_log', { defaultValue: 'Audit Log' }),
                 icon: FileSearch,
               },
+              {
+                id: 'progress_reports',
+                label: t('portal.progress_reports', {
+                  defaultValue: 'Progress Reports',
+                }),
+                icon: FileText,
+              },
             ] as { id: Tab; label: string; icon: React.ElementType }[]
           ).map((tabItem) => {
             const Icon = tabItem.icon;
@@ -334,7 +343,8 @@ export function PortalPage() {
         </nav>
       </div>
 
-      {/* Filters */}
+      {/* Filters (progress-reports has its own project picker) */}
+      {tab !== 'progress_reports' && (
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search
@@ -366,8 +376,14 @@ export function PortalPage() {
           </select>
         )}
       </div>
+      )}
 
       {/* Body */}
+      {tab === 'progress_reports' ? (
+        <Card padding="md">
+          <ProgressReportsTab />
+        </Card>
+      ) : (
       <Card padding="none">
         {isLoading ? (
           <div className="p-4">
@@ -405,6 +421,7 @@ export function PortalPage() {
           <AuditLogTable rows={filteredAudit} users={usersQ.data?.items ?? []} />
         )}
       </Card>
+      )}
 
       {/* Detail Drawer */}
       {selectedUser && (

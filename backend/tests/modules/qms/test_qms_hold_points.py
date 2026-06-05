@@ -411,3 +411,178 @@ async def test_review_point_emits_no_hold_event(svc: QMSService) -> None:
             insp.id,
             HoldPointReleaseCreate(justification="x"),
         )
+
+
+# ── Quality-gate enforcement for downstream modules (gap #3) ───────────────
+
+
+@pytest.mark.asyncio
+async def test_review_point_gate_always_satisfied(svc: QMSService) -> None:
+    _plan, item = await _plan_with_item(svc, hold="review")
+    status = await svc.is_hold_point_satisfied(item.id)
+    assert status["is_hold_point"] is False
+    assert status["satisfied"] is True
+
+
+@pytest.mark.asyncio
+async def test_hold_point_not_satisfied_without_inspection(svc: QMSService) -> None:
+    _plan, item = await _plan_with_item(svc)
+    status = await svc.is_hold_point_satisfied(item.id)
+    assert status["satisfied"] is False
+    assert "no inspection" in (status["reason"] or "")
+    # And the fail-closed guard raises.
+    with pytest.raises(ValueError, match="Blocked by quality gate"):
+        await svc.assert_downstream_action_allowed(item.id)
+
+
+@pytest.mark.asyncio
+async def test_hold_point_passed_not_satisfied_until_released(svc: QMSService) -> None:
+    """A hold point that passed still blocks downstream work until released."""
+    _plan, item = await _plan_with_item(svc)
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    with patch(_PUBLISH, MagicMock()):
+        await svc.complete_inspection(insp.id, result="passed")
+    status = await svc.is_hold_point_satisfied(item.id)
+    assert status["satisfied"] is False
+    assert "not been released" in (status["reason"] or "")
+    # Release unblocks it.
+    with patch(_PUBLISH, MagicMock()):
+        await svc.release_hold_point(insp.id, HoldPointReleaseCreate(justification="ok"))
+    status2 = await svc.is_hold_point_satisfied(item.id)
+    assert status2["satisfied"] is True
+    # And the guard no longer raises.
+    await svc.assert_downstream_action_allowed(item.id)
+
+
+@pytest.mark.asyncio
+async def test_witness_point_satisfied_on_pass(svc: QMSService) -> None:
+    """A witness point is satisfied on a pass (no manual release needed)."""
+    _plan, item = await _plan_with_item(svc, hold="witness")
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    with patch(_PUBLISH, MagicMock()):
+        await svc.complete_inspection(insp.id, result="passed")
+    status = await svc.is_hold_point_satisfied(item.id)
+    assert status["satisfied"] is True
+
+
+@pytest.mark.asyncio
+async def test_failed_hold_point_blocks_downstream(svc: QMSService) -> None:
+    _plan, item = await _plan_with_item(svc)
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    with patch(_PUBLISH, MagicMock()):
+        await svc.complete_inspection(insp.id, result="failed")
+    status = await svc.is_hold_point_satisfied(item.id)
+    assert status["satisfied"] is False
+    assert "failed" in (status["reason"] or "")
+
+
+# ── Approval integration on failed / conditional (gap #4) ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_failed_hold_point_emits_approval_requested(svc: QMSService) -> None:
+    _plan, item = await _plan_with_item(svc)
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    publish = MagicMock()
+    with patch(_PUBLISH, publish):
+        await svc.complete_inspection(insp.id, result="failed")
+    events = [c.args[0] for c in publish.call_args_list]
+    assert "qms.inspection.approval_requested" in events
+
+
+@pytest.mark.asyncio
+async def test_passed_hold_point_does_not_request_approval(svc: QMSService) -> None:
+    _plan, item = await _plan_with_item(svc)
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    publish = MagicMock()
+    with patch(_PUBLISH, publish):
+        await svc.complete_inspection(insp.id, result="passed")
+    events = [c.args[0] for c in publish.call_args_list]
+    assert "qms.inspection.approval_requested" not in events
+
+
+# ── Compliance export (gap #7) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_inspection_compliance_record_bundles_evidence_and_signatures(
+    svc: QMSService,
+) -> None:
+    _plan, item = await _plan_with_item(svc, responsible_role="GC")
+    await svc.link_itp_item_to_spec(
+        item.id,
+        ITPItemLinkSpec(csi_section_ref="03 30 00", spec_drawing_ref="S-101"),
+    )
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id, location_ref="Grid A1"),
+    )
+    digest = "b" * 64
+    await svc.add_inspection_attachment(
+        insp.id,
+        InspectionAttachmentCreate(document_id=uuid.uuid4(), file_hash_sha256=digest),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+        signer_ip="203.0.113.9",
+    )
+    with patch(_PUBLISH, MagicMock()):
+        await svc.complete_inspection(insp.id, result="passed")
+    record = await svc.build_inspection_compliance_record(insp.id)
+    assert record["status"] == "passed"
+    assert record["control_point_name"] == "Pour gate"
+    assert record["csi_section_ref"] == "03 30 00"
+    assert record["location_ref"] == "Grid A1"
+    assert len(record["signatures"]) == 1
+    assert record["signatures"][0]["signer_ip"] == "203.0.113.9"
+    assert len(record["evidence"]) == 1
+    assert record["evidence"][0]["file_hash_sha256"] == digest
+
+
+@pytest.mark.asyncio
+async def test_plan_compliance_export_collects_all_inspections(svc: QMSService) -> None:
+    plan, item = await _plan_with_item(svc)
+    insp = await svc.schedule_inspection(
+        InspectionCreate(project_id=_PROJECT_ID, itp_item_id=item.id),
+    )
+    await svc.add_signature(
+        insp.id,
+        InspectionSignatureCreate(signer_user_id=uuid.uuid4(), signer_role="GC"),
+    )
+    with patch(_PUBLISH, MagicMock()):
+        await svc.complete_inspection(insp.id, result="passed")
+    export = await svc.build_plan_compliance_export(plan.id)
+    assert export["plan_id"] == str(plan.id)
+    assert export["work_type"] == "concrete"
+    assert len(export["records"]) == 1
+    assert export["records"][0]["inspection_id"] == str(insp.id)

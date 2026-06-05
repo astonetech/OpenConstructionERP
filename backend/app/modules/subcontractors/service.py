@@ -1011,6 +1011,24 @@ class SubcontractorService:
             raise HTTPException(status_code=404, detail="Subcontractor not found")
         return subcontractor_award_block(sub)
 
+    async def award_eligibility_for_contact(
+        self,
+        contact_id: uuid.UUID,
+    ) -> tuple[Subcontractor, PaymentBlockResult] | None:
+        """Resolve a CRM contact's subcontractor + award-block verdict.
+
+        Used by procurement (PO gating + the PO-row vendor badge) to find
+        out whether the vendor behind a ``vendor_contact_id`` is a
+        registered, prequalified subcontractor. Returns ``None`` when the
+        contact is not linked to any active subcontractor — procurement
+        treats that as "unknown vendor, no gate" rather than an error, so a
+        plain ad-hoc supplier with no prequal record is never blocked.
+        """
+        sub = await self.subs.get_by_contact_id(contact_id)
+        if sub is None:
+            return None
+        return sub, subcontractor_award_block(sub)
+
     async def _assert_subcontractor_awardable(
         self,
         subcontractor_id: uuid.UUID,

@@ -521,34 +521,100 @@ async def _bid_line_lookup(session: AsyncSession, package_id: uuid.UUID) -> dict
 
 
 async def _on_supplier_rating_update(event: Event) -> None:
-    """‌⁠‍``procurement.supplier_rating_update`` → adjust supplier scorecard.
+    """‌⁠‍``procurement.supplier_rating_update`` → flag the vendor on a defect.
 
     Published by ``qms/events.py::_on_ncr_raised_fanout`` whenever an NCR
-    is raised (line 167 of that file). For now this is a stub that logs
-    the payload at INFO so the cross-module hand-off is *observable*; a
-    full implementation will resolve the supplier via the NCR's linked
-    inspection row and decrement a per-supplier rating column once the
-    procurement scorecard model gains one.
+    is raised. When the payload carries a ``supplier_id`` (the responsible
+    subcontractor), this marks that subcontractor ``under_review`` on its
+    metadata - a non-destructive flag the scorecard UI surfaces and the next
+    monthly rollup folds into the quality score via the NCR count. The flag
+    records the triggering NCR id, severity and timestamp so the buyer can
+    see *why* a vendor is under review without spelunking the event bus.
 
-    TODO(v4.2.2 audit): once procurement gains a `Supplier.rating` or a
-    dedicated `SupplierScorecard` model, replace the log line with a
-    real "mark as under_review" / numeric decrement. Tracking issue
-    in the orphan-publisher audit.
+    The defect signal is also forwarded to the subcontractors module as
+    ``subcontractors.defect.recorded`` so its event subscriber can accumulate
+    the NCR count onto the current period's rating basis (the same low-latency
+    path the monthly compute reads).
+
+    When no ``supplier_id`` is present (today's qms payload links the NCR to
+    an inspection but does not resolve the responsible sub) the hand-off is
+    logged so it stays observable; nothing to flag without a vendor. The
+    handler never raises - an NCR must never fail because the rating
+    projection choked.
     """
     data = event.data or {}
     ncr_id = data.get("ncr_id") or ""
     project_id = data.get("project_id") or ""
     severity = data.get("severity") or ""
     supplier_id = data.get("supplier_id") or ""
-    logger.info(
-        "procurement.supplier_rating_update received "
-        "(stub — TODO v4.2.2 audit): ncr_id=%s project_id=%s "
-        "supplier_id=%s defect_severity=%s",
-        ncr_id,
-        project_id,
-        supplier_id,
-        severity,
-    )
+
+    if not supplier_id:
+        logger.info(
+            "procurement.supplier_rating_update: no supplier_id on NCR %s (project=%s severity=%s) - nothing to flag",
+            ncr_id,
+            project_id,
+            severity,
+        )
+        return
+
+    try:
+        sub_uuid = uuid.UUID(str(supplier_id))
+    except (ValueError, TypeError):
+        logger.warning(
+            "procurement.supplier_rating_update: supplier_id %r is not a UUID",
+            supplier_id,
+        )
+        return
+
+    from datetime import UTC, datetime
+
+    from app.modules.subcontractors.models import Subcontractor
+
+    try:
+        async with async_session_factory() as session:
+            sub = await session.get(Subcontractor, sub_uuid)
+            if sub is None:
+                logger.info(
+                    "procurement.supplier_rating_update: supplier %s not a known subcontractor - skipping",
+                    supplier_id,
+                )
+                return
+            meta = dict(sub.metadata_ or {})
+            meta["under_review"] = True
+            meta["under_review_reason"] = {
+                "trigger": "ncr",
+                "ncr_id": str(ncr_id),
+                "project_id": str(project_id),
+                "severity": str(severity),
+                "at": datetime.now(UTC).isoformat(),
+            }
+            sub.metadata_ = meta
+            session.add(sub)
+            await session.commit()
+        # Forward the defect so the subcontractors rating projection can
+        # accumulate the NCR count onto the current period's basis.
+        event_bus.publish_detached(
+            "subcontractors.defect.recorded",
+            {
+                "subcontractor_id": str(sub_uuid),
+                "ncr_id": str(ncr_id),
+                "project_id": str(project_id),
+                "severity": str(severity),
+            },
+            source_module="procurement",
+        )
+        logger.info(
+            "procurement.supplier_rating_update: flagged subcontractor %s under_review from NCR %s (severity=%s)",
+            supplier_id,
+            ncr_id,
+            severity,
+        )
+    except Exception:  # noqa: BLE001 - never fail the NCR over a projection
+        logger.warning(
+            "procurement.supplier_rating_update: failed to flag supplier %s",
+            supplier_id,
+            exc_info=True,
+        )
 
 
 # ── Published events (declared for discoverability) ───────────────────────────

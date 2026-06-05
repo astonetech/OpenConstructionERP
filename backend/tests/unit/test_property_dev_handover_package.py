@@ -60,6 +60,29 @@ def test_build_zip_empty_still_valid() -> None:
     assert zf.namelist() == ["MANIFEST.txt"]
 
 
+def test_build_zip_embeds_machine_readable_manifest_json() -> None:
+    """When ``manifest_json`` is supplied it lands as a parseable manifest.json."""
+    import json
+
+    payload = json.dumps({"kind": "handover_closeout_package", "plot": "A-12"})
+    zip_bytes = build_handover_package_zip(
+        plot_number="A-12",
+        date_iso="2026-06-04",
+        manifest_text="DIGITAL HANDOVER\n",
+        certificates=[],
+        documents=[],
+        snag_photos=[],
+        manifest_json=payload,
+    )
+    zf = zipfile.ZipFile(BytesIO(zip_bytes))
+    names = set(zf.namelist())
+    assert "MANIFEST.txt" in names
+    assert "manifest.json" in names
+    parsed = json.loads(zf.read("manifest.json"))
+    assert parsed["kind"] == "handover_closeout_package"
+    assert parsed["plot"] == "A-12"
+
+
 def test_build_zip_dedupes_colliding_names() -> None:
     zip_bytes = build_handover_package_zip(
         plot_number="DUP",

@@ -249,6 +249,16 @@ async def test_export_package_streams_zip(http_client: AsyncClient, owner: dict)
     assert "example.com/manuals.pdf" in manifest
     assert "DIGITAL HANDOVER" in manifest
 
+    # Machine-readable manifest.json mirrors the bundle + lists the docs.
+    import json
+
+    assert "manifest.json" in names
+    mj = json.loads(zf.read("manifest.json"))
+    assert mj["kind"] == "handover_closeout_package"
+    assert mj["handover_id"] == handover_id
+    assert any(d["doc_type"] == "manual" for d in mj["documents"])
+    assert "compliance" in mj
+
 
 @pytest.mark.asyncio
 async def test_stranger_cannot_export(http_client: AsyncClient, owner: dict, stranger: dict) -> None:

@@ -10,7 +10,7 @@ Stateless service layer.  Handles:
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 
@@ -113,6 +113,51 @@ def _safe_divide(numerator: float, denominator: float) -> float:
     if denominator == 0.0:
         return 0.0
     return numerator / denominator
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    """Parse the leading ``YYYY-MM-DD`` of an ISO date/datetime string.
+
+    Returns ``None`` when ``value`` is empty or unparseable, so callers can
+    fall back gracefully instead of raising on dirty data.
+    """
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _phase_fraction(start: date, end: date, as_of: date) -> Decimal:
+    """Fraction of a planned window [start, end] elapsed by ``as_of``.
+
+    Linear distribution over the inclusive-exclusive day span. Clamped to
+    ``[0, 1]``. A zero/negative span (start >= end, e.g. a milestone) counts
+    as fully earned once ``as_of`` reaches ``start``.
+
+    Args:
+        start: Window planned start date.
+        end: Window planned finish date.
+        as_of: The valuation date (the EVM "data date" / today).
+
+    Returns:
+        A Decimal in ``[0, 1]``.
+    """
+    total_days = (end - start).days
+    if total_days <= 0:
+        return Decimal("1") if as_of >= start else Decimal("0")
+    elapsed_days = (as_of - start).days
+    if elapsed_days <= 0:
+        return Decimal("0")
+    if elapsed_days >= total_days:
+        return Decimal("1")
+    return Decimal(elapsed_days) / Decimal(total_days)
+
+
+# Fallback chain a budget line walks to find the planned window over which its
+# amount is time-phased. See :meth:`CostModelService._time_phased_pv`.
+PVSource = str  # "activity" | "line_period" | "project_period" | "approximation"
 
 
 def _variance_pct(planned: float, forecast: float) -> float:
@@ -789,6 +834,74 @@ class CostModelService:
 
     # ── EVM Calculations ──────────────────────────────────────────────────
 
+    @staticmethod
+    def _time_phased_pv(
+        budget_lines: list[BudgetLine],
+        *,
+        activity_window: dict[str, tuple[date, date]],
+        project_period: tuple[date, date] | None,
+        as_of: date,
+        time_elapsed_pct: float,
+    ) -> Decimal:
+        """Compute time-phased Planned Value as of ``as_of``.
+
+        ``PV(t) = Σ line_amount × phase_fraction_elapsed_by_t`` where the phase
+        fraction is the linear share of each line's planned window that has
+        elapsed by ``as_of`` (clamped to ``[0, 1]``). All arithmetic is Decimal
+        so a multi-million-currency baseline never drifts; the caller converts
+        to float only at the response boundary.
+
+        Per-line window fallback chain (first available wins):
+            1. The line's linked schedule ``Activity`` planned window
+               (``activity_window[str(line.activity_id)]``).
+            2. The line's own ``period_start`` .. ``period_end``.
+            3. ``project_period`` — the primary schedule's start..end.
+            4. Last resort: the legacy approximation
+               ``amount × time_elapsed_pct / 100``. Used only when no usable
+               window of any kind exists for that line (e.g. a budget line with
+               no activity link, no period, and no project schedule dates).
+
+        Args:
+            budget_lines: All budget lines for the project.
+            activity_window: Map of activity id (str) to planned (start, end).
+            project_period: The project/budget planned (start, end), if known.
+            as_of: The valuation/data date.
+            time_elapsed_pct: Project-level percent elapsed (0..100), used only
+                for the last-resort approximation.
+
+        Returns:
+            The summed time-phased Planned Value as a Decimal.
+        """
+        approx_fraction = Decimal(str(time_elapsed_pct)) / Decimal("100")
+        total = Decimal("0")
+        for line in budget_lines:
+            amount = _str_to_decimal(line.planned_amount)
+            if amount == 0:
+                continue
+
+            window: tuple[date, date] | None = None
+            # Level 1: linked activity planned window.
+            if line.activity_id is not None:
+                window = activity_window.get(str(line.activity_id))
+            # Level 2: the line's own period.
+            if window is None:
+                line_start = _parse_iso_date(line.period_start)
+                line_end = _parse_iso_date(line.period_end)
+                if line_start is not None and line_end is not None:
+                    window = (line_start, line_end)
+            # Level 3: the project/budget period.
+            if window is None and project_period is not None:
+                window = project_period
+
+            if window is not None:
+                fraction = _phase_fraction(window[0], window[1], as_of)
+            else:
+                # Level 4: legacy approximation (no window available at all).
+                fraction = approx_fraction
+
+            total += amount * fraction
+        return total
+
     async def calculate_evm(self, project_id: uuid.UUID) -> EVMResponse:
         """Calculate real Earned Value Management metrics from schedule progress and budget.
 
@@ -798,23 +911,30 @@ class CostModelService:
         Algorithm:
             1. BAC = sum of planned_amount across all budget lines
             2. AC  = sum of actual_amount across all budget lines
-            3. time_elapsed% = computed from project schedule start/end vs today
+            3. PV  = real time-phased Planned Value (see :meth:`_time_phased_pv`):
+               each budget line's planned_amount is distributed linearly over a
+               planned window and only the fraction elapsed by the data date
+               counts toward PV.
             4. schedule_progress% = weighted average of activity progress_pct
                (weighted by planned_amount of linked budget lines)
-            5. PV  = BAC * time_elapsed%
-            6. EV  = BAC * schedule_progress%
-            7. Derived indices: SV, CV, SPI, CPI, EAC, ETC, VAC, TCPI
+            5. EV  = BAC * schedule_progress%
+            6. Derived indices: SV, CV, SPI, CPI, EAC, ETC, VAC, TCPI
 
-        Known limitation (v1.3.x):
-            PV is an approximation: ``BAC × time_elapsed%`` rather than a proper
-            time-phased baseline. When a project has not started yet (``time_elapsed%``
-            ~ 0) but activities already report progress, SPI = EV / PV explodes.
-            To prevent mathematically impossible values we clamp:
-                - ``pv`` to a minimum of ``1% × BAC`` (avoids divide-by-near-zero)
-                - ``spi`` to the ``[0.0, 5.0]`` range
-            and set ``spi_capped=True`` so the UI can label the figure as approximate.
-            TODO (v1.4): replace with a proper time-phased PV computed from
-            ``BudgetLine`` + ``Activity`` planned dates (see audit notes, Option A).
+        Planned-Value fallback chain (per budget line, see
+        :meth:`_time_phased_pv`):
+            1. The line's linked schedule Activity planned window
+               (``Activity.start_date`` .. ``Activity.end_date``).
+            2. The line's own ``period_start`` .. ``period_end``.
+            3. The project/budget period — the primary schedule's
+               ``start_date`` .. ``end_date``.
+            4. Last resort: the legacy approximation ``amount * time_elapsed%``
+               (only when no window of any kind is available).
+
+        SPI guard:
+            When PV collapses toward zero (project barely started) we still
+            clamp ``pv`` to a minimum of ``1% × BAC`` and ``spi`` to
+            ``[0.0, 5.0]`` and set ``spi_capped=True`` so the UI can flag the
+            figure as unreliable.
 
         Args:
             project_id: Target project.
@@ -822,8 +942,6 @@ class CostModelService:
         Returns:
             EVMResponse with all computed EVM metrics.
         """
-        from datetime import date
-
         from app.modules.schedule.repository import ActivityRepository, ScheduleRepository
 
         # ── Step 1: Aggregate budget totals ────────────────────────────────
@@ -838,10 +956,15 @@ class CostModelService:
                 status="unknown",
             )
 
+        # Budget lines are project-scoped; fetch once up front so both the
+        # progress weighting and the time-phased PV computation can reuse them.
+        budget_lines, _ = await self.budget_repo.list_for_project(project_id, limit=10000)
+
         # ── Step 2: Read schedule activities for progress ──────────────────
         schedule_repo = ScheduleRepository(self.session)
         schedules, _ = await schedule_repo.list_for_project(project_id, limit=50)
 
+        today = date.today()
         time_elapsed_pct = 0.0
         schedule_progress_pct = 0.0
         # Tracks whether we actually have a usable schedule signal. When False,
@@ -850,33 +973,42 @@ class CostModelService:
         # fallback skewed portfolio-level reports by pretending half-elapsed
         # progress on projects that had no schedule at all.
         schedule_known = False
+        # Planned window of the project as a whole — PV fallback level 3.
+        project_period: tuple[date, date] | None = None
+        # Per-activity planned window keyed by activity id — PV fallback level 1.
+        activity_window: dict[str, tuple[date, date]] = {}
 
         if schedules:
             # Use the first (primary) schedule for time elapsed calculation
             primary_schedule = schedules[0]
-            today = date.today()
 
             # Compute time_elapsed_pct from schedule dates
-            if primary_schedule.start_date and primary_schedule.end_date:
-                try:
-                    start = date.fromisoformat(primary_schedule.start_date[:10])
-                    end = date.fromisoformat(primary_schedule.end_date[:10])
-                    total_days = (end - start).days
-                    if total_days > 0:
-                        elapsed_days = (today - start).days
-                        time_elapsed_pct = max(0.0, min(100.0, (elapsed_days / total_days) * 100.0))
-                        schedule_known = True
-                except (ValueError, TypeError) as exc:
-                    # Log explicitly instead of swallowing silently. Bad schedule
-                    # dates are a data-quality issue worth surfacing to ops —
-                    # previously this bug masqueraded as "on track" projects.
+            proj_start = _parse_iso_date(primary_schedule.start_date)
+            proj_end = _parse_iso_date(primary_schedule.end_date)
+            if proj_start is not None and proj_end is not None:
+                total_days = (proj_end - proj_start).days
+                if total_days > 0:
+                    project_period = (proj_start, proj_end)
+                    elapsed_days = (today - proj_start).days
+                    time_elapsed_pct = max(0.0, min(100.0, (elapsed_days / total_days) * 100.0))
+                    schedule_known = True
+                else:
                     logger.warning(
-                        "Unparseable schedule dates on schedule_id=%s (start=%r, end=%r): %s",
+                        "Non-positive schedule span on schedule_id=%s (start=%r, end=%r)",
                         getattr(primary_schedule, "id", "<unknown>"),
                         primary_schedule.start_date,
                         primary_schedule.end_date,
-                        exc,
                     )
+            elif primary_schedule.start_date or primary_schedule.end_date:
+                # Log explicitly instead of swallowing silently. Bad schedule
+                # dates are a data-quality issue worth surfacing to ops —
+                # previously this bug masqueraded as "on track" projects.
+                logger.warning(
+                    "Unparseable schedule dates on schedule_id=%s (start=%r, end=%r)",
+                    getattr(primary_schedule, "id", "<unknown>"),
+                    primary_schedule.start_date,
+                    primary_schedule.end_date,
+                )
 
             # Compute weighted schedule progress from all activities
             activity_repo = ActivityRepository(self.session)
@@ -886,7 +1018,6 @@ class CostModelService:
             # Build lookup: budget lines keyed by activity_id (hoisted out of the
             # per-schedule loop — these lines are project-scoped, not schedule-scoped,
             # so fetching once avoids an N+1 query).
-            budget_lines, _ = await self.budget_repo.list_for_project(project_id, limit=10000)
             activity_budget: dict[str, float] = {}
             for bl in budget_lines:
                 if bl.activity_id is not None:
@@ -899,6 +1030,13 @@ class CostModelService:
                 for act in activities:
                     act_id = str(act.id)
                     progress = _str_to_float(act.progress_pct)
+
+                    # Capture the activity's planned window for the time-phased
+                    # PV computation (fallback level 1).
+                    act_start = _parse_iso_date(act.start_date)
+                    act_end = _parse_iso_date(act.end_date)
+                    if act_start is not None and act_end is not None:
+                        activity_window[act_id] = (act_start, act_end)
 
                     # Weight by the planned budget linked to this activity,
                     # fallback to equal weight if no budget link exists
@@ -928,11 +1066,20 @@ class CostModelService:
                     schedule_progress_pct = (ev_snap / bac) * 100.0
 
         # ── Step 3: Compute EVM values ─────────────────────────────────────
-        # PV is an approximation (BAC × time_elapsed%). See the function
-        # docstring for limitations. We clamp PV to a minimum of 1% × BAC so
-        # SPI never explodes toward infinity when the project has not really
-        # started yet but activities report nominal progress.
-        raw_pv = bac * (time_elapsed_pct / 100.0)
+        # Real time-phased Planned Value: distribute each budget line over its
+        # planned window (activity → line period → project period → legacy
+        # approximation) and sum only the fraction elapsed by the data date.
+        # Decimal math throughout; we clamp to a minimum of 1% × BAC so SPI
+        # never explodes toward infinity when the project has barely started.
+        raw_pv = float(
+            self._time_phased_pv(
+                budget_lines,
+                activity_window=activity_window,
+                project_period=project_period,
+                as_of=today,
+                time_elapsed_pct=time_elapsed_pct,
+            )
+        )
         pv_floor = bac * 0.01  # 1% of BAC — prevents divide-by-near-zero
         pv = max(raw_pv, pv_floor)
         ev = bac * (schedule_progress_pct / 100.0)
@@ -1597,7 +1744,10 @@ class CostSpineService:
             await self.account_repo.update_fields(account_id, **fields)
         updated = await self.account_repo.get_by_id(account_id)
         if updated is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Control account not found after update")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Control account not found after update",
+            )
         return _control_account_to_response(updated)
 
     async def delete_account(self, account_id: uuid.UUID) -> None:

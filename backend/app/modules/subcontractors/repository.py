@@ -111,6 +111,28 @@ class SubcontractorRepository(_BaseRepo):
         stmt = stmt.limit(1)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_by_contact_id(self, contact_id: uuid.UUID) -> Subcontractor | None:
+        """Resolve the subcontractor linked to a CRM ``Contact`` row.
+
+        The unified vendor master is the existing ``Subcontractor.contact_id``
+        column (it points at the same ``oe_contacts_contact`` row a
+        procurement PO references via ``vendor_contact_id``). This lets the
+        procurement gate and the PO-row badge look up a vendor's
+        prequalification / block status from a contact id without a second
+        link table. Returns the active match, newest first, or ``None`` when
+        the contact is not a registered subcontractor.
+        """
+        stmt = (
+            select(Subcontractor)
+            .where(
+                Subcontractor.contact_id == contact_id,
+                Subcontractor.is_active.is_(True),
+            )
+            .order_by(Subcontractor.created_at.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def list_with_insurance_expiry_within(
         self,
         *,

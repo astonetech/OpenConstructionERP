@@ -120,6 +120,14 @@ class SubmittalService:
             elif user_id is not None:
                 ball_in_court = user_id
 
+        # Description has no dedicated column; persist it into metadata so the
+        # create modal's Description textarea is no longer silently dropped.
+        create_meta = dict(data.metadata or {})
+        if data.description is not None:
+            desc = data.description.strip()
+            if desc:
+                create_meta["description"] = desc
+
         last_exc: Exception | None = None
         for attempt in range(_MAX_NUMBER_RETRIES):
             submittal_number = await self.repo.next_submittal_number(data.project_id)
@@ -140,7 +148,7 @@ class SubmittalService:
                 date_returned=data.date_returned,
                 linked_boq_item_ids=data.linked_boq_item_ids,
                 created_by=user_id,
-                metadata_=data.metadata,
+                metadata_=create_meta,
             )
             try:
                 submittal = await self.repo.create(submittal)
@@ -227,6 +235,19 @@ class SubmittalService:
         fields: dict[str, Any] = data.model_dump(exclude_unset=True)
         if "metadata" in fields:
             fields["metadata_"] = fields.pop("metadata")
+
+        # Description lives in metadata (no dedicated column). Merge it into a
+        # copy of the existing metadata so the edit modal persists it without
+        # clobbering review_notes / attachments etc.
+        if "description" in fields:
+            desc = fields.pop("description")
+            meta = dict(fields.get("metadata_") or getattr(submittal, "metadata_", {}) or {})
+            cleaned = (desc or "").strip()
+            if cleaned:
+                meta["description"] = cleaned
+            else:
+                meta.pop("description", None)
+            fields["metadata_"] = meta
 
         # Validate status transition if status is being changed
         new_status = fields.get("status")
@@ -555,11 +576,15 @@ class SubmittalService:
         self,
         submittal_id: uuid.UUID,
         approver_id: str,
+        notes: str | None = None,
     ) -> Submittal:
         """Final approval of a submittal.
 
         Only submittals that are currently ``submitted`` or ``under_review``
         can receive final approval.  Ball-in-court is cleared on approval.
+        Optional reviewer ``notes`` are persisted into metadata under
+        ``review_notes`` (mirroring :meth:`review_submittal`) so an approval
+        with comments does not silently drop them.
         Publishes ``submittal.approved`` event.
         """
         submittal = await self.get_submittal(submittal_id)
@@ -591,6 +616,13 @@ class SubmittalService:
             "date_returned": datetime.now(UTC).strftime("%Y-%m-%d"),
             "ball_in_court": None,
         }
+        approve_notes = (notes or "").strip()
+        if approve_notes:
+            # Merge into a copy of the existing metadata so attachments etc.
+            # are not clobbered, mirroring review_submittal.
+            meta = dict(getattr(submittal, "metadata_", {}) or {})
+            meta["review_notes"] = approve_notes
+            fields["metadata_"] = meta
         project_id_s = str(submittal.project_id)
         title_s = submittal.title
         created_by_s = str(submittal.created_by) if submittal.created_by else None
@@ -641,8 +673,8 @@ class SubmittalService:
             action="status_changed",
             from_status=prior_status,
             to_status="approved",
-            reason="Submittal approved via approve_submittal()",
-            metadata={"approver_id": approver_id},
+            reason=("Submittal approved via approve_submittal()" + (f" — {approve_notes}" if approve_notes else "")),
+            metadata={"approver_id": approver_id, "review_notes": approve_notes or None},
             module="submittals",
             parent_entity_type="project",
             parent_entity_id=project_id_s,
@@ -672,3 +704,137 @@ class SubmittalService:
             extra={"source": "approve"},
         )
         return fresh or submittal
+
+    async def start_approval(
+        self,
+        submittal_id: uuid.UUID,
+        route_id: uuid.UUID,
+        *,
+        started_by: str | None = None,
+    ) -> Any:
+        """Start a routed approval workflow against this submittal (feature 06).
+
+        Delegates to the generic ``approval_routes`` engine. The engine
+        validates that the route is active, that its ``target_kind`` is
+        ``submittal``, that it has steps, and that no workflow is already
+        pending on this target (409). On success the submittal is moved into
+        the review flow through the *existing* FSM: a ``draft`` submittal is
+        submitted first (``draft -> submitted``) so the state machine stays
+        honest; a submittal already in ``submitted`` / ``under_review`` is
+        left where it is while the workflow runs. The new instance id is
+        recorded in ``metadata_["approval_instance_id"]`` so the detail
+        screen can deep-link without a second query.
+
+        Returns the created approval ``Instance`` (the engine row) so the
+        router can serialise it through the engine's ``InstanceResponse``.
+        The FSM transition and the instance insert share this request
+        session, so they commit together.
+        """
+        from app.modules.approval_routes.schemas import InstanceCreate
+        from app.modules.approval_routes.service import ApprovalRouteService
+
+        submittal = await self.get_submittal(submittal_id)
+
+        # Reviewable states only. ``approved`` / ``closed`` / ``rejected``
+        # are not sensible places to begin a fresh routed sign-off.
+        if submittal.status not in ("draft", "submitted", "under_review", "revise_and_resubmit"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Cannot start an approval workflow on a submittal with status "
+                    f"'{submittal.status}'. Expected draft, submitted, under_review, or "
+                    f"revise_and_resubmit."
+                ),
+            )
+
+        engine = ApprovalRouteService(self.session)
+        instance = await engine.start_instance(
+            InstanceCreate(
+                route_id=route_id,
+                target_kind="submittal",
+                target_id=submittal_id,
+            ),
+            started_by=uuid.UUID(started_by) if started_by else None,
+        )
+
+        # Move the submittal into the review flow through the existing FSM.
+        if submittal.status in ("draft", "revise_and_resubmit"):
+            await self.submit_submittal(submittal_id)
+
+        # Record the instance id for deep-linking. Re-fetch to merge against
+        # the latest metadata (submit_submittal above may have touched it).
+        fresh = await self.get_submittal(submittal_id)
+        meta = dict(getattr(fresh, "metadata_", {}) or {})
+        meta["approval_instance_id"] = str(instance.id)
+        await self.repo.update_fields(submittal_id, metadata_=meta)
+
+        return instance
+
+    async def get_latest_approval(self, submittal_id: uuid.UUID) -> Any:
+        """Return the most recent approval instance for this submittal, or None.
+
+        Reuses the engine's instance listing (already ordered newest-first)
+        filtered by ``target_kind='submittal'`` and this submittal id.
+        """
+        from app.modules.approval_routes.service import ApprovalRouteService
+
+        # 404 the submittal first so a caller without project access never
+        # learns whether an instance exists.
+        await self.get_submittal(submittal_id)
+        engine = ApprovalRouteService(self.session)
+        instances = await engine.list_instances(
+            target_kind="submittal",
+            target_id=submittal_id,
+            limit=1,
+        )
+        return instances[0] if instances else None
+
+    async def apply_approval_decision(
+        self,
+        submittal_id: uuid.UUID,
+        *,
+        decision: str,
+        decided_by: str | None,
+        comment: str | None = None,
+    ) -> Submittal | None:
+        """Drive the submittal FSM from a terminal routed approval decision.
+
+        Called by the approval subscriber when the engine fires
+        ``approval_routes.instance.completed`` (``decision='approved'``) or
+        ``approval_routes.instance.rejected`` (``decision='rejected'``) for a
+        ``submittal`` target. Only ever drives transitions the existing FSM
+        already permits, so a stray or duplicate event can never corrupt
+        state:
+
+        * ``approved`` and the submittal is ``submitted`` / ``under_review`` →
+          the idempotent :meth:`approve_submittal` (a duplicate event is a
+          no-op, not a double-approval).
+        * ``rejected`` and the submittal is ``submitted`` / ``under_review`` →
+          :meth:`review_submittal` with ``rejected``, which returns
+          ball-in-court to the submitter and persists the step comment.
+
+        Any other current status (already approved, closed, draft, …) is a
+        deliberate no-op: the routed decision arrived for a submittal the FSM
+        has already moved past, so there is nothing to do.
+        """
+        submittal = await self.get_submittal(submittal_id)
+        if submittal.status not in ("submitted", "under_review"):
+            logger.info(
+                "Submittal %s not in a reviewable state (%s); approval decision %r is a no-op",
+                submittal_id,
+                submittal.status,
+                decision,
+            )
+            return None
+
+        actor = decided_by or str(submittal.approver_id or submittal.reviewer_id or "")
+        if decision == "approved":
+            return await self.approve_submittal(submittal_id, approver_id=actor, notes=comment)
+        if decision == "rejected":
+            return await self.review_submittal(
+                submittal_id,
+                "rejected",
+                reviewer_id=actor,
+                notes=comment,
+            )
+        return None

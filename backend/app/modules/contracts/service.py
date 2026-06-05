@@ -2145,6 +2145,109 @@ class ContractsService:
             "status": contract.status,
         }
 
+    # ── AIA G702/G703 (US/CA/AU only) ────────────────────────────────────
+
+    async def assert_contract_aia_eligible(self, contract: Contract) -> Any:
+        """Raise 404 unless the contract's project is AIA-eligible.
+
+        AIA G702/G703 is country-gated to US/CA/AU. A non-eligible project must
+        behave as if the AIA endpoints do not exist, so we raise 404 (not 403)
+        to avoid leaking that the feature exists for other tenants. Returns the
+        loaded ``Project`` for callers that need its country/currency.
+        """
+        from app.modules.contracts.aia import is_aia_eligible  # noqa: PLC0415
+        from app.modules.projects.models import Project  # noqa: PLC0415
+
+        project = await self.session.get(Project, contract.project_id)
+        eligible = project is not None and is_aia_eligible(
+            getattr(project, "country_code", None),
+            getattr(project, "address", None),
+        )
+        if not eligible:
+            raise HTTPException(
+                status_code=404,
+                detail="AIA payment applications are only available for US/CA/AU projects",
+            )
+        return project
+
+    async def build_aia_application(self, claim_id: uuid.UUID) -> dict[str, Any]:
+        """Assemble the AIA G702 summary + G703 continuation for one claim.
+
+        Reuses the existing SoV lines (``ContractLine``) and the claim's lines
+        (``ProgressClaimLine``); does not recompute the claim FSM or retention
+        accrual. Country-gated by the caller via
+        :meth:`assert_contract_aia_eligible`. Single-currency by construction
+        (the claim inherits the contract currency); no currency is ever blended.
+        """
+        from app.modules.contracts.aia import (  # noqa: PLC0415
+            DEC_ZERO,
+            build_g702_summary,
+            build_g703,
+        )
+
+        claim = await self.claim_repo.get_by_id(claim_id)
+        if claim is None:
+            raise HTTPException(
+                status_code=404,
+                detail=translate("errors.claim_not_found", locale=get_locale()),
+            )
+        contract = await self.get_contract(claim.contract_id)
+        await self.assert_contract_aia_eligible(contract)
+
+        contract_lines = await self.line_repo.list_for_contract(contract.id)
+        claim_lines = await self.claim_line_repo.list_for_claim(claim_id)
+        by_contract_line = {cl.contract_line_id: cl for cl in claim_lines}
+
+        retainage_percent = Decimal(str(contract.retention_percent or 0))
+        g703 = build_g703(
+            contract_lines,
+            by_contract_line,
+            retainage_percent=retainage_percent,
+        )
+
+        # Previous certificates = prior recognised claim value on this contract
+        # (everything billed before this claim), read from the existing
+        # per-line prior aggregation so the G702 line 7 ties to the ledger.
+        prior_by_line = await self.claim_line_repo.prior_period_value_by_line(
+            contract.id,
+            exclude_claim_id=claim_id,
+        )
+        previous_certificates_total = sum(prior_by_line.values(), DEC_ZERO)
+
+        # Net change orders, if the contract tracks them in terms/metadata.
+        change_orders_net = Decimal(str((contract.terms or {}).get("change_orders_net", 0) or 0))
+        original_contract_sum = Decimal(str(contract.total_value or 0)) - change_orders_net
+
+        g702 = build_g702_summary(
+            g703,
+            original_contract_sum=original_contract_sum,
+            change_orders_net=change_orders_net,
+            previous_certificates_total=previous_certificates_total,
+        )
+
+        cert = (claim.metadata_ or {}).get("aia_certification", {}) or {}
+        return {
+            "claim_id": claim.id,
+            "contract_id": contract.id,
+            "project_id": contract.project_id,
+            "application_number": claim.claim_number or "",
+            "period_start": claim.period_start,
+            "period_end": claim.period_end,
+            "claim_date": claim.claim_date,
+            "currency": claim.currency or contract.currency or "",
+            "claim_status": claim.status,
+            "retainage_percent": retainage_percent.quantize(Decimal("0.01")),
+            "summary": g702,
+            "lines": g703,
+            "certification": {
+                "architect_certified_at": cert.get("architect_certified_at"),
+                "architect_certified_by": cert.get("architect_certified_by"),
+                "owner_certified_at": cert.get("owner_certified_at"),
+                "owner_certified_by": cert.get("owner_certified_by"),
+                "certified_amount": cert.get("certified_amount"),
+            },
+        }
+
 
 __all__ = [
     "BOQ_POSITION_META_KEY",

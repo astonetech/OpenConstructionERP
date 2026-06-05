@@ -291,3 +291,10 @@ docs/strategy/improvement-2026-06/_*.txt
 /_wheelboot_health.json
 backend/uploads/
 data/connectors/
+
+# Recurring session scratch (QA temp output + i18n build/merge tooling)
+/_qa_tmp_*
+/_i18n_*.py
+/_i18n_*.js
+/_i18n_*.json
+backend/_qa_tmp_*

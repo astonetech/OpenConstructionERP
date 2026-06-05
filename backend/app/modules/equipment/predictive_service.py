@@ -7,11 +7,11 @@ from rows that already exist, in keeping with the LIGHTWEIGHT rule.
 
 The module is split into two layers:
 
-* **Pure helpers** (no I/O) — operate on plain dataclasses / numeric samples so
+* **Pure helpers** (no I/O) operate on plain dataclasses / numeric samples so
   they are trivially unit-testable without a database. These hold all of the
   analytics: health scoring, anomaly detection (robust z-score), usage-trend
   linear regression, failure forecasting and fleet optimisation.
-* **Service methods** (:class:`EquipmentPredictiveService`) — fetch the rows
+* **Service methods** (:class:`EquipmentPredictiveService`) fetch the rows
   from the repositories and feed the pure helpers, returning Pydantic response
   schemas for the router.
 
@@ -52,7 +52,7 @@ MIN_SAMPLES_FOR_ANOMALY = 5
 # A unit is "underutilised" below this monthly utilisation %.
 UNDERUTILISED_THRESHOLD_PCT = 35.0
 # Default daily holding cost assumption (used only when a unit has no rate
-# data) — keeps savings estimates non-zero and explainable.
+# data) keeps savings estimates non-zero and explainable.
 DEFAULT_IDLE_DAY_COST = Decimal("120")
 
 
@@ -176,9 +176,9 @@ def detect_anomalies(
 
     Two signals are checked:
 
-    * **fuel_level** — a robust z-score over reported fuel %. A sudden drop or
+    * **fuel_level**: a robust z-score over reported fuel %. A sudden drop or
       implausible spike (sensor fault / theft / leak) stands out.
-    * **usage rate** — the per-day hour-meter delta between consecutive
+    * **usage rate**: the per-day hour-meter delta between consecutive
       readings. A day where the machine logs wildly more hours than usual is a
       strong wear signal.
     """
@@ -209,7 +209,7 @@ def detect_anomalies(
             days = max((t1 - t0).total_seconds() / 86400.0, 1e-6)
             delta = v1 - v0
             if delta < 0:
-                # Meter rollback / replacement — flag explicitly.
+                # Meter rollback / replacement: flag explicitly.
                 anomalies.append(
                     Anomaly(
                         recorded_at=t1,
@@ -240,7 +240,7 @@ def detect_anomalies(
 def usage_trend(samples: list[TelemetrySample], *, recent_window_days: int = 30) -> TrendResult:
     """Least-squares trend of hour-meter usage rate over time.
 
-    ``slope_per_day`` is the change in daily-usage (hours/day) per day — a
+    ``slope_per_day`` is the change in daily-usage (hours/day) per day, where a
     positive slope means the machine is being worked progressively harder.
     ``daily_usage_recent`` is the mean hours/day over the trailing window,
     which the forecast uses to project hours to the next service.
@@ -489,11 +489,11 @@ def fleet_recommendations(
 
     Returns a dict shaped for :class:`FleetOptimizationResponse`:
 
-    * **underutilized** — units below the utilisation floor, with the
+    * **underutilized**: units below the utilisation floor, with the
       estimated idle-cost saving from redeploying / off-hiring them.
-    * **maintenance_bundles** — units that should be serviced together
+    * **maintenance_bundles**: units that should be serviced together
       (grouped by health band) to share a single mobilisation.
-    * **estimated_monthly_savings** — sum of the idle-cost opportunities.
+    * **estimated_monthly_savings**: sum of the idle-cost opportunities.
     """
     underutilized: list[dict[str, object]] = []
     total_savings = Decimal("0")

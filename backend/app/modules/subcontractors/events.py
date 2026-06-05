@@ -91,10 +91,21 @@ async def _on_schedule_slipped(event: Event) -> None:
     await _bump("schedule", event)
 
 
+async def _on_defect_recorded(event: Event) -> None:
+    """``subcontractors.defect.recorded`` → +1 NCR for the current month.
+
+    Forwarded by ``procurement.events._on_supplier_rating_update`` once it has
+    resolved the responsible subcontractor from an NCR. Counts as a quality
+    (NCR) hit so the next monthly rollup reflects the defect.
+    """
+    await _bump("ncr", event)
+
+
 _SUBSCRIPTIONS: list[tuple[str, object]] = [
     ("ncr.created", _on_ncr_created),
     ("safety.incident.created", _on_safety_incident_created),
     ("schedule.activity.slipped", _on_schedule_slipped),
+    ("subcontractors.defect.recorded", _on_defect_recorded),
 ]
 
 

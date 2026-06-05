@@ -102,6 +102,18 @@ class Project(Base):
         index=True,
     )
 
+    # ── Country code (Wave 28; migration v3136) ─────────────────────────
+    # ISO 3166-1 alpha-2. Drives the CPM calendar engine and the AIA
+    # G702/G703 country gate (US/CA/AU only). The column already exists in
+    # the DB with server_default 'DE'; mapping it here lets the ORM and the
+    # project response surface it without a new migration.
+    country_code: Mapped[str] = mapped_column(
+        String(2),
+        nullable=False,
+        default="DE",
+        server_default="DE",
+    )
+
     # ── Phase 12 expansion fields (all nullable for backward compat) ─────
     project_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     project_type: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -30,6 +30,19 @@ class AgentRun(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False, index=True)
     # running | completed | failed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
+    # How the run was initiated (Item 29). One of:
+    #   "manual"       — a user clicked Run (default; the existing path).
+    #   "schedule"     — the cron scheduler fired it.
+    #   "event:<name>" — a platform event fired it (e.g. "event:rfi_created").
+    # Lets the monitoring panel list automated runs and the audit trail show
+    # who/what initiated each automated action.
+    trigger_source: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default="manual",
+        server_default="manual",
+        index=True,
+    )
     # Free-form reason when status=failed (e.g. "iter_limit", "llm_error").
     failure_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     user_input: Mapped[str] = mapped_column(Text, nullable=False, default="")

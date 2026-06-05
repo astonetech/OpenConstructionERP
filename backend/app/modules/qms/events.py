@@ -251,6 +251,64 @@ async def _on_hold_point_failed(event: Event) -> None:
         logger.debug("qms: hold_point_failed kpi emit failed", exc_info=True)
 
 
+async def _on_inspection_approval_requested(event: Event) -> None:
+    """``qms.inspection.approval_requested`` → start an approval instance (item 12).
+
+    A failed / conditional hold or witness point needs a formal disposition
+    before dependent work proceeds. When the project has an *active*
+    ``qms_hold_point`` approval route configured, start an approval instance
+    against the inspection so the gate cannot release without sign-off. When
+    no route is configured the event is a no-op (the project simply has not
+    opted into routed hold-point dispositions) — a release still requires the
+    MANAGER+ ``qms.inspection.release_hold`` permission, so the gate is never
+    silently weakened. Fail-soft: any error is logged at debug.
+    """
+    data = event.data or {}
+    inspection_id = data.get("inspection_id")
+    project_id = data.get("project_id")
+    if not (inspection_id and project_id):
+        return
+    if not await _can_open_isolated_session():
+        return
+    try:
+        async with async_session_factory() as session:
+            from app.modules.approval_routes.repository import (  # noqa: PLC0415
+                ApprovalRouteRepository,
+            )
+            from app.modules.approval_routes.schemas import (  # noqa: PLC0415
+                InstanceCreate,
+            )
+            from app.modules.approval_routes.service import (  # noqa: PLC0415
+                ApprovalRouteService,
+            )
+
+            repo = ApprovalRouteRepository(session)
+            routes = await repo.list_routes(
+                project_id=uuid.UUID(project_id),
+                target_kind="qms_hold_point",
+            )
+            active = [r for r in routes if r.is_active]
+            if not active:
+                return
+            svc = ApprovalRouteService(session)
+            await svc.start_instance(
+                InstanceCreate(
+                    route_id=active[0].id,
+                    target_kind="qms_hold_point",
+                    target_id=uuid.UUID(inspection_id),
+                ),
+                started_by=None,
+            )
+            await session.commit()
+            logger.info(
+                "QMS hold-point disposition approval started for inspection %s (route %s)",
+                inspection_id,
+                active[0].id,
+            )
+    except Exception:
+        logger.debug("qms: hold-point approval auto-start skipped", exc_info=True)
+
+
 def register_subscribers() -> None:
     """Idempotently subscribe QMS handlers to upstream events."""
     if getattr(event_bus, _SUBSCRIBED_FLAG, False):
@@ -264,5 +322,9 @@ def register_subscribers() -> None:
     event_bus.subscribe(
         "qms.inspection.hold_point_failed",
         _on_hold_point_failed,
+    )
+    event_bus.subscribe(
+        "qms.inspection.approval_requested",
+        _on_inspection_approval_requested,
     )
     setattr(event_bus, _SUBSCRIBED_FLAG, True)

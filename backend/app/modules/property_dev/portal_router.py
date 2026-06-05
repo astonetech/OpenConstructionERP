@@ -44,6 +44,7 @@ from fastapi import (
     File,
     HTTPException,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -730,6 +731,16 @@ async def buyer_overview(
     if dev is not None:
         dev_name = dev.name or dev.code
 
+    # Closeout-package availability: True when the buyer's plot carries a
+    # handover. Drives the one-click ZIP download button in the portal.
+    handover_package_available = False
+    if ctx.buyer.plot_id is not None:
+        from app.modules.property_dev.models import Handover
+
+        handover_package_available = (
+            await session.execute(select(Handover.id).where(Handover.plot_id == ctx.buyer.plot_id))
+        ).scalar_one_or_none() is not None
+
     return PortalOverviewResponse(
         buyer_id=ctx.buyer.id,
         buyer_full_name=ctx.buyer.full_name,
@@ -745,6 +756,7 @@ async def buyer_overview(
         instalments=inst_payload,
         documents=documents,
         kyc_requests=kyc_requests,
+        handover_package_available=handover_package_available,
     )
 
 
@@ -848,6 +860,51 @@ async def download_buyer_document(
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Document not found",
+    )
+
+
+# ── Handover closeout package download (public via token) ───────────────
+
+
+@portal_router.get(
+    "/portal/buyer/{token}/handover-package/",
+    summary="Download the buyer's digital handover / closeout package (ZIP)",
+)
+async def download_buyer_handover_package(
+    token: str,
+    session: SessionDep,
+    settings: SettingsDep,
+    request: Request,
+) -> Response:
+    """Stream the closeout-package ZIP for THIS token's buyer.
+
+    Scope (RLS): the package is resolved strictly through the buyer's
+    own plot (``ctx.buyer.plot_id`` → its single :class:`Handover`). A
+    buyer whose plot has no handover, or whose token resolves to a
+    different buyer, gets a flat 404 - the endpoint never leaks the
+    existence of another buyer's handover. Mirrors the per-document
+    download IDOR guard above.
+    """
+    from app.modules.property_dev.models import Handover
+    from app.modules.property_dev.service import PropertyDevService
+
+    ctx = await _resolve_portal_context(session, settings, token, request)
+
+    if ctx.buyer.plot_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No handover package")
+
+    handover = (
+        await session.execute(select(Handover).where(Handover.plot_id == ctx.buyer.plot_id))
+    ).scalar_one_or_none()
+    if handover is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No handover package")
+
+    service = PropertyDevService(session)
+    filename, zip_bytes = await service.export_handover_package(handover.id)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

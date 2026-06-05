@@ -2108,6 +2108,19 @@ export function BIMPage() {
     }
     return out;
   }, [progressQuery.data]);
+  // Parallel map of the headline progress entry's recorded ISO date, keyed
+  // by element id — drives the "as of <date>" line in the selected-element
+  // info panel. Kept separate from the numeric map so the 3D colour ramp
+  // stays a pure number lookup.
+  const progressDateByElementId: Record<string, string> = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const row of progressQuery.data?.items ?? []) {
+      if (row.current_pct_date) {
+        out[row.id] = row.current_pct_date;
+      }
+    }
+    return out;
+  }, [progressQuery.data]);
 
   // Apply the deep-link element selection as soon as the elements list
   // resolves.  Strips the query param afterwards so a refresh doesn't
@@ -3631,6 +3644,7 @@ export function BIMPage() {
             filterPredicate={filterPredicate}
             colorByMode={colorByMode}
             progressByElementId={progressByElementId}
+            progressDateByElementId={progressDateByElementId}
             isolatedIds={isolatedIds}
             onIsolationChange={(ids) => {
               setIsolatedIds(ids);

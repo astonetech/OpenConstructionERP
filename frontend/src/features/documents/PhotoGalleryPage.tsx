@@ -46,8 +46,10 @@ import {
   getPhotoThumbUrl,
   getCategorySuggestion,
   isGpsFromExif,
+  isDateFromExif,
   type PhotoItem,
   type PhotoCategory,
+  type DefectSeverity,
   type PhotoFilters,
   type PhotoTimelineGroup as _PhotoTimelineGroup,
   type PhotoUpdatePayload,
@@ -66,6 +68,12 @@ const CATEGORY_COLORS: Record<PhotoCategory, string> = {
   delivery: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
   safety: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
   other: 'bg-gray-100 text-gray-700 dark:bg-gray-800/60 dark:text-gray-300',
+};
+
+const SEVERITY_COLORS: Record<DefectSeverity, string> = {
+  low: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+  medium: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+  high: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
 
 type ViewMode = 'grid' | 'timeline';
@@ -516,7 +524,10 @@ function PhotoCard({
   selected?: boolean;
   onToggleSelect?: () => void;
   selectMode?: boolean;
-  onAcceptSuggestion?: (photo: PhotoItem, category: PhotoCategory) => void;
+  onAcceptSuggestion?: (
+    photo: PhotoItem,
+    suggestion: ReturnType<typeof getCategorySuggestion>,
+  ) => void;
 }) {
   const { t } = useTranslation();
 
@@ -528,6 +539,10 @@ function PhotoCard({
     !selectMode && suggestion !== null && suggestion.suggested_category !== photo.category;
   const confidencePct =
     suggestion?.confidence != null ? Math.round(suggestion.confidence * 100) : null;
+  // Defect severity is only meaningful for a defect suggestion.
+  const severity =
+    suggestion?.suggested_category === 'defect' ? suggestion.defect_severity : null;
+  const suggestedTags = suggestion?.suggested_tags ?? [];
 
   return (
     <div
@@ -597,16 +612,30 @@ function PhotoCard({
             {t('photos.gps_auto', { defaultValue: 'GPS' })}
           </span>
         )}
+        {isDateFromExif(photo) && photo.taken_at && (
+          <span
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-2xs font-medium bg-black/50 text-white/90 backdrop-blur-sm"
+            title={t('photos.date_exif_hint', {
+              defaultValue: 'Capture date read from photo EXIF: {{date}}',
+              date: formatDateFull(photo.taken_at),
+            })}
+          >
+            <Calendar size={10} />
+            {t('photos.date_auto', { defaultValue: 'EXIF date' })}
+          </span>
+        )}
       </div>
 
-      {/* AI-suggested category badge — user-confirmable, never auto-applied */}
+      {/* AI-suggested category badge — user-confirmable, never auto-applied.
+          Stacks the category-apply button with an advisory severity chip
+          (defect only) and the first auto-tags the model saw. */}
       {showSuggestion && suggestion && (
-        <div className="absolute top-2 right-2 z-10">
+        <div className="absolute top-2 right-2 z-10 flex flex-col items-end gap-1">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onAcceptSuggestion?.(photo, suggestion.suggested_category);
+              onAcceptSuggestion?.(photo, suggestion);
             }}
             title={t('photos.suggestion_apply_hint', {
               defaultValue: 'Apply suggested category "{{cat}}"',
@@ -633,6 +662,33 @@ function PhotoCard({
                 })}
             <Check size={10} />
           </button>
+          {severity && (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-2xs font-medium backdrop-blur-sm ${SEVERITY_COLORS[severity]}`}
+              title={t('photos.severity_hint', {
+                defaultValue: 'AI-rated defect severity: {{sev}}',
+                sev: t(`photos.severity_${severity}`, { defaultValue: severity }),
+              })}
+            >
+              {t('photos.severity_label', {
+                defaultValue: 'Severity: {{sev}}',
+                sev: t(`photos.severity_${severity}`, { defaultValue: severity }),
+              })}
+            </span>
+          )}
+          {suggestedTags.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1 max-w-[90%]">
+              {suggestedTags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-2xs font-medium bg-violet-500/70 text-white backdrop-blur-sm"
+                >
+                  <Tag size={9} />
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1113,11 +1169,21 @@ export function PhotoGalleryPage() {
   }, [updateMutation]);
 
   // Accept an AI / heuristic category suggestion. This is the explicit
-  // human-confirm step — it just PATCHes the category to the suggested
-  // value; the manual fields stay authoritative until the user clicks.
+  // human-confirm step — it PATCHes the category to the suggested value and
+  // merges any auto-tags the model saw into the photo's existing tags. The
+  // manual fields stay authoritative until the user clicks.
   const handleAcceptSuggestion = useCallback(
-    (photo: PhotoItem, category: PhotoCategory) => {
-      updateMutation.mutate({ id: photo.id, data: { category } });
+    (photo: PhotoItem, suggestion: ReturnType<typeof getCategorySuggestion>) => {
+      if (!suggestion) return;
+      const data: PhotoUpdatePayload = { category: suggestion.suggested_category };
+      if (suggestion.suggested_tags.length > 0) {
+        const merged = [...photo.tags];
+        for (const tag of suggestion.suggested_tags) {
+          if (!merged.includes(tag)) merged.push(tag);
+        }
+        data.tags = merged;
+      }
+      updateMutation.mutate({ id: photo.id, data });
     },
     [updateMutation],
   );

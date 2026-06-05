@@ -121,6 +121,9 @@ export function HandoverDocumentsSection({
   const [editDoc, setEditDoc] = useState<HandoverDoc | null>(null);
   const [draft, setDraft] = useState<DocDraft>(EMPTY_DRAFT);
   const [exporting, setExporting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'delivered' | 'pending'
+  >('all');
   const { confirm, ...confirmProps } = useConfirm();
 
   const bundleQ = useQuery({
@@ -131,6 +134,13 @@ export function HandoverDocumentsSection({
   });
   const bundle = bundleQ.data;
   const docs = bundle?.docs ?? [];
+  const visibleDocs = docs.filter((d) =>
+    statusFilter === 'all'
+      ? true
+      : statusFilter === 'delivered'
+        ? d.is_delivered
+        : !d.is_delivered,
+  );
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: ['propdev', 'handover-docs', handover.id] });
@@ -337,8 +347,44 @@ export function HandoverDocumentsSection({
                   })}
                 </p>
               ) : (
-                <ul className="mt-2 space-y-1.5">
-                  {docs.map((doc) => (
+                <>
+                  <div className="mt-2 flex items-center gap-1.5 text-xs">
+                    <span className="text-content-tertiary">
+                      {t('propdev.filter_by_status', { defaultValue: 'Filter:' })}
+                    </span>
+                    <select
+                      value={statusFilter}
+                      onChange={(e) =>
+                        setStatusFilter(
+                          e.target.value as 'all' | 'delivered' | 'pending',
+                        )
+                      }
+                      className="h-7 rounded-md border border-border bg-surface-primary px-2 text-xs focus:outline-none focus:ring-2 focus:ring-oe-blue/30"
+                      aria-label={t('propdev.filter_by_status', {
+                        defaultValue: 'Filter by delivery status',
+                      })}
+                      data-testid={`handover-docs-filter-${handover.id}`}
+                    >
+                      <option value="all">
+                        {t('propdev.filter_all', { defaultValue: 'All' })}
+                      </option>
+                      <option value="delivered">
+                        {t('propdev.delivered', { defaultValue: 'Delivered' })}
+                      </option>
+                      <option value="pending">
+                        {t('propdev.pending', { defaultValue: 'Pending' })}
+                      </option>
+                    </select>
+                  </div>
+                  {visibleDocs.length === 0 ? (
+                    <p className="mt-2 text-xs text-content-tertiary italic">
+                      {t('propdev.no_docs_match_filter', {
+                        defaultValue: 'No documents match this filter.',
+                      })}
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-1.5">
+                      {visibleDocs.map((doc) => (
                     <li
                       key={doc.id}
                       className="rounded-md border border-border-light bg-surface-secondary/40 px-3 py-2 text-xs"
@@ -435,8 +481,10 @@ export function HandoverDocumentsSection({
                         </Button>
                       </div>
                     </li>
-                  ))}
-                </ul>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </>
           )}

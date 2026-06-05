@@ -10,7 +10,15 @@
  * aliases at the bottom so any in-flight call sites still type-check.
  */
 
-import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from '@/shared/lib/api';
+import {
+  apiGet,
+  apiPost,
+  apiPatch,
+  apiPut,
+  apiDelete,
+  getAuthToken,
+  triggerDownload,
+} from '@/shared/lib/api';
 
 /* ── Enums / unions ───────────────────────────────────────────────────── */
 
@@ -677,6 +685,104 @@ export function asComplianceGateError(err: unknown): ComplianceGateError | null 
     return detail as ComplianceGateError;
   }
   return null;
+}
+
+/* ── AIA G702/G703 payment applications (US/CA/AU only) ───────────────── */
+//
+// These mirror the backend AIAApplicationResponse / AIAG702Summary /
+// AIAG703Line / AIACertification schemas. The endpoints are country-gated on
+// the server (404 for non-US/CA/AU projects), and the UI is additionally gated
+// off project.is_aia_eligible so it never renders elsewhere.
+
+export interface AIAG703Line {
+  line_number: number;
+  item_number: string;
+  description: string;
+  scheduled_value: string;
+  previous_value: string;
+  this_period_value: string;
+  materials_stored: string;
+  total_completed_stored: string;
+  percent_complete: string;
+  balance_to_finish: string;
+  retainage: string;
+}
+
+export interface AIAG702Summary {
+  original_contract_sum: string;
+  change_orders_net: string;
+  contract_sum_to_date: string;
+  total_completed_stored: string;
+  retainage: string;
+  total_earned_less_retainage: string;
+  previous_certificates_total: string;
+  current_payment_due: string;
+  balance_to_finish: string;
+}
+
+export interface AIACertification {
+  architect_certified_at?: string | null;
+  architect_certified_by?: string | null;
+  owner_certified_at?: string | null;
+  owner_certified_by?: string | null;
+  certified_amount?: string | null;
+}
+
+export interface AIAApplication {
+  claim_id: string;
+  contract_id: string;
+  project_id: string;
+  application_number: string;
+  period_start?: string | null;
+  period_end?: string | null;
+  claim_date?: string | null;
+  currency: string;
+  claim_status: ClaimStatus;
+  retainage_percent: string;
+  summary: AIAG702Summary;
+  lines: AIAG703Line[];
+  certification: AIACertification;
+}
+
+/**
+ * Fetch the AIA G702 summary + G703 continuation for a progress claim.
+ *
+ * The backend raises 404 for non-US/CA/AU projects, so callers must only hit
+ * this when {@link Project.is_aia_eligible} is true.
+ */
+export function getAiaApplication(claimId: string): Promise<AIAApplication> {
+  return apiGet<AIAApplication>(
+    `/v1/contracts/progress-claims/${encodeURIComponent(claimId)}/aia-application`,
+  );
+}
+
+/**
+ * Download the AIA G702/G703 application as a PDF.
+ *
+ * Mirrors the blob-download pattern used by the BOQ / Daily-Diary exports:
+ * fetch with the stored bearer token, then stream the response to a file.
+ */
+export async function downloadAiaApplicationPdf(
+  claimId: string,
+  applicationNumber?: string,
+): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(
+    `/api/v1/contracts/progress-claims/${encodeURIComponent(claimId)}/aia-application/pdf`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!res.ok) {
+    let message = `Export failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.detail) message = String(body.detail);
+    } catch {
+      // Non-JSON error body — keep the status-code message.
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  triggerDownload(blob, `AIA_G702_${applicationNumber || claimId}.pdf`);
 }
 
 /* ── Back-compat aliases (old skeleton names) ─────────────────────────── */

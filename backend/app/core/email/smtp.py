@@ -27,6 +27,7 @@ import asyncio
 import logging
 import re
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -79,7 +80,28 @@ class SmtpEmailBackend(EmailBackend):
         settings = self._settings
         from_addr = message.from_addr or settings.smtp_from
 
-        mime = MIMEMultipart("alternative")
+        # Body is always multipart/alternative (plain + HTML). When the
+        # message carries attachments we wrap that body in a multipart/mixed
+        # envelope so MUAs render the text and offer the files for download.
+        body = MIMEMultipart("alternative")
+        body.attach(MIMEText(_html_to_text(message.html_body), "plain", "utf-8"))
+        body.attach(MIMEText(message.html_body, "html", "utf-8"))
+
+        if message.attachments:
+            mime = MIMEMultipart("mixed")
+            mime.attach(body)
+            for att in message.attachments:
+                subtype = (att.content_type.split("/", 1) or ["application", "octet-stream"])[-1]
+                part = MIMEApplication(att.content, _subtype=subtype)
+                part.add_header(
+                    "Content-Disposition",
+                    "attachment",
+                    filename=att.filename,
+                )
+                mime.attach(part)
+        else:
+            mime = body
+
         mime["From"] = from_addr
         mime["To"] = message.to
         mime["Subject"] = message.subject
@@ -87,8 +109,6 @@ class SmtpEmailBackend(EmailBackend):
             mime["Reply-To"] = message.reply_to
         for k, v in message.headers.items():
             mime[k] = v
-        mime.attach(MIMEText(_html_to_text(message.html_body), "plain", "utf-8"))
-        mime.attach(MIMEText(message.html_body, "html", "utf-8"))
 
         try:
             server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15)

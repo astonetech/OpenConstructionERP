@@ -6,6 +6,8 @@ Per-project access is enforced via :func:`verify_project_access`.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import uuid
 from decimal import Decimal
@@ -21,6 +23,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import StreamingResponse
 
 from app.core.file_signature import (
     SIGNATURE_BYTES_REQUIRED,
@@ -658,6 +661,166 @@ async def get_hold_point_release(
     if release is None:
         raise _not_found("Hold point has not been released")
     return HoldPointReleaseRead.model_validate(release)
+
+
+# ── Quality-gate enforcement + compliance export (item 12) ─────────────────
+
+
+@router.get("/itp-plans/{plan_id}/items/{item_id}/gate-status")
+async def itp_item_gate_status(
+    plan_id: uuid.UUID,
+    item_id: uuid.UUID,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("qms.inspection.read")),
+    service: QMSService = Depends(_get_service),
+) -> dict[str, object]:
+    """‌⁠‍Resolve whether a control point's hold point blocks downstream work.
+
+    Read-only seam other modules (task progression, change-order approval)
+    can consult before allowing a gated action. IDOR-gated by the plan's
+    project; the item is checked to belong to the plan.
+    """
+    plan = await service.repo.get_itp_plan(plan_id)
+    if plan is None:
+        raise _not_found("ITP plan not found")
+    await verify_project_access(plan.project_id, user_id, session)
+    item = await service.repo.get_itp_item(item_id)
+    if item is None or item.itp_plan_id != plan_id:
+        raise _not_found("ITP item not found")
+    try:
+        result = await service.is_hold_point_satisfied(item_id)
+    except ValueError as exc:
+        raise _bad(str(exc)) from exc
+    return {
+        "itp_item_id": str(result["itp_item_id"]),
+        "is_hold_point": result["is_hold_point"],
+        "satisfied": result["satisfied"],
+        "reason": result["reason"],
+    }
+
+
+def _compliance_csv(records: list[dict[str, object]]) -> str:
+    """Flatten compliance records to a single CSV table (one row per record).
+
+    Signatures and evidence are collapsed into compact ``;``-joined cells so
+    the export opens cleanly in Excel for an auditor while still carrying the
+    signer roles / timestamps and evidence integrity hashes.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "inspection_id",
+            "control_point_name",
+            "hold_witness_point",
+            "status",
+            "performed_at",
+            "location_ref",
+            "csi_section_ref",
+            "spec_drawing_ref",
+            "responsible_role",
+            "signatures",
+            "evidence_hashes",
+            "released",
+            "released_at",
+            "release_justification",
+        ]
+    )
+    for rec in records:
+        sigs = "; ".join(
+            f"{s.get('signer_role')}@{s.get('timestamp_utc') or s.get('signed_at') or ''}"
+            for s in (rec.get("signatures") or [])  # type: ignore[union-attr]
+        )
+        evidence = "; ".join(
+            f"{e.get('document_id')}:{e.get('file_hash_sha256') or 'no-hash'}"
+            for e in (rec.get("evidence") or [])  # type: ignore[union-attr]
+        )
+        writer.writerow(
+            [
+                rec.get("inspection_id") or "",
+                rec.get("control_point_name") or "",
+                rec.get("hold_witness_point") or "",
+                rec.get("status") or "",
+                rec.get("performed_at") or "",
+                rec.get("location_ref") or "",
+                rec.get("csi_section_ref") or "",
+                rec.get("spec_drawing_ref") or "",
+                rec.get("responsible_role") or "",
+                sigs,
+                evidence,
+                "yes" if rec.get("released") else "no",
+                rec.get("released_at") or "",
+                rec.get("release_justification") or "",
+            ]
+        )
+    return buf.getvalue()
+
+
+@router.get("/inspections/{inspection_id}/compliance-export")
+async def inspection_compliance_export(
+    inspection_id: uuid.UUID,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    fmt: str = Query(default="json", alias="format", pattern=r"^(json|csv)$"),
+    _perm: None = Depends(RequirePermission("qms.report.read")),
+    service: QMSService = Depends(_get_service),
+) -> object:
+    """‌⁠‍Audit-ready compliance record for one inspection (JSON or CSV).
+
+    Bundles signatures (with non-repudiation context), evidence attachments
+    with their SHA-256 integrity hashes, and the hold-point release. IDOR-gated
+    by project ownership.
+    """
+    inspection = await service.repo.get_inspection(inspection_id)
+    if inspection is None:
+        raise _not_found("Inspection not found")
+    await verify_project_access(inspection.project_id, user_id, session)
+    try:
+        record = await service.build_inspection_compliance_record(inspection_id)
+    except ValueError as exc:
+        raise _bad(str(exc)) from exc
+    if fmt == "csv":
+        body = _compliance_csv([record])
+        return StreamingResponse(
+            iter([body]),
+            media_type="text/csv",
+            headers={"Content-Disposition": (f'attachment; filename="inspection_{inspection_id}_compliance.csv"')},
+        )
+    return record
+
+
+@router.get("/itp-plans/{plan_id}/compliance-export")
+async def plan_compliance_export(
+    plan_id: uuid.UUID,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    fmt: str = Query(default="json", alias="format", pattern=r"^(json|csv)$"),
+    _perm: None = Depends(RequirePermission("qms.report.read")),
+    service: QMSService = Depends(_get_service),
+) -> object:
+    """‌⁠‍Full compliance dossier for an ITP plan (JSON or CSV).
+
+    One record per inspection across every control point in the plan, with
+    signatures + evidence integrity hashes + hold-point releases. IDOR-gated
+    by the plan's project.
+    """
+    plan = await service.repo.get_itp_plan(plan_id)
+    if plan is None:
+        raise _not_found("ITP plan not found")
+    await verify_project_access(plan.project_id, user_id, session)
+    try:
+        export = await service.build_plan_compliance_export(plan_id)
+    except ValueError as exc:
+        raise _bad(str(exc)) from exc
+    if fmt == "csv":
+        body = _compliance_csv(export["records"])
+        return StreamingResponse(
+            iter([body]),
+            media_type="text/csv",
+            headers={"Content-Disposition": (f'attachment; filename="itp_plan_{plan_id}_compliance.csv"')},
+        )
+    return export
 
 
 # ── NCRs ──────────────────────────────────────────────────────────────────

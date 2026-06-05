@@ -31,6 +31,8 @@ from app.core.events import event_bus
 # ── Published event names ───────────────────────────────────────────────────
 
 EVENT_PAYROLL_BATCH_FINALIZED = "payroll.batch.finalized"
+EVENT_PAYROLL_BATCH_SUBMITTED = "payroll.batch.submitted"
+EVENT_PAYROLL_BATCH_POSTED = "payroll.batch.posted"
 
 _logger = logging.getLogger(__name__)
 

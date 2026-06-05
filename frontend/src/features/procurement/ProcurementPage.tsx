@@ -38,6 +38,7 @@ import { useProjectContextStore } from '@/stores/useProjectContextStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { getPOMatchStatus, type POLineMatchTag } from './api';
 import { SupplierScorecardModal } from './SupplierScorecardModal';
+import { VendorPrequalBadge } from './VendorPrequalBadge';
 import { RetainagePanel, RetainageBadge } from './RetainagePanel';
 import { POStatusPipeline } from './POStatusPipeline';
 import { DeliveryCountdownBadge } from './DeliveryCountdownBadge';
@@ -49,6 +50,7 @@ interface PurchaseOrder {
   project_id: string;
   po_number: string;
   vendor_name: string;
+  vendor_contact_id?: string | null;
   issue_date: string;
   delivery_date: string | null;
   // Money bug fix: the list endpoint (POResponse in backend/.../schemas.py)
@@ -416,6 +418,23 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
 
   const canSubmitPO = poForm.items.some((li) => li.description.trim().length > 0);
 
+  // Surface the non-blocking vendor-prequalification warnings the PO
+  // create/update gate returns (TOP-30 #20). A hard-blocked vendor never
+  // reaches here — the backend raises 409 and the error toast fires instead.
+  const warnIfVendorFlagged = (warnings?: string[]) => {
+    if (!warnings || warnings.length === 0) return;
+    addToast({
+      type: 'warning',
+      title: t('procurement.vendor_not_prequalified_warning_title', {
+        defaultValue: 'Vendor not prequalified',
+      }),
+      message: t('procurement.vendor_not_prequalified_warning', {
+        defaultValue:
+          'This vendor is not prequalified. The purchase order was saved, but review the vendor before issuing it.',
+      }),
+    });
+  };
+
   const validatePO = (): boolean => {
     const e: Record<string, string> = {};
     const hasAnyItem = poForm.items.some((li) => li.description.trim());
@@ -426,7 +445,7 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
 
   const createPOMut = useMutation({
     mutationFn: (data: typeof poForm) =>
-      apiPost('/v1/procurement/', {
+      apiPost<{ vendor_warnings?: string[] }>('/v1/procurement/', {
         project_id: projectId,
         vendor_contact_id: data.vendor_contact_id || undefined,
         po_type: data.po_type,
@@ -450,10 +469,11 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
             sort_order: idx,
           })),
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-po', projectId] });
       closeModal();
       addToast({ type: 'success', title: t('procurement.po_created', { defaultValue: 'Purchase order created' }) });
+      warnIfVendorFlagged(res?.vendor_warnings);
     },
     onError: (e: Error) =>
       addToast({ type: 'error', title: t('common.error', { defaultValue: 'Error' }), message: e.message }),
@@ -467,7 +487,7 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
      no delete control is offered (a 405 button would be worse UX). */
   const editPOMut = useMutation({
     mutationFn: ({ id, data }: { id: string; data: typeof poForm }) =>
-      apiPatch(`/v1/procurement/${id}`, {
+      apiPatch<{ vendor_warnings?: string[] }>(`/v1/procurement/${id}`, {
         vendor_contact_id: data.vendor_contact_id || undefined,
         po_type: data.po_type,
         delivery_date: data.delivery_date || undefined,
@@ -488,10 +508,11 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
             sort_order: idx,
           })),
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['procurement-po', projectId] });
       closeModal();
       addToast({ type: 'success', title: t('procurement.po_updated', { defaultValue: 'Purchase order updated' }) });
+      warnIfVendorFlagged(res?.vendor_warnings);
     },
     onError: (e: Error) =>
       addToast({ type: 'error', title: t('common.error', { defaultValue: 'Error' }), message: e.message }),
@@ -1038,25 +1059,31 @@ function PurchaseOrdersTab({ projectId }: { projectId: string }) {
                   {po.po_number}
                 </td>
                 <td className="px-4 py-3 text-content-secondary">
-                  {po.vendor_contact_id ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setScorecardOpen({
-                          contactId: po.vendor_contact_id as string,
-                          name: po.vendor_name,
-                        })
-                      }
-                      className="text-left text-oe-blue hover:underline focus:underline focus:outline-none"
-                      title={t('procurement.open_scorecard', {
-                        defaultValue: 'Open supplier scorecard',
-                      })}
-                    >
-                      {po.vendor_name}
-                    </button>
-                  ) : (
-                    po.vendor_name
-                  )}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {po.vendor_contact_id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setScorecardOpen({
+                            contactId: po.vendor_contact_id as string,
+                            name: po.vendor_name,
+                          })
+                        }
+                        className="text-left text-oe-blue hover:underline focus:underline focus:outline-none"
+                        title={t('procurement.open_scorecard', {
+                          defaultValue: 'Open supplier scorecard',
+                        })}
+                      >
+                        {po.vendor_name}
+                      </button>
+                    ) : (
+                      po.vendor_name
+                    )}
+                    <VendorPrequalBadge
+                      contactId={po.vendor_contact_id}
+                      hideWhenEligible
+                    />
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-content-secondary">
                   <DateDisplay value={po.issue_date} />

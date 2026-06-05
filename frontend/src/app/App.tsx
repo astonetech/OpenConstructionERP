@@ -261,6 +261,9 @@ const PayrollPage = lazy(() => import('@/features/payroll/PayrollPage'));
 const PortalPage = lazy(() =>
   import('@/features/portal').then((m) => ({ default: m.PortalPage }))
 );
+const PortalPaymentsPage = lazy(() =>
+  import('@/features/portal').then((m) => ({ default: m.PortalPaymentsPage }))
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources').then((m) => ({ default: m.ResourcesPage }))
 );
@@ -378,6 +381,9 @@ const SupplierCatalogsPage = lazy(() =>
 );
 const BIDashboardsPage = lazy(() =>
   import('@/features/bi-dashboards').then((m) => ({ default: m.BIDashboardsPage }))
+);
+const ProjectControlsPage = lazy(() =>
+  import('@/features/project-controls').then((m) => ({ default: m.ProjectControlsPage }))
 );
 // v4.1 — three additional P1 Slice-1 features land behind dedicated routes
 // (Assembly Library was already eagerly imported by the assemblies feature
@@ -717,6 +723,11 @@ export default function App() {
         {/* Public buyer-portal landing page — magic-link auth only, no app shell */}
         <Route path="/buyer-portal/:token" element={<BuyerPortalPage />} />
 
+        {/* Public subcontractor payment portal — magic-link session, no app
+            shell. ?token=<magic-link> deep-links straight to the submit form
+            after auth; a return visit reuses the stored session token. */}
+        <Route path="/portal/payments" element={<PortalPaymentsPage />} />
+
         {/* Field-worker mobile shell — bottom-nav layout, no desktop sidebar.
             Skeleton route gated behind VITE_FIELD_PILOT until the pilot adds
             the `/field/{token}` PIN entry and the four tab bodies. Off by
@@ -1022,6 +1033,8 @@ export default function App() {
         <Route path="/projects/:projectId/carbon" element={<P title="Carbon & ESG"><CarbonPage /></P>} />
         <Route path="/bi-dashboards" element={<P title="BI Dashboards"><BIDashboardsPage /></P>} />
         <Route path="/projects/:projectId/bi-dashboards" element={<P title="BI Dashboards"><BIDashboardsPage /></P>} />
+        <Route path="/project-controls" element={<P title="Project Controls"><ProjectControlsPage /></P>} />
+        <Route path="/projects/:projectId/project-controls" element={<P title="Project Controls"><ProjectControlsPage /></P>} />
 
         {/* Convenience route aliases — redirect to canonical paths */}
         {/* `/dashboard` renders DashboardPage directly. The earlier alias

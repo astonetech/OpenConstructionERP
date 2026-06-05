@@ -35,6 +35,14 @@ export interface Project {
   phase?: string | null;
   owner_id: string;
   address?: ProjectAddress | null;
+  /** ISO 3166-1 alpha-2 country code (drives the AIA G702/G703 gate). */
+  country_code?: string | null;
+  /**
+   * True when this project may use AIA G702/G703 payment applications
+   * (US/CA/AU only). Computed server-side from the project country; the
+   * front end keys the AIA UI off this so it never renders elsewhere.
+   */
+  is_aia_eligible?: boolean;
   metadata: Record<string, unknown>;
   /** RFC 37 #88 — additional currencies + FX rate to project.currency. */
   fx_rates?: ProjectFxRate[];

@@ -81,6 +81,8 @@ class AgentRunResponse(BaseModel):
     project_id: UUID | None = None
     user_id: UUID
     status: str
+    # How the run was initiated: "manual" | "schedule" | "event:<name>".
+    trigger_source: str = "manual"
     failure_reason: str | None = None
     user_input: str
     final_output: str | None = None
@@ -103,6 +105,8 @@ class AgentRunListItem(BaseModel):
     project_id: UUID | None = None
     user_id: UUID
     status: str
+    # How the run was initiated: "manual" | "schedule" | "event:<name>".
+    trigger_source: str = "manual"
     failure_reason: str | None = None
     iterations: int = 0
     total_tokens: int = 0
@@ -300,6 +304,19 @@ class SetToolsRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     allowed_tools: list[str] = Field(default_factory=list, max_length=30)
+
+
+class SetTriggersRequest(BaseModel):
+    """Request body for ``POST /custom/{agent_id}/triggers``.
+
+    ``triggers`` is the set of platform-event slugs the agent should react to
+    (e.g. ``rfi_created``). Unknown slugs are dropped server-side. Triggers fire
+    the agent on the event independently of any cron schedule.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    triggers: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ToolWithPermission(BaseModel):

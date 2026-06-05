@@ -28,12 +28,12 @@ from functools import lru_cache
 
 from app.config import Settings, get_settings
 
-from .base import BackendName, DeliveryResult, EmailBackend, EmailMessage
+from .base import BackendName, DeliveryResult, EmailAttachment, EmailBackend, EmailMessage
 from .console import ConsoleEmailBackend
 from .memory import MemoryEmailBackend
 from .noop import NoopEmailBackend
 from .smtp import SmtpEmailBackend
-from .templates import template_password_reset
+from .templates import template_password_reset, wrap
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,56 @@ class EmailService:
         logger.info("sending password-reset email to %s via %s", to, self._backend.name)
         return await self.send(
             EmailMessage(to=to, subject=subject, html_body=html, tags=["password_reset"]),
+        )
+
+    async def send_document(
+        self,
+        to: str,
+        *,
+        subject: str,
+        document_name: str,
+        attachment: EmailAttachment,
+        recipient_name: str | None = None,
+        sender_name: str | None = None,
+        note: str | None = None,
+    ) -> DeliveryResult:
+        """Email a generated document (PDF) as an attachment.
+
+        Used by feature modules that produce a PDF on the fly (Property
+        Development receipts / contracts / certificates) and want to send
+        it straight to a buyer or counterparty. The body is a short cover
+        note; the document itself rides as ``attachment``.
+        """
+        greeting = f"Hi {recipient_name}," if recipient_name else "Hello,"
+        from_line = f" from {sender_name}" if sender_name else ""
+        note_html = (
+            f"<blockquote style='border-left:3px solid #0071e3; padding-left:12px; "
+            f"margin:12px 0; color:#1d1d1f;'>{note}</blockquote>"
+            if note
+            else ""
+        )
+        body = (
+            f"<p>{greeting}</p>"
+            f"<p>Please find attached your <strong>{document_name}</strong>{from_line}.</p>"
+            f"{note_html}"
+            f"<p style='font-size:13px; color:#6e6e73;'>The document is attached to this "
+            f"email as a PDF.</p>"
+        )
+        html = wrap(document_name, body)
+        logger.info(
+            "sending document email to=%s document=%r via %s",
+            to,
+            document_name,
+            self._backend.name,
+        )
+        return await self.send(
+            EmailMessage(
+                to=to,
+                subject=subject,
+                html_body=html,
+                tags=["document", document_name],
+                attachments=[attachment],
+            ),
         )
 
 

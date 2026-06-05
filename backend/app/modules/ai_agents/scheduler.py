@@ -106,6 +106,7 @@ async def _fire_due_agent(service: AgentService, agent: CustomAgent, now: _dt.da
             user_id=agent_user_id,
             agent_name=agent_agent_name,
             user_input=user_input,
+            trigger_source="schedule",
         )
     except Exception:
         # A run failure is recorded on its own AgentRun row by start_run; an

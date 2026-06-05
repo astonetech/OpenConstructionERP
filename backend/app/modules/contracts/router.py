@@ -26,6 +26,7 @@ import uuid
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.core.i18n import get_locale
 from app.core.validation.messages import translate
@@ -57,6 +58,7 @@ from app.modules.contracts.repository import (
     RetentionScheduleRepository,
 )
 from app.modules.contracts.schemas import (
+    AIAApplicationResponse,
     AutoGenerateClaimRequest,
     ContractCloneRequest,
     ContractCreate,
@@ -1221,6 +1223,62 @@ async def delete_claim_line(
         raise HTTPException(status_code=404, detail="Claim line not found")
     await _verify_claim_access(session, obj.progress_claim_id, user_id)
     await repo.delete(line_id)
+
+
+# ── AIA G702/G703 payment applications (US/CA/AU only) ─────────────────────
+#
+# AIA G702 (Application and Certificate for Payment) and G703 (Continuation
+# Sheet) are the standard US progress-billing documents, also adopted in CA and
+# AU. They are country-gated: the service raises 404 unless the claim's project
+# country resolves to US/CA/AU, so for every other market these endpoints behave
+# as if they do not exist (no information leak). They are an additive AIA
+# presentation layer over the existing progress-claim engine - no new claim
+# state, no duplicated retention/finance math.
+
+
+@router.get(
+    "/progress-claims/{claim_id}/aia-application",
+    response_model=AIAApplicationResponse,
+    summary="AIA G702 summary + G703 continuation for a progress claim (US/CA/AU)",
+)
+async def get_aia_application(
+    claim_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    _perm: None = Depends(RequirePermission("contracts.read")),
+) -> AIAApplicationResponse:
+    await _verify_claim_access(session, claim_id, user_id)
+    service = ContractsService(session)
+    payload = await service.build_aia_application(claim_id)
+    return AIAApplicationResponse.model_validate(payload)
+
+
+@router.get(
+    "/progress-claims/{claim_id}/aia-application/pdf",
+    summary="Export the AIA G702/G703 application as PDF (US/CA/AU)",
+    response_description="application/pdf stream",
+)
+async def export_aia_application_pdf(
+    claim_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    _perm: None = Depends(RequirePermission("contracts.read")),
+) -> StreamingResponse:
+    import io
+
+    from app.modules.contracts.aia_pdf import render_aia_application_pdf
+
+    await _verify_claim_access(session, claim_id, user_id)
+    service = ContractsService(session)
+    payload = await service.build_aia_application(claim_id)
+    pdf_bytes = render_aia_application_pdf(payload)
+    safe_num = "".join(c for c in str(payload.get("application_number") or "app") if c.isalnum() or c in "-_") or "app"
+    filename = f"AIA_G702_{safe_num}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── FinalAccount ─────────────────────────────────────────────────────────

@@ -6,11 +6,11 @@
  * only for display.
  */
 
-import { apiGet, apiPatch, apiPost } from '@/shared/lib/api';
+import { apiGet, apiPatch, apiPost, getAuthToken } from '@/shared/lib/api';
 
 /* ── Types ─────────────────────────────────────────────────────────────── */
 
-export type PayrollStatus = 'draft' | 'approved';
+export type PayrollStatus = 'draft' | 'submitted' | 'approved' | 'posted';
 
 export interface PayrollEntry {
   id: string;
@@ -41,9 +41,36 @@ export interface PayrollBatch {
   entry_count: number;
   notes: string;
   created_by: string | null;
+  submitted_at: string | null;
+  submitted_by: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  posted_at: string | null;
+  posted_by: string | null;
+  gl_transaction_ref: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+export interface ReconciliationRow {
+  worker_key: string;
+  work_date: string | null;
+  resource_id: string | null;
+  batch_hours: string;
+  source_hours: string;
+  delta_hours: string;
+  matched: boolean;
+}
+
+export interface Reconciliation {
+  batch_id: string;
+  project_id: string;
+  batch_total_hours: string;
+  source_total_hours: string;
+  delta_total_hours: string;
+  balanced: boolean;
+  rows: ReconciliationRow[];
 }
 
 export interface PayrollBatchDetail extends PayrollBatch {
@@ -104,4 +131,50 @@ export async function finalizeBatch(batchId: string): Promise<PayrollBatchDetail
   return apiPatch<PayrollBatchDetail>(
     `/v1/payroll/batches/${encodeURIComponent(batchId)}/finalize/`,
   );
+}
+
+/** Submit a draft batch for approval (no money moved). Idempotent. */
+export async function submitBatch(batchId: string): Promise<PayrollBatchDetail> {
+  return apiPatch<PayrollBatchDetail>(
+    `/v1/payroll/batches/${encodeURIComponent(batchId)}/submit/`,
+  );
+}
+
+/** Post an approved batch to the finance ledger (terminal). Idempotent. */
+export async function postBatch(batchId: string): Promise<PayrollBatchDetail> {
+  return apiPatch<PayrollBatchDetail>(
+    `/v1/payroll/batches/${encodeURIComponent(batchId)}/post/`,
+  );
+}
+
+/** Reconcile a batch's hours against the live field-labour sources (read-only). */
+export async function reconcileBatch(batchId: string): Promise<Reconciliation> {
+  return apiGet<Reconciliation>(
+    `/v1/payroll/batches/${encodeURIComponent(batchId)}/reconcile/`,
+  );
+}
+
+/**
+ * Fetch a batch export (CSV or JSON) with the auth token attached and trigger a
+ * browser download. The export endpoints are auth-gated, so a bare anchor href
+ * would 401 - we fetch the blob with the Bearer token and save it client-side.
+ */
+export async function downloadBatchExport(batchId: string, format: 'csv' | 'json'): Promise<void> {
+  const token = getAuthToken();
+  const res = await fetch(
+    `/api/v1/payroll/batches/${encodeURIComponent(batchId)}/export.${format}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!res.ok) {
+    throw new Error(`Export failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `payroll-batch-${batchId}.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

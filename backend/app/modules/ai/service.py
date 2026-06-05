@@ -237,6 +237,42 @@ def _coerce_suggested_category(value: Any) -> str | None:
     return cleaned if cleaned in PHOTO_CATEGORIES else None
 
 
+# Defect-severity levels surfaced for ``category == "defect"`` suggestions.
+DEFECT_SEVERITIES: tuple[str, ...] = ("low", "medium", "high")
+
+
+def _coerce_defect_severity(value: Any) -> str | None:
+    """Normalise an AI-returned defect severity to the allowed set, else None."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().lower()
+    return cleaned if cleaned in DEFECT_SEVERITIES else None
+
+
+def _coerce_suggested_tags(value: Any, *, limit: int = 6) -> list[str]:
+    """Normalise AI-returned auto-tags into a short, de-duplicated list.
+
+    Tags are lower-cased, stripped, capped at ``limit`` items and 40 chars
+    each. Non-list / empty input yields ``[]`` so the caller can store it
+    unconditionally. The tags are advisory only — never auto-applied.
+    """
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        tag = item.strip().lower()[:40]
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        out.append(tag)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _validate_items(raw_items: Any, currency: str = "") -> list[dict[str, Any]]:
     """‌⁠‍Validate and clean AI-generated work items.
 
@@ -1046,7 +1082,14 @@ class AIService:
             "- progress: construction work in progress (pours, formwork, framing, installs)\n"
             "- site: general site overview / context shots\n"
             "- other: anything that fits none of the above\n\n"
-            'Reply with ONLY a JSON object: {"category": "<one>", "confidence": <0..1>}'
+            'Also return up to 4 short lower-case tags for what is visible (e.g. "crack", '
+            '"rebar", "scaffold", "water-damage").\n'
+            'If and ONLY IF the category is "defect", also rate the defect severity as '
+            "one of: low, medium, high (low = cosmetic, medium = needs repair, high = "
+            "structural / safety risk). Omit severity for any non-defect photo.\n\n"
+            "Reply with ONLY a JSON object: "
+            '{"category": "<one>", "confidence": <0..1>, "tags": ["..."], '
+            '"severity": "<low|medium|high>"}'
         )
         try:
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -1073,11 +1116,21 @@ class AIService:
         if category is None:
             return None
         confidence = _coerce_confidence(parsed.get("confidence"))
-        return {
+        result: dict[str, Any] = {
             "suggested_category": category,
             "confidence": confidence,
             "source": "ai",
         }
+        tags = _coerce_suggested_tags(parsed.get("tags"))
+        if tags:
+            result["suggested_tags"] = tags
+        # Severity is only meaningful for defect photos — discard it otherwise
+        # so a stray model value can't mislabel a non-defect photo.
+        if category == "defect":
+            severity = _coerce_defect_severity(parsed.get("severity"))
+            if severity is not None:
+                result["defect_severity"] = severity
+        return result
 
     # ── Universal file estimate ──────────────────────────────────────────
 

@@ -1055,18 +1055,40 @@ export function TasksPage() {
     mutationFn: ({ id, data }: { id: string; data: TaskFormData }) => {
       const assignee = data.assigned_to.trim();
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignee);
+      const baseMeta = (editingTask?.metadata ?? {}) as Record<string, unknown>;
+      // The assignee field is a single text input prefilled with the user's
+      // DISPLAY NAME (the form has no UUID). If the user did not touch it, the
+      // field still equals that display name, so naively writing
+      // responsible_id=null would silently demote a real-user assignment to
+      // free text and break my-tasks linkage + notifications. Detect the
+      // unchanged case and preserve the original responsible_id UUID.
+      const originalDisplay =
+        editingTask?.assigned_to_name ||
+        (typeof baseMeta.assignee_name === 'string' ? (baseMeta.assignee_name as string) : '') ||
+        '';
+      const unchangedRealUser =
+        !!editingTask?.responsible_id && !isUuid && assignee === originalDisplay.trim();
+
       // Preserve any non-task metadata the task already carried (e.g.
       // `source`, DWG pins) and only overwrite the assignee_name slot.
-      const baseMeta = (editingTask?.metadata ?? {}) as Record<string, unknown>;
       const { assignee_name: _drop, ...keepMeta } = baseMeta;
       const metadata: Record<string, unknown> = { ...keepMeta };
-      if (assignee && !isUuid) metadata.assignee_name = assignee;
+      // Keep the display-name mirror only when the assignee is a free-text name
+      // (not a preserved real-user link).
+      if (assignee && !isUuid && !unchangedRealUser) metadata.assignee_name = assignee;
+
+      const responsible_id = unchangedRealUser
+        ? editingTask!.responsible_id
+        : isUuid
+          ? assignee
+          : null;
+
       return updateTask(id, {
         title: data.title,
         description: data.description || undefined,
         task_type: data.task_type,
         priority: data.priority,
-        responsible_id: isUuid ? assignee : null,
+        responsible_id,
         metadata,
         due_date: data.due_date || null,
       });

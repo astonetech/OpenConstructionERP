@@ -35,6 +35,7 @@ import {
   Save,
 } from 'lucide-react';
 import { Card, Badge, Button, WideModal } from '@/shared/ui';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { useToastStore } from '@/stores/useToastStore';
 import {
   fetchUsers,
@@ -225,7 +226,13 @@ function InviteModal({
     role: 'editor' as UserRole,
   });
 
-  const canSubmit = !isPending && !!form.email && !!form.full_name && !!form.password;
+  // Admin-create (POST /users/) requires a strong password: min 12 chars with
+  // at least one letter and one digit. Mirror it client-side so the picker
+  // doesn't bounce off a server 422 after the fact.
+  const passwordOk =
+    form.password.length >= 12 && /[A-Za-z]/.test(form.password) && /\d/.test(form.password);
+  const canSubmit =
+    !isPending && !!form.email && !!form.full_name && !!form.password && passwordOk;
 
   return (
     <WideModal
@@ -292,9 +299,17 @@ function InviteModal({
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
             placeholder={t('users.invite.passwordHint', {
-              defaultValue: 'Min 6 characters',
+              defaultValue: 'Min 12 characters, with a letter and a digit',
             })}
           />
+          {!!form.password && !passwordOk && (
+            <p className="mt-1 text-xs text-semantic-error">
+              {t('users.invite.passwordTooWeak', {
+                defaultValue:
+                  'Password must be at least 12 characters and include a letter and a digit.',
+              })}
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-content-secondary mb-1">
@@ -668,6 +683,10 @@ export function UserManagementPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const addToast = useToastStore((s) => s.addToast);
+  // Creating users is ADMIN-only (POST /users/ is gated by users.create=ADMIN).
+  // Managers can view the page (users.list) but must not see the invite control,
+  // since the call would 403. Server-side gate is authoritative regardless.
+  const isAdmin = useAuthStore((s) => s.userRole) === 'admin';
   const [search, setSearch] = useState('');
   const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [showInvite, setShowInvite] = useState(false);
@@ -759,13 +778,15 @@ export function UserManagementPage() {
             {t('users.management_desc', { defaultValue: 'Manage team members, roles, and access' })}
           </p>
         </div>
-        <button
-          onClick={() => setShowInvite(true)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-oe-blue text-white hover:bg-oe-blue-dark transition-colors"
-        >
-          <UserPlus size={16} />
-          {t('users.invite_user', { defaultValue: 'Invite User' })}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-oe-blue text-white hover:bg-oe-blue-dark transition-colors"
+          >
+            <UserPlus size={16} />
+            {t('users.invite_user', { defaultValue: 'Invite User' })}
+          </button>
+        )}
       </div>
 
       {/* Stats */}

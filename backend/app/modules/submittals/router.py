@@ -42,7 +42,14 @@ from app.dependencies import (
     SessionDep,
     verify_project_access,
 )
+from app.modules.approval_routes.schemas import (
+    InstanceResponse,
+    StepStateResponse,
+)
+from app.modules.approval_routes.service import ApprovalRouteService
 from app.modules.submittals.schemas import (
+    StartApprovalRequest,
+    SubmittalApproveRequest,
     SubmittalCreate,
     SubmittalResponse,
     SubmittalReviewRequest,
@@ -128,6 +135,7 @@ async def _fetch_user_names(
 def _to_response(item: object, name_map: dict[str, str] | None = None) -> SubmittalResponse:
     names = name_map or {}
     ball = str(item.ball_in_court) if item.ball_in_court else None  # type: ignore[attr-defined]
+    meta = getattr(item, "metadata_", {}) or {}
     return SubmittalResponse(
         id=item.id,  # type: ignore[attr-defined]
         project_id=item.project_id,  # type: ignore[attr-defined]
@@ -147,7 +155,9 @@ def _to_response(item: object, name_map: dict[str, str] | None = None) -> Submit
         date_returned=item.date_returned,  # type: ignore[attr-defined]
         linked_boq_item_ids=item.linked_boq_item_ids or [],  # type: ignore[attr-defined]
         created_by=item.created_by,  # type: ignore[attr-defined]
-        metadata=getattr(item, "metadata_", {}),
+        metadata=meta,
+        description=meta.get("description"),
+        review_notes=meta.get("review_notes"),
         created_at=item.created_at,  # type: ignore[attr-defined]
         updated_at=item.updated_at,  # type: ignore[attr-defined]
     )
@@ -301,12 +311,14 @@ async def approve_submittal(
     submittal_id: uuid.UUID,
     user_id: CurrentUserId,
     session: SessionDep,
+    body: SubmittalApproveRequest | None = None,
     _perm: None = Depends(RequirePermission("submittals.update")),
     service: SubmittalService = Depends(_get_service),
 ) -> SubmittalResponse:
     """Final approval of a submittal.
 
-    Requires the ``manager`` role (or higher).
+    Requires the ``manager`` role (or higher). An optional body may carry the
+    approver's ``notes``, which are persisted into the submittal metadata.
     """
     allowed, _ = approval_limiter.is_allowed(str(user_id))
     if not allowed:
@@ -316,9 +328,81 @@ async def approve_submittal(
         )
     existing = await service.get_submittal(submittal_id)
     await verify_project_access(existing.project_id, str(user_id), session)
-    submittal = await service.approve_submittal(submittal_id, approver_id=user_id)
+    submittal = await service.approve_submittal(submittal_id, approver_id=user_id, notes=body.notes if body else None)
     name_map = await _fetch_user_names(session, [submittal.ball_in_court])
     return _to_response(submittal, name_map)
+
+
+# ── Approval workflow (feature 06) ─────────────────────────────────────────
+#
+# Thin convenience surface that resolves the submittal's project scope and
+# delegates to the generic approval-routes engine, so a caller never has to
+# know the submittal's project id or juggle two modules. The decide / cancel
+# actions stay on the generic ``/approval-routes/instances/{id}`` endpoints
+# (the frontend already calls them and they carry the engine's race guard).
+
+
+async def _instance_to_response(
+    instance: object,
+    engine: ApprovalRouteService,
+) -> InstanceResponse:
+    """Serialise an engine instance + its step states (mirror of the engine router)."""
+    states = await engine.list_step_states(instance.id)  # type: ignore[attr-defined]
+    payload = InstanceResponse.model_validate(instance)
+    payload.step_states = [StepStateResponse.model_validate(s) for s in states]
+    return payload
+
+
+@router.post(
+    "/{submittal_id}/route/",
+    response_model=InstanceResponse,
+    status_code=201,
+    # Both verbs: starting a routed sign-off touches the submittal (it moves
+    # the FSM into review) and creates an approval instance. Requiring both
+    # keeps RBAC consistent with the engine surface, mirroring the RFI
+    # create-variation double-permission pattern.
+    dependencies=[
+        Depends(RequirePermission("submittals.update")),
+        Depends(RequirePermission("approval_routes.write")),
+    ],
+)
+async def start_submittal_approval(
+    submittal_id: uuid.UUID,
+    body: StartApprovalRequest,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    service: SubmittalService = Depends(_get_service),
+) -> InstanceResponse:
+    """Start a routed approval workflow against a submittal.
+
+    Resolves project scope from the submittal (IDOR-safe), then delegates to
+    the approval-routes engine. The engine rejects a second pending workflow
+    on the same submittal with 409.
+    """
+    submittal = await service.get_submittal(submittal_id)
+    await verify_project_access(submittal.project_id, str(user_id), session)
+    instance = await service.start_approval(submittal_id, body.route_id, started_by=user_id)
+    return await _instance_to_response(instance, ApprovalRouteService(session))
+
+
+@router.get(
+    "/{submittal_id}/route/",
+    response_model=InstanceResponse | None,
+    dependencies=[Depends(RequirePermission("submittals.read"))],
+)
+async def get_submittal_approval(
+    submittal_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: SubmittalService = Depends(_get_service),
+) -> InstanceResponse | None:
+    """Return the latest approval instance on a submittal, or null if none."""
+    submittal = await service.get_submittal(submittal_id)
+    await verify_project_access(submittal.project_id, str(user_id), session)
+    instance = await service.get_latest_approval(submittal_id)
+    if instance is None:
+        return None
+    return await _instance_to_response(instance, ApprovalRouteService(session))
 
 
 # ── Attachments ──────────────────────────────────────────────────────────

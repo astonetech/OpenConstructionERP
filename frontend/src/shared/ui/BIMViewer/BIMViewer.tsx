@@ -176,6 +176,12 @@ export interface BIMViewerProps {
    *  each `BIMElementData`. Elements absent from the map are treated as
    *  "no data" (painted neutral grey). */
   progressByElementId?: Record<string, number>;
+  /** ISO-8601 recorded date of each element's headline progress entry (the
+   *  same entry whose percentage is in `progressByElementId`), keyed by
+   *  element id. Surfaced in the selected-element info panel as "as of
+   *  <date>" while the `by_progress` colour mode is active. Absent ids show
+   *  the percentage with no date. */
+  progressDateByElementId?: Record<string, string>;
   /** Show bounding box placeholders alongside geometry. Off by default. */
   showBoundingBoxes?: boolean;
   /** Element IDs to isolate (hide everything else). Empty = show all. */
@@ -633,6 +639,7 @@ export function BIMViewer({
   filterPredicate = null,
   colorByMode = 'default',
   progressByElementId,
+  progressDateByElementId,
   isolatedIds = null,
   onIsolationChange,
   highlightedIds = null,
@@ -4905,6 +4912,15 @@ export function BIMViewer({
                 const pct = progressByElementId?.[selectedElement.id];
                 if (pct == null || !Number.isFinite(pct)) return null;
                 const clamped = Math.max(0, Math.min(100, pct));
+                // Recorded date of the headline entry. Format to a short
+                // localised date; fall back to the raw ISO string if the
+                // browser can't parse it (never throw inside render).
+                const rawDate = progressDateByElementId?.[selectedElement.id];
+                let asOf: string | null = null;
+                if (rawDate) {
+                  const d = new Date(rawDate);
+                  asOf = Number.isNaN(d.getTime()) ? rawDate : d.toLocaleDateString();
+                }
                 return (
                   <div className="mb-1.5" data-testid="bim-boq-progress">
                     <div className="flex items-center justify-between text-[10px] mb-0.5">
@@ -4924,6 +4940,17 @@ export function BIMViewer({
                         }}
                       />
                     </div>
+                    {asOf && (
+                      <div
+                        className="text-[9px] text-content-tertiary mt-0.5"
+                        data-testid="bim-boq-progress-date"
+                      >
+                        {t('bim.boq_progress_as_of', {
+                          defaultValue: 'as of {{date}}',
+                          date: asOf,
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })()}

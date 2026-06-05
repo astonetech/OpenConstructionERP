@@ -34,6 +34,7 @@ import {
 } from './components/CustomAgentBuilder';
 import { RunTimeline } from './components/RunTimeline';
 import { RecentRunsList } from './components/RecentRunsList';
+import { AutomatedRunsPanel } from './components/AutomatedRunsPanel';
 import {
   agentDisplayName,
   agentTagline,
@@ -57,6 +58,7 @@ export function AgentsPage(): JSX.Element {
   const [builderSchedule, setBuilderSchedule] = useState<BuilderSchedule | null>(null);
   const [builderNextRunAt, setBuilderNextRunAt] = useState<string | null>(null);
   const [builderTools, setBuilderTools] = useState<string[]>([]);
+  const [builderTriggers, setBuilderTriggers] = useState<string[]>([]);
   const [loadingAutomation, setLoadingAutomation] = useState(false);
 
   const [selected, setSelected] = useState<AgentDescriptor | null>(null);
@@ -91,6 +93,23 @@ export function AgentsPage(): JSX.Element {
     queryFn: () => aiAgentsApi.listGrantableTools(),
     enabled: builderOpen,
     staleTime: 60_000,
+  });
+
+  // Event-trigger catalogue for the builder's Triggers panel. Fetched only
+  // while the builder is open to keep the page lean.
+  const triggerCatalogueQuery = useQuery({
+    queryKey: ['ai-agents', 'event-triggers'],
+    queryFn: () => aiAgentsApi.listEventTriggers(),
+    enabled: builderOpen,
+    staleTime: 60_000,
+  });
+
+  // Monitoring: automated (scheduler / event-fired) runs. Polled so a freshly
+  // fired scheduled run shows up without a manual refresh.
+  const automatedRunsQuery = useQuery({
+    queryKey: ['ai-agents', 'automated-runs'],
+    queryFn: () => aiAgentsApi.listAutomatedRuns(),
+    refetchInterval: 15_000,
   });
 
   const runsQuery = useQuery({
@@ -167,10 +186,15 @@ export function AgentsPage(): JSX.Element {
 
       // Tools: always persist the (possibly empty) selection on save.
       await aiAgentsApi.setAgentTools(saved.id, { allowed_tools: submit.allowedTools });
+
+      // Triggers: persist the (possibly empty) event subscriptions. These fire
+      // the agent on a platform event independently of any cron schedule.
+      await aiAgentsApi.setAgentTriggers(saved.id, { triggers: submit.triggers });
       return saved;
     },
     onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['ai-agents', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-agents', 'automated-runs'] });
       setBuilderOpen(false);
       setBuilderEditing(null);
       addToast({
@@ -188,6 +212,7 @@ export function AgentsPage(): JSX.Element {
     setBuilderSchedule(null);
     setBuilderNextRunAt(null);
     setBuilderTools([]);
+    setBuilderTriggers([]);
     setBuilderOpen(true);
   };
 
@@ -201,6 +226,7 @@ export function AgentsPage(): JSX.Element {
     setBuilderSchedule(null);
     setBuilderNextRunAt(null);
     setBuilderTools([]);
+    setBuilderTriggers([]);
     Promise.all([aiAgentsApi.listCustomAgents(), aiAgentsApi.getAgentSchedule(customId)])
       .then(([rows, meta]) => {
         const row = rows.find((r) => r.id === customId);
@@ -212,6 +238,7 @@ export function AgentsPage(): JSX.Element {
         });
         setBuilderNextRunAt(meta.next_run_at);
         setBuilderTools(meta.allowed_tools);
+        setBuilderTriggers(meta.triggers);
         setBuilderEditing(row);
         setBuilderOpen(true);
       })
@@ -547,6 +574,15 @@ export function AgentsPage(): JSX.Element {
               onSelect={(id) => setActiveRunId(id)}
             />
           )}
+
+          {/* Monitoring: automated (scheduler / event-fired) runs. */}
+          <AutomatedRunsPanel
+            runs={automatedRunsQuery.data ?? []}
+            agents={agents}
+            loading={automatedRunsQuery.isLoading}
+            activeRunId={activeRunId}
+            onSelect={(id) => setActiveRunId(id)}
+          />
         </aside>
       </div>
 
@@ -556,10 +592,12 @@ export function AgentsPage(): JSX.Element {
         editing={builderEditing}
         saving={saveMutation.isPending}
         tools={toolsCatalogueQuery.data ?? []}
+        triggerCatalogue={triggerCatalogueQuery.data ?? []}
         initialSchedule={builderSchedule}
         initialNextRunAt={builderNextRunAt}
         initialTools={builderTools}
-        loadingAutomation={loadingAutomation || toolsCatalogueQuery.isLoading}
+        initialTriggers={builderTriggers}
+        loadingAutomation={loadingAutomation || toolsCatalogueQuery.isLoading || triggerCatalogueQuery.isLoading}
         error={
           saveMutation.isError
             ? ((saveMutation.error as Error)?.message ??

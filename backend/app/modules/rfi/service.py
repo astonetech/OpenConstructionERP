@@ -621,6 +621,142 @@ class RFIService:
         )
         return fresh or rfi
 
+    async def start_approval(
+        self,
+        rfi_id: uuid.UUID,
+        route_id: uuid.UUID,
+        *,
+        started_by: str | None = None,
+    ) -> Any:
+        """Start a routed approval workflow against this RFI (feature 06).
+
+        Delegates to the generic ``approval_routes`` engine, which validates
+        the route is active, that its ``target_kind`` is ``rfi``, that it has
+        steps, and that no workflow is already pending on this target (409).
+
+        The natural pre-state for a routed RFI sign-off is ``open`` (the
+        question is live and now needs a routed sign-off on the answer). A
+        ``draft`` RFI is moved ``draft -> open`` through the existing FSM
+        before the workflow starts; an RFI already ``open`` / ``answered``
+        is left where it is. The instance id is recorded in
+        ``metadata_["approval_instance_id"]`` for deep-linking. The FSM
+        transition and the instance insert share this request session.
+
+        Returns the created approval ``Instance``.
+        """
+        from app.modules.approval_routes.schemas import InstanceCreate
+        from app.modules.approval_routes.service import ApprovalRouteService
+
+        rfi = await self.get_rfi(rfi_id)
+        if rfi.status in ("closed", "void"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"Cannot start an approval workflow on an RFI with status '{rfi.status}'."),
+            )
+
+        engine = ApprovalRouteService(self.session)
+        instance = await engine.start_instance(
+            InstanceCreate(
+                route_id=route_id,
+                target_kind="rfi",
+                target_id=rfi_id,
+            ),
+            started_by=uuid.UUID(started_by) if started_by else None,
+        )
+
+        # Move a draft RFI open through the existing FSM gate. ``actor_role``
+        # is the caller's role so the gate behaves exactly as a normal update.
+        if rfi.status == "draft":
+            await self.update_rfi(
+                rfi_id,
+                RFIUpdate(status="open"),
+                actor_id=started_by,
+            )
+
+        fresh = await self.get_rfi(rfi_id)
+        meta = dict(getattr(fresh, "metadata_", {}) or {})
+        meta["approval_instance_id"] = str(instance.id)
+        await self.repo.update_fields(rfi_id, metadata_=meta)
+
+        return instance
+
+    async def get_latest_approval(self, rfi_id: uuid.UUID) -> Any:
+        """Return the most recent approval instance for this RFI, or None."""
+        from app.modules.approval_routes.service import ApprovalRouteService
+
+        await self.get_rfi(rfi_id)
+        engine = ApprovalRouteService(self.session)
+        instances = await engine.list_instances(
+            target_kind="rfi",
+            target_id=rfi_id,
+            limit=1,
+        )
+        return instances[0] if instances else None
+
+    async def apply_approval_decision(
+        self,
+        rfi_id: uuid.UUID,
+        *,
+        decision: str,
+        decided_by: str | None,
+        comment: str | None = None,
+    ) -> RFI | None:
+        """Drive the RFI FSM from a terminal routed approval decision.
+
+        Conservative by design (the RFI FSM and the approval FSM are
+        orthogonal): the subscriber only ever drives transitions the
+        existing FSM already allows, so it can never corrupt state.
+
+        * ``approved`` and the RFI is ``open`` with an ``official_response``
+          already recorded → close the loop by moving it to ``answered``
+          through the existing ``respond_to_rfi`` path (re-affirms the
+          recorded answer and flips ball-in-court). When no response exists
+          yet the answer flow is left to the human and this is a no-op.
+        * ``rejected`` and the RFI is ``answered`` → reopen via the
+          manager-gated ``answered -> open`` path (``actor_role=None`` is an
+          internal caller and bypasses the role gate) with the step comment
+          as the reason, so the prior answer is sent back.
+
+        Any other state is a deliberate no-op.
+        """
+        rfi = await self.get_rfi(rfi_id)
+
+        if decision == "approved":
+            if rfi.status == "open" and rfi.official_response:
+                return await self.respond_to_rfi(
+                    rfi_id,
+                    rfi.official_response,
+                    responded_by=decided_by or (str(rfi.assigned_to) if rfi.assigned_to else ""),
+                    actor_role=None,  # internal caller — bypasses the assignee gate
+                )
+            logger.info(
+                "RFI %s approval completed but status=%s / response=%s — no FSM transition applied",
+                rfi_id,
+                rfi.status,
+                bool(rfi.official_response),
+            )
+            return None
+
+        if decision == "rejected":
+            if rfi.status == "answered":
+                meta = dict(getattr(rfi, "metadata_", {}) or {})
+                if comment:
+                    meta["approval_reject_reason"] = comment
+                return await self.update_rfi(
+                    rfi_id,
+                    RFIUpdate(status="open", metadata=meta),
+                    actor_id=decided_by,
+                    actor_role=None,  # internal caller — bypasses the reopen role gate
+                )
+            logger.info(
+                "RFI %s approval rejected but status=%s — no FSM transition applied",
+                rfi_id,
+                rfi.status,
+            )
+            return None
+
+        return None
+
     async def add_attachment(
         self,
         rfi_id: uuid.UUID,

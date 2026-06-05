@@ -201,6 +201,9 @@ class PortalOverviewResponse(BaseModel):
     instalments: list[PortalInstalmentRow] = Field(default_factory=list)
     documents: list[PortalDocumentRow] = Field(default_factory=list)
     kyc_requests: list[PortalKycRequest] = Field(default_factory=list)
+    # True when the buyer's plot has a handover record, so the portal can
+    # surface the one-click closeout-package (ZIP) download.
+    handover_package_available: bool = False
 
     @field_serializer(
         "payment_schedule_total",

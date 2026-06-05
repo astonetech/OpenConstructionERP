@@ -63,6 +63,13 @@ class PayrollBatchResponse(BaseModel):
     entry_count: int
     notes: str
     created_by: UUID | None
+    submitted_at: datetime | None = None
+    submitted_by: UUID | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    posted_at: datetime | None = None
+    posted_by: UUID | None = None
+    gl_transaction_ref: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict, alias="metadata_")
     created_at: datetime
     updated_at: datetime
@@ -72,6 +79,69 @@ class PayrollBatchDetailResponse(PayrollBatchResponse):
     """A payroll batch with its entries expanded."""
 
     entries: list[PayrollEntryResponse] = Field(default_factory=list)
+
+
+class ReconciliationRow(BaseModel):
+    """One reconciliation line: batch hours vs source field hours per worker.
+
+    ``delta_hours`` is ``batch_hours - source_hours``; a non-zero delta flags a
+    batch that drifted from the live field data (e.g. a report edited after the
+    batch was generated). All hour figures are Decimal-as-string.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    worker_key: str
+    work_date: str | None
+    resource_id: UUID | None = None
+    batch_hours: str
+    source_hours: str
+    delta_hours: str
+    matched: bool
+
+
+class ReconciliationResponse(BaseModel):
+    """Reconciliation of a batch against the live field-labour sources."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    batch_id: UUID
+    project_id: UUID
+    batch_total_hours: str
+    source_total_hours: str
+    delta_total_hours: str
+    balanced: bool
+    rows: list[ReconciliationRow] = Field(default_factory=list)
+
+
+class PayrollExportRow(BaseModel):
+    """A single export row (JSON export; CSV mirrors these columns)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    worker: str
+    resource_id: str
+    work_date: str
+    hours: str
+    rate: str
+    amount: str
+    currency: str
+    source: str
+
+
+class PayrollExportResponse(BaseModel):
+    """JSON export envelope for ERP handoff."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    batch_id: UUID
+    project_id: UUID
+    period_label: str
+    status: str
+    currency: str
+    total_hours: str
+    total_amount: str
+    rows: list[PayrollExportRow] = Field(default_factory=list)
 
 
 class LabourCostResponse(BaseModel):

@@ -2555,8 +2555,19 @@ def create_app() -> FastAPI:
                                         "run_id": str(_uuid4()),
                                     },
                                 )
-                                await svc.generate_report(gen)
+                                report = await svc.generate_report(gen)
                                 await svc.mark_template_ran(template)
+                                if template.recipients:
+                                    try:
+                                        await svc.dispatch_report_email(
+                                            report,
+                                            list(template.recipients),
+                                        )
+                                    except Exception:
+                                        logger.exception(
+                                            "Scheduled report %s email dispatch failed",
+                                            template.id,
+                                        )
                             except Exception:
                                 logger.exception(
                                     "Scheduled report %s failed",

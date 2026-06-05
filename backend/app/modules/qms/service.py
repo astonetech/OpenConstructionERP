@@ -613,6 +613,33 @@ class QMSService:
                 source_module="qms",
             )
 
+        # Approval integration (item 12 gap #4). A failed or conditional
+        # result on a hold / witness point does not release the gate by
+        # itself — it needs a formal disposition. We fan out
+        # ``qms.inspection.approval_requested`` so the approval_routes engine
+        # (which subscribes in its own module) can open an approval instance
+        # against the inspection. Emitting an event rather than calling the
+        # approval service inline keeps QMS loadable without approval_routes
+        # in minimal fixtures and avoids holding a write session across a
+        # second module's transaction.
+        if is_hold_point and result in ("failed", "conditional"):
+            event_bus.publish_detached(
+                "qms.inspection.approval_requested",
+                {
+                    "inspection_id": str(inspection_id),
+                    "project_id": str(inspection.project_id),
+                    "itp_item_id": str(item.id),
+                    "control_point_name": item.control_point_name,
+                    "hold_witness_point": item.hold_witness_point,
+                    "result": result,
+                    "reason": (
+                        "Hold point did not pass cleanly; a disposition approval is required "
+                        "before dependent work may proceed."
+                    ),
+                },
+                source_module="qms",
+            )
+
         logger.info(
             "QMS inspection completed: project=%s id=%s result=%s signatures=%d/%d hold_point=%s",
             inspection.project_id,
@@ -819,6 +846,193 @@ class QMSService:
             released_by_user_id,
         )
         return release
+
+    # ── Quality-gate enforcement for downstream modules (item 12 gap #3) ─
+
+    async def is_hold_point_satisfied(
+        self,
+        itp_item_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Resolve whether the hold point on an ITP item is satisfied.
+
+        A hold / witness point is *satisfied* (downstream work may proceed)
+        when its most-recent inspection has PASSED, OR a manual hold-point
+        release record exists for a passed inspection. A ``review`` point is
+        not a gate and is always satisfied. Returns a dict the caller can use
+        both for a boolean decision and for surfacing the blocking reason in
+        a UI / error message.
+
+        This is the read-only seam other modules (task progression, change
+        orders) call before allowing a gated action — see
+        :meth:`assert_downstream_action_allowed`.
+        """
+        item = await self.repo.get_itp_item(itp_item_id)
+        if item is None:
+            raise ValueError(f"ITP item {itp_item_id} not found")
+        if item.hold_witness_point not in ("hold", "witness"):
+            return {
+                "itp_item_id": itp_item_id,
+                "is_hold_point": False,
+                "satisfied": True,
+                "reason": None,
+            }
+        inspections = await self.repo.list_inspections_for_itp_item(itp_item_id)
+        if not inspections:
+            return {
+                "itp_item_id": itp_item_id,
+                "is_hold_point": True,
+                "satisfied": False,
+                "reason": (f"Hold point '{item.control_point_name}' has no inspection scheduled yet"),
+            }
+        passed = [ins for ins in inspections if ins.status == "passed"]
+        if not passed:
+            # Any failed inspection is the strongest blocking signal.
+            failed = any(ins.status == "failed" for ins in inspections)
+            reason = (
+                f"Hold point '{item.control_point_name}' last inspection failed"
+                if failed
+                else f"Hold point '{item.control_point_name}' inspection has not passed yet"
+            )
+            return {
+                "itp_item_id": itp_item_id,
+                "is_hold_point": True,
+                "satisfied": False,
+                "reason": reason,
+            }
+        # At least one passed inspection. Witness points are satisfied on a
+        # pass; hold points additionally require a manual release record so a
+        # human explicitly unblocked downstream work.
+        if item.hold_witness_point == "witness":
+            return {
+                "itp_item_id": itp_item_id,
+                "is_hold_point": True,
+                "satisfied": True,
+                "reason": None,
+            }
+        released = False
+        for ins in passed:
+            if await self.repo.get_hold_point_release(ins.id) is not None:
+                released = True
+                break
+        return {
+            "itp_item_id": itp_item_id,
+            "is_hold_point": True,
+            "satisfied": released,
+            "reason": (
+                None if released else (f"Hold point '{item.control_point_name}' has passed but has not been released")
+            ),
+        }
+
+    async def assert_downstream_action_allowed(
+        self,
+        itp_item_id: uuid.UUID,
+    ) -> None:
+        """Raise :class:`ValueError` if a hold point blocks downstream work.
+
+        Thin guard wrapper over :meth:`is_hold_point_satisfied` for callers
+        (task progression, change-order approval) that want fail-closed
+        semantics: the action is allowed only when the gate is satisfied.
+        """
+        status = await self.is_hold_point_satisfied(itp_item_id)
+        if not status["satisfied"]:
+            raise ValueError(
+                f"Blocked by quality gate: {status['reason'] or 'hold point not satisfied'}",
+            )
+
+    # ── Compliance-ready export (item 12 gap #7) ────────────────────────
+
+    async def build_inspection_compliance_record(
+        self,
+        inspection_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Assemble the audit-ready record for a single inspection.
+
+        Bundles the inspection, its linked control point, every signature
+        (with non-repudiation context), evidence attachments (with their
+        SHA-256 integrity hashes) and the hold-point release, if any. The
+        shape is reused by both the JSON and CSV/PDF export endpoints so a
+        compliance reviewer always sees the same fields.
+        """
+        inspection = await self.repo.get_inspection(inspection_id)
+        if inspection is None:
+            raise ValueError(f"Inspection {inspection_id} not found")
+        item: ITPItem | None = None
+        if inspection.itp_item_id is not None:
+            item = await self.repo.get_itp_item(inspection.itp_item_id)
+        signatures = await self.repo.list_signatures(inspection_id)
+        attachments = await self.repo.list_inspection_attachments(inspection_id)
+        release = await self.repo.get_hold_point_release(inspection_id)
+        return {
+            "inspection_id": str(inspection.id),
+            "project_id": str(inspection.project_id),
+            "status": inspection.status,
+            "scheduled_at": inspection.scheduled_at,
+            "performed_at": inspection.performed_at,
+            "location_ref": inspection.location_ref,
+            "control_point_name": (item.control_point_name if item else None),
+            "hold_witness_point": (item.hold_witness_point if item else None),
+            "responsible_role": (item.responsible_role if item else None),
+            "acceptance_criteria": (item.acceptance_criteria if item else None),
+            "csi_section_ref": (item.csi_section_ref if item else None),
+            "spec_drawing_ref": (item.spec_drawing_ref if item else None),
+            "boq_position_id": (str(item.boq_position_id) if item and item.boq_position_id else None),
+            "bim_element_id": (item.bim_element_id if item else None),
+            "signatures": [
+                {
+                    "signer_user_id": str(s.signer_user_id),
+                    "signer_role": s.signer_role,
+                    "signed_at": s.signed_at,
+                    "signature_method": s.signature_method,
+                    "timestamp_utc": s.timestamp_utc,
+                    "signer_ip": s.signer_ip,
+                    "comments": s.comments,
+                }
+                for s in signatures
+            ],
+            "evidence": [
+                {
+                    "document_id": str(a.document_id),
+                    "caption": a.caption,
+                    "file_hash_sha256": a.file_hash_sha256,
+                    "uploaded_by": (str(a.uploaded_by) if a.uploaded_by else None),
+                    "attached_at": a.attached_at,
+                }
+                for a in attachments
+            ],
+            "released": release is not None,
+            "released_by": (str(release.released_by) if release and release.released_by else None),
+            "released_at": (release.released_at if release else None),
+            "release_justification": (release.justification if release else None),
+        }
+
+    async def build_plan_compliance_export(
+        self,
+        plan_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Assemble the compliance export for a whole ITP plan.
+
+        One compliance record per inspection across every control point in
+        the plan, plus the plan header. Used by the CSV / PDF endpoints so an
+        auditor can pull the full quality dossier for a work package.
+        """
+        plan = await self.repo.get_itp_plan(plan_id)
+        if plan is None:
+            raise ValueError(f"ITP plan {plan_id} not found")
+        items = await self.repo.list_itp_items(plan_id)
+        records: list[dict[str, Any]] = []
+        for item in items:
+            inspections = await self.repo.list_inspections_for_itp_item(item.id)
+            for ins in inspections:
+                records.append(await self.build_inspection_compliance_record(ins.id))
+        return {
+            "plan_id": str(plan.id),
+            "project_id": str(plan.project_id),
+            "name": plan.name,
+            "work_type": plan.work_type,
+            "status": plan.status,
+            "generated_at": _utc_now_iso(),
+            "records": records,
+        }
 
     # ── NCR ────────────────────────────────────────────────────────────
 

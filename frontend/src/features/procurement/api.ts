@@ -68,6 +68,33 @@ export function getSupplierScorecard(
   );
 }
 
+/* ── Vendor prequalification status (TOP-30 #20) ──────────────────────── */
+
+export interface VendorEligibility {
+  contact_id: string;
+  known: boolean;
+  subcontractor_id: string | null;
+  legal_name: string | null;
+  awardable: boolean;
+  prequalification_status: string | null;
+  is_blocked: boolean;
+  rating_score: string | null;
+  reasons: string[];
+}
+
+/**
+ * Resolve a PO vendor's prequalification / block status from its CRM
+ * contact id. Returns ``known=false`` for an ad-hoc supplier that is not a
+ * registered subcontractor (no badge shown).
+ */
+export function getVendorEligibility(
+  contactId: string,
+): Promise<VendorEligibility> {
+  return apiGet<VendorEligibility>(
+    `/v1/subcontractors/vendors/by-contact/${contactId}/eligibility`,
+  );
+}
+
 /* ── Retainage (Gap F) ─────────────────────────────────────────────────── */
 
 export interface PORetainageRelease {

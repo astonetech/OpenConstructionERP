@@ -16,8 +16,11 @@ def register_payroll_permissions() -> None:
         {
             "payroll.read": Role.MANAGER,
             "payroll.manage": Role.MANAGER,
-            # Finalize approves a draft batch AND posts its labour cost to the
-            # cost spine - a money-moving action, kept manager-scoped.
+            # Finalize approves a draft/submitted batch AND posts its labour
+            # cost to the cost spine - a money-moving action, manager-scoped.
             "payroll.finalize": Role.MANAGER,
+            # Post hands the approved batch to the finance GL (terminal) -
+            # the most sensitive transition, kept manager-scoped.
+            "payroll.post": Role.MANAGER,
         },
     )

@@ -52,6 +52,11 @@ export interface BIMElementsResponse {
 export interface BIMElementProgressRow {
   id: string;
   current_pct: number | null;
+  /** ISO-8601 recorded date of the headline progress entry (the same entry
+   *  whose percentage is `current_pct`). `null` when there's no linked
+   *  progress or the winning entry carries no recorded date. Drives the
+   *  "as of <date>" line in the selected-element info panel. */
+  current_pct_date: string | null;
 }
 
 export interface BIMElementProgressResponse {
@@ -83,12 +88,16 @@ export async function fetchBIMElementProgress(
       offset: String(offset),
     });
     const resp = await apiGet<{
-      items: Array<{ id: string; current_pct?: number | null }>;
+      items: Array<{ id: string; current_pct?: number | null; current_pct_date?: string | null }>;
       total: number;
     }>(`/v1/bim_hub/models/${encodeURIComponent(modelId)}/elements/?${params.toString()}`);
     total = resp.total;
     for (const item of resp.items) {
-      rows.push({ id: item.id, current_pct: item.current_pct ?? null });
+      rows.push({
+        id: item.id,
+        current_pct: item.current_pct ?? null,
+        current_pct_date: item.current_pct_date ?? null,
+      });
     }
     offset += pageSize;
     if (resp.items.length < pageSize || offset >= total) break;

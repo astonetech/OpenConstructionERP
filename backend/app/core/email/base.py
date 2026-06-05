@@ -23,6 +23,26 @@ from typing import Literal
 
 
 @dataclass(slots=True)
+class EmailAttachment:
+    """‌⁠‍A single binary attachment carried on an ``EmailMessage``.
+
+    Kept deliberately minimal — the bytes plus enough metadata for the SMTP
+    backend to build a MIME part. Generated PDFs (receipts, contracts,
+    certificates) are the primary use case, so ``content_type`` defaults to
+    ``application/pdf``.
+
+    Attributes:
+        filename: Suggested download name (``handover-certificate.pdf``).
+        content: Raw bytes of the attachment.
+        content_type: Full MIME type (``application/pdf``, ``text/csv``).
+    """
+
+    filename: str
+    content: bytes
+    content_type: str = "application/pdf"
+
+
+@dataclass(slots=True)
 class EmailMessage:
     """‌⁠‍A single outbound email.
 
@@ -44,6 +64,9 @@ class EmailMessage:
         tags: Free-form labels for observability (``["password_reset"]``).
             Used by the console backend for pretty-printing and carried
             through to structured logs.
+        attachments: Optional binary attachments. Only the SMTP backend
+            materialises them into MIME parts; the console / memory / noop
+            backends simply note them (they never actually deliver).
     """
 
     to: str
@@ -53,6 +76,7 @@ class EmailMessage:
     reply_to: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    attachments: list[EmailAttachment] = field(default_factory=list)
 
 
 @dataclass(slots=True)

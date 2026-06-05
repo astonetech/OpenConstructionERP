@@ -657,3 +657,64 @@ class ContractDashboardResponse(BaseModel):
     change_orders_count: int
     gainshare_estimate: Decimal | None = None
     status: str
+
+
+# ── AIA G702/G703 (US/CA/AU only) ──────────────────────────────────────────
+
+
+class AIAG703Line(BaseModel):
+    """One G703 continuation-sheet row."""
+
+    line_number: int
+    item_number: str
+    description: str
+    scheduled_value: Decimal
+    previous_value: Decimal
+    this_period_value: Decimal
+    materials_stored: Decimal
+    total_completed_stored: Decimal
+    percent_complete: Decimal
+    balance_to_finish: Decimal
+    retainage: Decimal
+
+
+class AIAG702Summary(BaseModel):
+    """G702 certificate-face summary."""
+
+    original_contract_sum: Decimal
+    change_orders_net: Decimal
+    contract_sum_to_date: Decimal
+    total_completed_stored: Decimal
+    retainage: Decimal
+    total_earned_less_retainage: Decimal
+    previous_certificates_total: Decimal
+    current_payment_due: Decimal
+    balance_to_finish: Decimal
+
+
+class AIACertification(BaseModel):
+    """Architect / owner certification block stamped on the application."""
+
+    architect_certified_at: str | None = None
+    architect_certified_by: str | None = None
+    owner_certified_at: str | None = None
+    owner_certified_by: str | None = None
+    certified_amount: Decimal | None = None
+
+
+class AIAApplicationResponse(BaseModel):
+    """Full AIA G702 + G703 payment-application view for one progress claim."""
+
+    claim_id: UUID
+    contract_id: UUID
+    project_id: UUID
+    application_number: str
+    period_start: str | None = None
+    period_end: str | None = None
+    claim_date: str | None = None
+    currency: str
+    claim_status: str
+    retainage_percent: Decimal
+    summary: AIAG702Summary
+    lines: list[AIAG703Line]
+    certification: AIACertification

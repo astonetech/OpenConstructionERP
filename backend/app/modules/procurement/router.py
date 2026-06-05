@@ -80,6 +80,10 @@ def _po_to_response(po: PurchaseOrder, vendor_names: dict[str, str]) -> PORespon
     # PO's own currency — never blended.
     resp.retainage_amount = str(po.retainage_amount())
     resp.retainage_held = str(po.retainage_held())
+    # Non-blocking vendor-prequalification warnings (TOP-30 #20) — stamped by
+    # the service gate on create/update as a transient attribute. Absent on a
+    # plain list read, so default to empty.
+    resp.vendor_warnings = list(getattr(po, "vendor_warnings", []) or [])
     return resp
 
 

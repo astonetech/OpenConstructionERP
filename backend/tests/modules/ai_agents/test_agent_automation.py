@@ -251,3 +251,134 @@ async def test_set_tools_permission_gate(session: AsyncSession) -> None:
         )
         is None
     )
+
+
+# ── 5. Event triggers: subscribe, normalise, ownership ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_set_triggers_persists_and_normalises(session: AsyncSession) -> None:
+    owner = uuid.uuid4()
+    svc = AgentService(session)
+    agent_id = await _make_agent(svc, owner)
+
+    # Known triggers persist; an unknown slug is dropped (a stale frontend can
+    # never store an inert trigger that would silently never fire).
+    meta = await svc.set_triggers(
+        agent_id=agent_id,
+        user_id=owner,
+        triggers=["rfi_created", "not_a_real_trigger", "document_uploaded"],
+    )
+    assert meta is not None
+    assert set(meta["triggers"]) == {"rfi_created", "document_uploaded"}
+
+    # Triggers are independent of any cron schedule (no schedule was set).
+    assert meta["cron"] is None
+
+    # Non-owner cannot set triggers.
+    assert await svc.set_triggers(agent_id=agent_id, user_id=uuid.uuid4(), triggers=[]) is None
+
+
+@pytest.mark.asyncio
+async def test_list_subscribed_to_trigger(session: AsyncSession) -> None:
+    owner = uuid.uuid4()
+    svc = AgentService(session)
+    subscribed = await _make_agent(svc, owner)
+    other = await _make_agent(svc, owner)
+    await svc.set_triggers(agent_id=subscribed, user_id=owner, triggers=["rfi_created"])
+    await svc.set_triggers(agent_id=other, user_id=owner, triggers=["document_uploaded"])
+
+    rows = await svc.custom_repo.list_subscribed_to_trigger("rfi_created")
+    ids = {r.id for r in rows}
+    assert subscribed in ids
+    assert other not in ids
+
+
+# ── 6. Event-triggered run fires the subscribed agent ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_event_fires_subscribed_agent(session: AsyncSession) -> None:
+    owner = uuid.uuid4()
+    svc = AgentService(session)
+    agent_id = await _make_agent(svc, owner)
+    await svc.set_triggers(agent_id=agent_id, user_id=owner, triggers=["rfi_created"])
+
+    from app.modules.ai_agents import events as agent_events
+
+    # Drive the handler body directly (its own session path is bypassed by
+    # patching async_session_factory to a no-op context that yields our test
+    # session — instead we call the inner helper with the shared service).
+    fired = await _fire_with_shared_session(
+        svc,
+        trigger="rfi_created",
+        data={"project_id": None, "rfi_id": str(uuid.uuid4()), "rfi_number": "RFI-001"},
+    )
+    assert fired == 1
+
+    runs = await svc.list_automated_runs(user_id=owner, limit=10)
+    assert len(runs) == 1
+    # The run is tagged as event-fired (audit/monitoring marker) and lands in the
+    # deterministic no-key fallback (never a silent success).
+    assert runs[0].trigger_source == "event:rfi_created"
+    assert runs[0].status == "failed"
+    assert runs[0].failure_reason == "no_llm"
+
+    # Sanity: the module wires the two events that genuinely publish today.
+    assert agent_events._EVENT_TO_TRIGGER == {
+        "rfi.created": "rfi_created",
+        "document.uploaded": "document_uploaded",
+    }
+
+
+async def _fire_with_shared_session(svc: AgentService, *, trigger: str, data: dict) -> int:
+    """Run every agent subscribed to ``trigger`` on the test's shared session.
+
+    Mirrors ``events._fire_subscribed_agents`` but uses the transaction-isolated
+    session (the real handler opens its own session, which a rolled-back test
+    fixture cannot share).
+    """
+    from app.modules.ai_agents.events import _build_input, _coerce_project_id
+
+    project_id = _coerce_project_id(data.get("project_id"))
+    user_input = _build_input(trigger, data)
+    fired = 0
+    agents = await svc.custom_repo.list_subscribed_to_trigger(trigger)
+    for agent in agents:
+        await svc.start_run(
+            user_id=agent.user_id,
+            agent_name=agent.agent_name,
+            user_input=user_input,
+            project_id=project_id,
+            trigger_source=f"event:{trigger}",
+        )
+        fired += 1
+    return fired
+
+
+# ── 7. Automated-runs monitoring query ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_automated_runs_excludes_manual(session: AsyncSession) -> None:
+    owner = uuid.uuid4()
+    svc = AgentService(session)
+    agent_id = await _make_agent(svc, owner)
+
+    # A manual run (default trigger_source) and a scheduled one.
+    await svc.start_run(user_id=owner, agent_name=f"custom:{agent_id}", user_input="hi")
+    await svc.start_run(
+        user_id=owner,
+        agent_name=f"custom:{agent_id}",
+        user_input="scheduled",
+        trigger_source="schedule",
+    )
+
+    automated = await svc.list_automated_runs(user_id=owner, limit=10)
+    # Only the scheduled run is "automated"; the manual one is excluded.
+    assert len(automated) == 1
+    assert automated[0].trigger_source == "schedule"
+
+    # The full run list still includes both.
+    all_runs = await svc.list_runs(user_id=owner, limit=10)
+    assert len(all_runs) == 2

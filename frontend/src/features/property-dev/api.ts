@@ -2856,6 +2856,39 @@ export function previewPropDevDocument(
   );
 }
 
+export interface PropDevDocEmailParams extends PropDevDocParams {
+  recipient_email: string;
+  recipient_name?: string;
+  note?: string;
+}
+
+export interface PropDevDocEmailResult {
+  ok: boolean;
+  recipient: string;
+  backend: string;
+  doc_type: string;
+  filename: string;
+  /** False when the server fell back to the console backend (SMTP not
+   *  configured) — the message was logged, not actually delivered. */
+  delivered: boolean;
+}
+
+/**
+ * Email a generated Property-Development PDF to a recipient as an
+ * attachment. Calls ``POST /api/v1/property-dev/documents/email``; the
+ * backend renders the PDF, validates the address and hands it to the core
+ * email service. Returns the delivery outcome so the UI can show an honest
+ * toast (including the "SMTP not configured" fallback case).
+ */
+export function emailPropDevDocument(
+  params: PropDevDocEmailParams,
+): Promise<PropDevDocEmailResult> {
+  return apiPost<PropDevDocEmailResult, PropDevDocEmailParams>(
+    `${BASE}/documents/email`,
+    params,
+  );
+}
+
 /* ── Document Template catalogue (settings page) ──────────────────────── */
 
 export type CustomDocType =

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _CURRENCY_CODE_RE = re.compile(r"^[A-Z]{3}$")
@@ -584,6 +584,7 @@ class ProjectResponse(BaseModel):
     client_id: str | None = None
     parent_project_id: UUID | None = None
     address: dict[str, Any] | None = None
+    country_code: str | None = None
     contract_value: str | None = None
     planned_start_date: str | None = None
     planned_end_date: str | None = None
@@ -610,6 +611,19 @@ class ProjectResponse(BaseModel):
         from app.core.sanitize import sanitise_text
 
         return sanitise_text(v) or ""
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_aia_eligible(self) -> bool:
+        """True when this project may use AIA G702/G703 (US/CA/AU only).
+
+        Derived from the project country so the front end can render the AIA
+        payment-application UI only where it is the local norm. The backend
+        enforces the same gate independently on the AIA endpoints.
+        """
+        from app.modules.contracts.aia import is_aia_eligible
+
+        return is_aia_eligible(self.country_code, self.address)
 
 
 # ── WBS schemas ──────────────────────────────────────────────────────────

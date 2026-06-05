@@ -317,6 +317,85 @@ class ProcurementService:
         self.gr_item_repo = GRItemRepository(session)
         self.retainage_repo = PORetainageReleaseRepository(session)
 
+    # ── Vendor prequalification gate (TOP-30 #20) ───────────────────────────
+
+    async def _vendor_block_status(
+        self,
+        vendor_contact_id: str | None,
+    ) -> tuple[bool, list[str]]:
+        """Resolve a PO vendor's prequalification / block verdict.
+
+        Maps the PO's CRM ``vendor_contact_id`` to the linked subcontractor
+        (the unified vendor master is ``Subcontractor.contact_id``) and reads
+        the same award-block reasons the subcontractors module computes:
+
+        * ``subcontractor_blocked`` - the vendor is hard-flagged ``is_blocked``;
+          the gate raises 409 (a blocked vendor must never receive a PO).
+        * ``prequalification_<status>`` - the vendor's prequal is rejected /
+          suspended; the gate does NOT block, it returns a non-blocking
+          warning so the buyer can still raise the PO with eyes open.
+
+        Returns ``(is_blocked, reasons)``. An unknown / ad-hoc vendor (no
+        linked subcontractor, or no contact at all) yields ``(False, [])`` -
+        never gated. The lookup is best-effort and never 500s a PO write: a
+        failed resolution degrades to "no gate".
+        """
+        if not vendor_contact_id:
+            return False, []
+        try:
+            contact_uuid = uuid.UUID(str(vendor_contact_id))
+        except (ValueError, TypeError):
+            return False, []
+        try:
+            from sqlalchemy import select
+
+            from app.modules.subcontractors.models import Subcontractor
+            from app.modules.subcontractors.service import subcontractor_award_block
+
+            stmt = (
+                select(Subcontractor)
+                .where(
+                    Subcontractor.contact_id == contact_uuid,
+                    Subcontractor.is_active.is_(True),
+                )
+                .order_by(Subcontractor.created_at.desc())
+                .limit(1)
+            )
+            sub = (await self.session.execute(stmt)).scalar_one_or_none()
+        except Exception:  # noqa: BLE001 - resolution is non-critical
+            return False, []
+        if sub is None:
+            return False, []
+        verdict = subcontractor_award_block(sub)
+        is_blocked = "subcontractor_blocked" in verdict.reasons
+        return is_blocked, verdict.reasons
+
+    async def _enforce_vendor_gate(
+        self,
+        vendor_contact_id: str | None,
+    ) -> list[str]:
+        """Apply the vendor prequalification gate, returning warnings.
+
+        Hard-blocks (409) a vendor flagged ``is_blocked``; otherwise returns
+        the non-blocking warning reasons (e.g. a rejected prequal) for the
+        caller to surface in the PO response. Empty list = vendor is clean
+        or ad-hoc.
+        """
+        is_blocked, reasons = await self._vendor_block_status(vendor_contact_id)
+        if is_blocked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "vendor_blocked",
+                    "message": (
+                        "This vendor is blocked and cannot receive a purchase order. "
+                        "Clear the block on the subcontractor record first."
+                    ),
+                    "reasons": reasons,
+                },
+            )
+        return reasons
+
     # ── Purchase Orders ──────────────────────────────────────────────────────
 
     async def create_po(
@@ -343,6 +422,11 @@ class ProcurementService:
                     "Use the approve and issue actions to advance it through the workflow."
                 ),
             )
+
+        # Vendor prequalification gate (TOP-30 #20): hard-block a vendor
+        # flagged ``is_blocked`` (409 here); a non-prequalified vendor is a
+        # non-blocking warning stamped onto the PO below.
+        vendor_warnings = await self._enforce_vendor_gate(data.vendor_contact_id)
 
         # Re-aggregate subtotal from items when items are supplied. Each item's
         # own ``amount`` is also normalised to ``quantity * unit_rate`` if the
@@ -436,6 +520,10 @@ class ProcurementService:
                 "item_count": len(data.items),
             },
         )
+
+        # Transient (non-persisted) attribute the router reads to surface the
+        # non-blocking vendor-prequalification warnings on the response.
+        po.vendor_warnings = vendor_warnings  # type: ignore[attr-defined]
 
         logger.info("PO created: %s (type=%s)", po.po_number, po.po_type)
         return po
@@ -545,6 +633,13 @@ class ProcurementService:
         if "metadata" in fields:
             fields["metadata_"] = fields.pop("metadata")
 
+        # Re-apply the vendor prequalification gate (TOP-30 #20) only when the
+        # PATCH actually changes the vendor - re-gate the NEW vendor, hard-block
+        # if blocked, collect the non-blocking warnings for the response.
+        vendor_warnings: list[str] = []
+        if "vendor_contact_id" in fields:
+            vendor_warnings = await self._enforce_vendor_gate(fields["vendor_contact_id"])
+
         # Validate status transition if status is being changed
         if "status" in fields and fields["status"] is not None:
             new_status = fields["status"]
@@ -639,6 +734,8 @@ class ProcurementService:
             },
         )
 
+        updated.vendor_warnings = vendor_warnings  # type: ignore[attr-defined]
+
         logger.info("PO updated: %s", po_id)
         return updated
 
@@ -710,6 +807,11 @@ class ProcurementService:
                     f"Cannot issue PO in status '{prior_status}'; a purchase order must be approved before it is issued"
                 ),
             )
+        # Re-check the hard block at issue time (TOP-30 #20): a vendor that was
+        # blocked AFTER the PO was created must not receive live work. A
+        # non-prequalified (but not blocked) vendor still issues - the warning
+        # was already surfaced at create time.
+        await self._enforce_vendor_gate(po.vendor_contact_id)
         await self.po_repo.update(po_id, status="issued")
 
         # FSM audit row — PO lifecycle is closely tied to the RFQ FSM (see

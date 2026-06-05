@@ -55,6 +55,7 @@ import {
   ballInCourtSide,
   daysOverdue,
 } from './RFIPage';
+import { ApprovalInstanceCard } from '@/features/approval-routes';
 
 /**
  * Decode the ``sub`` claim from the JWT — duplicated locally so the
@@ -701,6 +702,17 @@ export function RFIDetailPage() {
 
         {/* Right column — meta panel */}
         <div className="space-y-4">
+          {/* Routed approval workflow (feature 06). When the project has an
+              active "rfi" approval route the picker lets a manager start a
+              multi-step sign-off on the RFI; an approved chain re-affirms the
+              answer, a rejection reopens it. Projects with no route configured
+              keep the direct Respond / Close actions. */}
+          <ApprovalInstanceCard
+            targetKind="rfi"
+            targetId={rfi.id}
+            projectId={rfi.project_id}
+          />
+
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <User size={14} className="text-content-tertiary" />

@@ -527,6 +527,109 @@ export function getHoldPointRelease(
   );
 }
 
+/* ── Quality-gate enforcement + compliance export (item 12) ────────────── */
+
+export interface ITPItemGateStatus {
+  itp_item_id: string;
+  is_hold_point: boolean;
+  satisfied: boolean;
+  reason: string | null;
+}
+
+/**
+ * Resolve whether a control point's hold point blocks downstream work.
+ * Used to render the gate traffic-light next to each control point and to
+ * explain why dependent work cannot proceed yet.
+ */
+export function fetchITPItemGateStatus(
+  planId: string,
+  itemId: string,
+): Promise<ITPItemGateStatus> {
+  return apiGet<ITPItemGateStatus>(
+    `/v1/qms/itp-plans/${planId}/items/${itemId}/gate-status`,
+  );
+}
+
+export interface ComplianceSignature {
+  signer_user_id: string;
+  signer_role: string;
+  signed_at: string | null;
+  signature_method: string;
+  timestamp_utc: string | null;
+  signer_ip: string | null;
+  comments: string | null;
+}
+
+export interface ComplianceEvidence {
+  document_id: string;
+  caption: string | null;
+  file_hash_sha256: string | null;
+  uploaded_by: string | null;
+  attached_at: string | null;
+}
+
+export interface ComplianceRecord {
+  inspection_id: string;
+  project_id: string;
+  status: string;
+  scheduled_at: string | null;
+  performed_at: string | null;
+  location_ref: string | null;
+  control_point_name: string | null;
+  hold_witness_point: string | null;
+  responsible_role: string | null;
+  acceptance_criteria: string | null;
+  csi_section_ref: string | null;
+  spec_drawing_ref: string | null;
+  boq_position_id: string | null;
+  bim_element_id: string | null;
+  signatures: ComplianceSignature[];
+  evidence: ComplianceEvidence[];
+  released: boolean;
+  released_by: string | null;
+  released_at: string | null;
+  release_justification: string | null;
+}
+
+export interface PlanComplianceExport {
+  plan_id: string;
+  project_id: string;
+  name: string;
+  work_type: string;
+  status: string;
+  generated_at: string;
+  records: ComplianceRecord[];
+}
+
+export function fetchInspectionComplianceRecord(
+  inspectionId: string,
+): Promise<ComplianceRecord> {
+  return apiGet<ComplianceRecord>(
+    `/v1/qms/inspections/${inspectionId}/compliance-export${buildQs({ format: 'json' })}`,
+  );
+}
+
+export function fetchPlanComplianceExport(
+  planId: string,
+): Promise<PlanComplianceExport> {
+  return apiGet<PlanComplianceExport>(
+    `/v1/qms/itp-plans/${planId}/compliance-export${buildQs({ format: 'json' })}`,
+  );
+}
+
+/**
+ * Absolute-relative URL for the CSV compliance export of an ITP plan. The
+ * caller opens this in a new tab / triggers a download; the browser carries
+ * the auth cookie so no extra fetch wiring is needed.
+ */
+export function planComplianceCsvUrl(planId: string): string {
+  return `/api/v1/qms/itp-plans/${planId}/compliance-export?format=csv`;
+}
+
+export function inspectionComplianceCsvUrl(inspectionId: string): string {
+  return `/api/v1/qms/inspections/${inspectionId}/compliance-export?format=csv`;
+}
+
 /* ── NCRs ──────────────────────────────────────────────────────────────── */
 
 export function listNCRs(params: {

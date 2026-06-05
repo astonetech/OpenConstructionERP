@@ -25,6 +25,7 @@ import {
   // on 2026-05-25; only ClipboardList + CloudSun remain in active use.
   ClipboardList,
   CloudSun,
+  HardHat,
 } from 'lucide-react';
 
 export interface DashboardWidgetMeta {
@@ -162,6 +163,14 @@ export const DASHBOARD_WIDGETS: readonly DashboardWidgetMeta[] = [
     descKey: 'dashboard.layout.w_weather_desc',
     descDefault: "Today's weather at your first project site",
     icon: CloudSun,
+  },
+  {
+    id: 'labour_cost',
+    labelKey: 'dashboard.layout.w_labour_cost',
+    labelDefault: 'Labour cost vs budget',
+    descKey: 'dashboard.layout.w_labour_cost_desc',
+    descDefault: 'Cumulative field labour cost against the labour budget',
+    icon: HardHat,
   },
 ] as const;
 

@@ -68,11 +68,11 @@ def required_permission_for_tool(tool_name: str) -> str:
 # ── Event-trigger catalogue ──────────────────────────────────────────────────
 # The events a custom agent may subscribe to. ``name`` is the stable slug stored
 # in ``automation.triggers``; ``label`` / ``description`` are English defaults
-# the frontend localises. Actual event-bus subscription that fires the run is a
-# later wave — until then a stored trigger is inert (it round-trips through the
-# API and is shown in the builder, but never fires), which is why the catalogue
-# entries carry ``available=False`` so the UI can label them "coming soon"
-# instead of implying an action that does not yet happen.
+# the frontend localises. The event-bus subscription that actually fires a
+# subscribed agent lives in :mod:`app.modules.ai_agents.events`. A trigger whose
+# platform event is wired carries ``available=True``; one whose source event is
+# not yet published carries ``available=False`` so the UI can label it "coming
+# soon" instead of implying an action that does not yet happen.
 
 
 class EventTrigger:
@@ -100,11 +100,13 @@ EVENT_TRIGGERS: tuple[EventTrigger, ...] = (
         "rfi_created",
         "When an RFI is created",
         "Fire the agent with the new RFI as context (e.g. draft a first reply).",
+        available=True,
     ),
     EventTrigger(
         "document_uploaded",
         "When a document is uploaded",
         "Fire the agent when a new document lands (e.g. summarise or classify it).",
+        available=True,
     ),
     EventTrigger(
         "schedule_variance_recorded",

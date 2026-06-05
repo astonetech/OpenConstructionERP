@@ -258,6 +258,62 @@ class TestGateC:
         )
         assert captured.get("cde_state") == "archived"
 
+    @pytest.mark.asyncio
+    async def test_archived_accepts_ar_suitability(self) -> None:
+        # AR is the only legal suitability code in the archived state.
+        doc = _doc(cde_state="published")
+        svc, captured = _make_service(doc)
+        await svc.update_document(
+            doc.id,
+            DocumentUpdate(cde_state="archived", suitability_code="AR"),
+            user_role="admin",
+        )
+        assert captured.get("cde_state") == "archived"
+        assert captured.get("suitability_code") == "AR"
+
+
+# ── Non-transition PATCH bypasses gates ───────────────────────────────────
+
+
+class TestNonTransitionPatch:
+    @pytest.mark.asyncio
+    async def test_rename_only_never_hits_a_gate(self) -> None:
+        # A metadata-only PATCH (no cde_state) must succeed for any role —
+        # the role/signature gates only fire on an actual state transition.
+        doc = _doc(cde_state="published")
+        svc, captured = _make_service(doc)
+        await svc.update_document(
+            doc.id,
+            DocumentUpdate(name="renamed-drawing"),
+            user_role="viewer",
+        )
+        assert captured.get("name") == "renamed-drawing"
+        assert "cde_state" not in captured
+
+    @pytest.mark.asyncio
+    async def test_blank_suitability_is_accepted(self) -> None:
+        # Suitability is optional — an empty string must not be rejected and
+        # must not be validated against the state.
+        doc = _doc(cde_state="shared")
+        svc, captured = _make_service(doc)
+        await svc.update_document(doc.id, DocumentUpdate(suitability_code=""))
+        # Blank code falls through the validator; the description-only update
+        # path writes nothing CDE-related and never 400s.
+        assert "suitability_code" not in captured or not captured.get("suitability_code")
+
+    @pytest.mark.asyncio
+    async def test_reasserting_same_state_is_allowed(self) -> None:
+        # Re-setting the current state (shared -> shared) is a no-op transition
+        # and must not trip the forward-only guard or a role gate.
+        doc = _doc(cde_state="shared")
+        svc, captured = _make_service(doc)
+        await svc.update_document(
+            doc.id,
+            DocumentUpdate(cde_state="shared"),
+            user_role="viewer",
+        )
+        assert captured.get("cde_state") == "shared"
+
 
 # ── Gate A enforcement (WIP -> SHARED) ─────────────────────────────────────
 

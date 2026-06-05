@@ -78,6 +78,7 @@ import {
   Radar,
   ScrollText,
   CalendarRange,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -345,6 +346,7 @@ const navGroups: NavGroup[] = [
       { labelKey: 'nav.payroll', to: '/payroll', icon: Wallet, advancedOnly: true },
       { labelKey: 'nav.service', to: '/service', icon: Wrench },
       { labelKey: 'nav.portal', to: '/portal', icon: Globe },
+      { labelKey: 'nav.portal_payments', to: '/portal/payments', icon: FileText, advancedOnly: true },
       { labelKey: 'nav.assets', to: '/assets', icon: Package, badge: 'BETA' },
     ],
   },
@@ -437,6 +439,7 @@ const navGroups: NavGroup[] = [
     hideInSimple: true,
     items: [
       { labelKey: 'nav.reports', to: '/reports', icon: FileBarChart, advancedOnly: true },
+      { labelKey: 'nav.project_controls', to: '/project-controls', icon: Gauge, advancedOnly: true },
       { labelKey: 'nav.bi_dashboards', to: '/bi-dashboards', icon: BarChart3, advancedOnly: true },
       // Newly surfaced: Snapshots, Reporting Dashboards, Architecture Map.
       // All three already routed in App.tsx but were unreachable from
@@ -573,6 +576,7 @@ const ROUTE_BACKEND_MODULE: Record<string, string> = {
   '/payroll': 'oe_payroll',
   '/service': 'oe_service',
   '/portal': 'oe_portal',
+  '/portal/payments': 'oe_portal',
   // Quality
   '/validation': 'oe_validation',
   '/inspections': 'oe_inspections',
@@ -599,6 +603,7 @@ const ROUTE_BACKEND_MODULE: Record<string, string> = {
   '/changeorders': 'oe_changeorders',
   // Analytics & reports
   '/reports': 'oe_reporting',
+  '/project-controls': 'oe_project_controls',
   '/bi-dashboards': 'oe_bi_dashboards',
   '/reporting': 'oe_reporting',
   '/architecture': 'oe_architecture_map',
@@ -671,6 +676,7 @@ const ROUTE_MODULE_KEY: Record<string, string> = {
   '/payroll': 'payroll',
   '/service': 'service',
   '/portal': 'portal',
+  '/portal/payments': 'portal',
   '/assets': 'equipment',
   // Quality
   '/validation': 'validation',
@@ -698,6 +704,7 @@ const ROUTE_MODULE_KEY: Record<string, string> = {
   '/changeorders': 'changeorders',
   // Analytics & reports
   '/reports': 'reporting',
+  '/project-controls': 'bi_dashboards',
   '/bi-dashboards': 'bi_dashboards',
   '/dashboards': 'reporting',
   '/reporting': 'reporting',

@@ -19,6 +19,7 @@ import {
   Lock,
   Unlock,
   ShieldAlert,
+  Download,
 } from 'lucide-react';
 import {
   Button,
@@ -66,6 +67,7 @@ import {
   checkHoldPointStatus,
   releaseHoldPoint,
   linkITPItemToSpec,
+  planComplianceCsvUrl,
   type ITPPlan,
   type ITPItem,
   type Inspection,
@@ -1306,6 +1308,25 @@ function ITPPlanDrawer({
           </button>
         </div>
         <div className="space-y-4 p-5">
+          <div className="flex items-center justify-between rounded-md border border-border-light bg-surface-secondary px-3 py-2">
+            <span className="flex items-center gap-1.5 text-xs text-content-secondary">
+              <FileCheck size={13} />
+              {t('qms.compliance_dossier', {
+                defaultValue: 'Audit-ready quality dossier',
+              })}
+            </span>
+            <a
+              href={planComplianceCsvUrl(planId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded border border-border-light px-2 py-1 text-2xs font-medium text-content-primary hover:bg-surface-tertiary"
+            >
+              <Download size={12} />
+              {t('qms.export_compliance_csv', {
+                defaultValue: 'Export compliance (CSV)',
+              })}
+            </a>
+          </div>
           <div>
             <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-content-secondary">
               <Lock size={13} />

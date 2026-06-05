@@ -51,6 +51,8 @@ import {
 } from './api';
 import { PopulatePreviewModal } from './PopulatePreviewModal';
 import { ProgressClaimLineTable } from './ProgressClaimLineTable';
+import { AIAApplicationPanel } from './AIAApplicationPanel';
+import { projectsApi } from '@/features/projects/api';
 
 const CLAIM_STATUS_VARIANT: Record<
   ClaimStatus,
@@ -112,7 +114,17 @@ export function ProgressClaimDetailPage() {
     enabled: !!claimId,
   });
 
+  // Load the project so we can country-gate the AIA G702/G703 panel. The flag
+  // is computed server-side (US/CA/AU only); the panel renders only when true,
+  // and the AIA endpoints independently 404 elsewhere.
+  const projectQ = useQuery({
+    queryKey: ['projects', 'detail', projectId],
+    queryFn: () => projectsApi.get(projectId as string),
+    enabled: !!projectId,
+  });
+
   const claim = claimQ.data;
+  const aiaEligible = projectQ.data?.is_aia_eligible === true;
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['contracts', 'claim', claimId] });
@@ -331,6 +343,11 @@ export function ProgressClaimDetailPage() {
           isLoading={linesQ.isLoading}
         />
       </Card>
+
+      {/* AIA G702/G703 — US/CA/AU only (gated on project.is_aia_eligible). */}
+      {aiaEligible && (
+        <AIAApplicationPanel claimId={claimId as string} currency={claim.currency} />
+      )}
 
       {populateOpen && (
         <PopulatePreviewModal

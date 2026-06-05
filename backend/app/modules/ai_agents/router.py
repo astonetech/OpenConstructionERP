@@ -42,6 +42,7 @@ from app.modules.ai_agents.schemas import (
     GuidedAgentSpec,
     SetScheduleRequest,
     SetToolsRequest,
+    SetTriggersRequest,
     ToolDescriptor,
     ToolWithPermission,
 )
@@ -466,6 +467,32 @@ async def delete_schedule_endpoint(
     await session.commit()
 
 
+@router.post(
+    "/custom/{agent_id}/triggers",
+    response_model=AgentMetadataResponse,
+    dependencies=[Depends(RequirePermission("ai_agents.run"))],
+)
+async def set_triggers_endpoint(
+    agent_id: uuid.UUID,
+    request: SetTriggersRequest,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    service: AgentService = Depends(_get_service),
+) -> AgentMetadataResponse:
+    """Subscribe one of the caller's agents to platform events.
+
+    The agent then runs automatically when a subscribed event fires (e.g. an RFI
+    is created). An event-fired run is a normal run and never auto-applies its
+    output. 404 unless the agent is owned by the caller.
+    """
+    uid = uuid.UUID(user_id)
+    meta = await service.set_triggers(agent_id=agent_id, user_id=uid, triggers=request.triggers)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Custom agent not found")
+    await session.commit()
+    return AgentMetadataResponse(**meta)
+
+
 @router.get(
     "/custom/{agent_id}/tools",
     response_model=AgentToolsResponse,
@@ -770,6 +797,28 @@ async def list_runs(
 
 
 @router.get(
+    "/runs/automated",
+    response_model=list[AgentRunListItem],
+    dependencies=[Depends(RequirePermission("ai_agents.read"))],
+)
+async def list_automated_runs(
+    user_id: CurrentUserId,
+    limit: int = Query(50, ge=1, le=200),
+    service: AgentService = Depends(_get_service),
+) -> list[AgentRunListItem]:
+    """List the caller's automated runs (scheduler / event-fired), newest-first.
+
+    Powers the monitoring panel so an operator can see when their scheduled or
+    event-triggered agents ran and whether any failed — automated runs have no
+    user watching the timeline live. Registered before ``/runs/{run_id}`` so the
+    literal ``automated`` path is not captured by the UUID path parameter.
+    """
+    uid = uuid.UUID(user_id)
+    runs = await service.list_automated_runs(user_id=uid, limit=limit)
+    return [AgentRunListItem.model_validate(r) for r in runs]
+
+
+@router.get(
     "/insights",
     response_model=list[AgentInsightResponse],
     dependencies=[Depends(RequirePermission("ai_agents.read"))],
@@ -823,6 +872,7 @@ def _serialise_run(run: Any, *, steps: list[Any]) -> AgentRunResponse:
         project_id=run.project_id,
         user_id=run.user_id,
         status=run.status,
+        trigger_source=getattr(run, "trigger_source", "manual") or "manual",
         failure_reason=run.failure_reason,
         user_input=run.user_input,
         final_output=run.final_output,

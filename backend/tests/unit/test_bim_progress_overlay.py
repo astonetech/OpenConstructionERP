@@ -19,7 +19,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from app.modules.bim_hub.service import _fold_progress_onto_elements
+from app.modules.bim_hub.service import (
+    _fold_progress_date_onto_elements,
+    _fold_progress_onto_elements,
+)
 
 
 @dataclass
@@ -144,5 +147,67 @@ def test_element_with_none_boq_links_is_safe() -> None:
     elem.boq_links = None  # type: ignore[assignment]
 
     out = _fold_progress_onto_elements([elem], {_new_id(): 50.0})
+
+    assert out == {}
+
+
+# ── Date fold (selected-element "as of <date>" in the By-progress panel) ──
+
+
+def test_date_fold_single_position_uses_its_date() -> None:
+    pos = _new_id()
+    elem = _StubElement(id=_new_id(), boq_links=[_StubLink(pos)])
+
+    out = _fold_progress_date_onto_elements(
+        [elem],
+        {pos: 42.5},
+        {pos: "2026-06-01T00:00:00+00:00"},
+    )
+
+    assert out == {elem.id: "2026-06-01T00:00:00+00:00"}
+
+
+def test_date_fold_follows_the_max_pct_winner() -> None:
+    # The date shown must belong to the SAME entry whose pct is displayed
+    # (the MAX), not the most-recently-dated position.
+    pos_low, pos_high = _new_id(), _new_id()
+    elem = _StubElement(id=_new_id(), boq_links=[_StubLink(pos_low), _StubLink(pos_high)])
+
+    out = _fold_progress_date_onto_elements(
+        [elem],
+        {pos_low: 10.0, pos_high: 90.0},
+        {pos_low: "2026-06-05T00:00:00+00:00", pos_high: "2026-05-01T00:00:00+00:00"},
+    )
+
+    # 90% wins → its (older) date is the one surfaced.
+    assert out[elem.id] == "2026-05-01T00:00:00+00:00"
+
+
+def test_date_fold_omits_when_winner_has_no_date() -> None:
+    pos = _new_id()
+    elem = _StubElement(id=_new_id(), boq_links=[_StubLink(pos)])
+
+    out = _fold_progress_date_onto_elements([elem], {pos: 30.0}, {pos: None})
+
+    assert out == {}
+
+
+def test_date_fold_omits_unlinked_element() -> None:
+    elem = _StubElement(id=_new_id(), boq_links=[])
+
+    out = _fold_progress_date_onto_elements(
+        [elem],
+        {_new_id(): 50.0},
+        {_new_id(): "2026-06-01T00:00:00+00:00"},
+    )
+
+    assert out == {}
+
+
+def test_date_fold_empty_pct_map_returns_empty() -> None:
+    pos = _new_id()
+    elem = _StubElement(id=_new_id(), boq_links=[_StubLink(pos)])
+
+    out = _fold_progress_date_onto_elements([elem], {}, {pos: "2026-06-01T00:00:00+00:00"})
 
     assert out == {}

@@ -34,7 +34,7 @@ Add a new transport by subclassing ``EmailBackend`` and wiring it into
 ``service._resolve_backend``.
 """
 
-from .base import DeliveryResult, EmailBackend, EmailMessage
+from .base import DeliveryResult, EmailAttachment, EmailBackend, EmailMessage
 from .console import ConsoleEmailBackend
 from .memory import MemoryEmailBackend
 from .noop import NoopEmailBackend
@@ -52,6 +52,7 @@ from .templates import (
 __all__ = [
     "ConsoleEmailBackend",
     "DeliveryResult",
+    "EmailAttachment",
     "EmailBackend",
     "EmailMessage",
     "EmailService",

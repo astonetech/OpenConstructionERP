@@ -1182,6 +1182,8 @@ async def _generic_collection_search(
     *,
     short_type: str,
     summary_label: str,
+    session: AsyncSession | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     """Shared implementation for the per-module search tools.
 
@@ -1189,6 +1191,18 @@ async def _generic_collection_search(
     so the AI can scope to BOQ / documents / tasks / risks / BIM in one
     call.  Returns a renderer hint the chat UI can use to display the
     matching cards.
+
+    Access scoping mirrors the REST ``/search`` endpoint:
+
+    * When the AI supplies a ``project_id`` we run ``_require_project_access``
+      first, so a caller cannot enumerate a project they do not own by
+      guessing its UUID (the unified service trusts a supplied project_id
+      and skips its own fence — that trust only holds once we have verified
+      access here).
+    * When no ``project_id`` is given we thread ``user_id`` through so the
+      service fences the cross-project search to the projects the caller may
+      read. Without it the service would treat the caller as unrestricted
+      (admin bypass) and leak hits from other tenants.
     """
     from app.modules.search.service import unified_search_service
 
@@ -1202,10 +1216,20 @@ async def _generic_collection_search(
     except (TypeError, ValueError):
         limit = 10
 
+    project_filter = project_id if isinstance(project_id, str) else None
+    if project_filter and session is not None and user_id is not None:
+        try:
+            await _require_project_access(session, _parse_uuid(project_filter, "project_id"), user_id)
+        except ToolAuthError as exc:
+            # 404 posture — never confirm the project exists to a caller
+            # who cannot see it; just return an empty, denied result.
+            return _auth_error(str(exc))
+
     response = await unified_search_service(
         query=query,
+        user_id=user_id,
         types=[short_type],
-        project_id=project_id if isinstance(project_id, str) else None,
+        project_id=project_filter,
         limit_per_collection=limit,
         final_limit=limit,
     )
@@ -1240,48 +1264,61 @@ async def _generic_collection_search(
 
 
 async def handle_search_boq_positions(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="boq", summary_label="BOQ search")
+    return await _generic_collection_search(
+        args, short_type="boq", summary_label="BOQ search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_documents(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="documents", summary_label="Documents search")
+    return await _generic_collection_search(
+        args, short_type="documents", summary_label="Documents search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_tasks(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="tasks", summary_label="Tasks search")
+    return await _generic_collection_search(
+        args, short_type="tasks", summary_label="Tasks search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_risks(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="risks", summary_label="Risks search")
+    return await _generic_collection_search(
+        args, short_type="risks", summary_label="Risks search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_bim_elements(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="bim", summary_label="BIM elements search")
+    return await _generic_collection_search(
+        args, short_type="bim", summary_label="BIM elements search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_rfis(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="rfi", summary_label="RFI search")
+    return await _generic_collection_search(
+        args, short_type="rfi", summary_label="RFI search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_submittals(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="submittals", summary_label="Submittals search")
+    return await _generic_collection_search(
+        args, short_type="submittals", summary_label="Submittals search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_correspondence(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    _ = (session, user_id)
-    return await _generic_collection_search(args, short_type="correspondence", summary_label="Correspondence search")
+    return await _generic_collection_search(
+        args, short_type="correspondence", summary_label="Correspondence search", session=session, user_id=user_id
+    )
 
 
 async def handle_search_anything(session: AsyncSession, args: dict[str, Any], user_id: str) -> dict[str, Any]:
-    """Cross-collection unified search."""
-    _ = (session, user_id)
+    """Cross-collection unified search.
+
+    Same access scoping as the per-module search tools: a supplied
+    ``project_id`` is verified via ``_require_project_access`` (the service
+    trusts it once authorised), and ``user_id`` is threaded through so an
+    unscoped search is fenced to the caller's accessible projects.
+    """
     from app.modules.search.service import unified_search_service
 
     query = _parse_str(args.get("query"), "query", required=True, max_length=500) or ""
@@ -1296,10 +1333,18 @@ async def handle_search_anything(session: AsyncSession, args: dict[str, Any], us
     except (TypeError, ValueError):
         limit = 20
 
+    project_filter = project_id if isinstance(project_id, str) else None
+    if project_filter:
+        try:
+            await _require_project_access(session, _parse_uuid(project_filter, "project_id"), user_id)
+        except ToolAuthError as exc:
+            return _auth_error(str(exc))
+
     response = await unified_search_service(
         query=query,
+        user_id=user_id,
         types=types,
-        project_id=project_id if isinstance(project_id, str) else None,
+        project_id=project_filter,
         limit_per_collection=10,
         final_limit=limit,
     )

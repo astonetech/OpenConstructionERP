@@ -155,6 +155,13 @@ class POResponse(BaseModel):
     retain_on_receipt: bool = False
     retainage_amount: str = "0"
     retainage_held: str = "0"
+    # ── Vendor prequalification gate (TOP-30 #20) ────────────────────────
+    # Non-blocking warnings about the PO's vendor (e.g. a rejected/suspended
+    # prequalification). A hard-blocked vendor never reaches this response -
+    # the service raises 409 before the PO is written. Empty for clean or
+    # ad-hoc vendors. Stamped by the router from the service gate; not a
+    # persisted column.
+    vendor_warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

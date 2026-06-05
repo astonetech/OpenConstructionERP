@@ -67,7 +67,7 @@ interface IntegrationConfigListResponse {
 
 /* ── Connector definitions ─────────────────────────────────────────────── */
 
-type ConnectorStatus = 'available' | 'coming_soon' | 'info_only';
+type ConnectorStatus = 'available' | 'info_only';
 type ConnectorCategory = 'notifications' | 'automation' | 'data';
 
 interface ConnectorField {
@@ -930,18 +930,13 @@ export function IntegrationsPage() {
                   CONNECTABLE_TYPES.includes(connector.type) &&
                   connector.status === 'available';
                 const isConnected = existing.length > 0;
-                const isComingSoon = connector.status === 'coming_soon';
                 const isInfoOnly = connector.status === 'info_only';
                 const Icon = connector.icon;
 
                 return (
                   <div
                     key={connector.nameKey}
-                    className={`rounded-xl border border-border-light bg-surface-primary p-4 transition-all ${
-                      isComingSoon
-                        ? 'opacity-50 pointer-events-none'
-                        : 'hover:border-border hover:shadow-sm'
-                    }`}
+                    className="rounded-xl border border-border-light bg-surface-primary p-4 transition-all hover:border-border hover:shadow-sm"
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex items-center gap-2.5">
@@ -975,11 +970,6 @@ export function IntegrationsPage() {
                         {!isConnected && isConnectable && (
                           <Badge variant="success" size="sm" dot>
                             {t('integrations.available', 'Available')}
-                          </Badge>
-                        )}
-                        {isComingSoon && (
-                          <Badge variant="neutral" size="sm">
-                            {t('integrations.coming_soon', 'Coming soon')}
                           </Badge>
                         )}
                         {isInfoOnly && !isConnected && (
@@ -1072,16 +1062,6 @@ export function IntegrationsPage() {
                         {t('integrations.learn_more', 'Learn more')}
                         <ExternalLink size={11} />
                       </a>
-                    )}
-
-                    {/* Coming soon hint at bottom */}
-                    {isComingSoon && (
-                      <p className="text-xs text-content-tertiary">
-                        {t(
-                          'integrations.coming_soon_hint',
-                          'This integration is not yet available.'
-                        )}
-                      </p>
                     )}
                   </div>
                 );

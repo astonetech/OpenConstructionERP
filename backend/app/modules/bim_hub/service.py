@@ -253,6 +253,43 @@ def _fold_progress_onto_elements(
     return out
 
 
+def _fold_progress_date_onto_elements(
+    elements: list[BIMElement],
+    latest_pct_by_position: dict[uuid.UUID, float],
+    date_by_position: dict[uuid.UUID, str | None],
+) -> dict[uuid.UUID, str]:
+    """Fold the recorded-date of each element's *headline* progress entry.
+
+    Mirrors :func:`_fold_progress_onto_elements`: for each element we pick
+    the linked BOQ position with the MAX latest percentage (the headline the
+    overlay colours by) and emit that position's recorded date keyed by the
+    element id. Elements with no linked progress - or whose winning position
+    has no recorded date - are omitted, so the caller treats "absent" as
+    "no date to show".
+
+    Pure / deterministic: no DB access, no I/O. ``date_by_position`` values
+    are already ISO-8601 strings (or ``None``); the winning position is
+    decided by its pct so the date shown always belongs to the same entry
+    as the displayed percentage.
+    """
+    out: dict[uuid.UUID, str] = {}
+    if not latest_pct_by_position:
+        return out
+    for elem in elements:
+        best_pct: float | None = None
+        best_date: str | None = None
+        for lnk in elem.boq_links or []:
+            pct = latest_pct_by_position.get(lnk.boq_position_id)
+            if pct is None:
+                continue
+            if best_pct is None or pct > best_pct:
+                best_pct = pct
+                best_date = date_by_position.get(lnk.boq_position_id)
+        if best_pct is not None and best_date:
+            out[elem.id] = best_date
+    return out
+
+
 async def _strip_orphaned_bim_links(
     session: AsyncSession,
     deleted_element_ids: list[str],
@@ -707,15 +744,23 @@ class BIMHubService:
         dict[uuid.UUID, list[dict[str, Any]]],
         dict[uuid.UUID, list[dict[str, Any]]],
         dict[uuid.UUID, float],
+        dict[uuid.UUID, str],
     ]:
         """List elements AND their BOQ / Document / Task / Activity / Requirement briefs.
 
         Returns ``(elements, total, boq_links_by_element_id,
         doc_links_by_element_id, task_links_by_element_id,
         activity_briefs_by_element_id, requirement_briefs_by_element_id,
-        validation_summaries_by_element_id, current_pct_by_element_id)``
-        where each brief is a plain dict with the fields expected by the
-        corresponding Pydantic brief schema.
+        validation_summaries_by_element_id, current_pct_by_element_id,
+        current_pct_date_by_element_id)`` where each brief is a plain dict
+        with the fields expected by the corresponding Pydantic brief schema.
+
+        ``current_pct_date_by_element_id`` maps each element id to the
+        ISO-8601 recorded date of the headline progress entry (the same
+        entry whose percentage lands in ``current_pct_by_element_id``), so
+        the viewer can show "65% as of 2026-06-01" when an element is
+        selected in the "By progress" overlay. Absent when the element has
+        no linked progress or the winning entry carries no recorded date.
 
         ``current_pct_by_element_id`` maps each element id to the latest
         ``percent_complete`` (0-100) of the BOQ position(s) it is linked
@@ -1046,18 +1091,34 @@ class BIMHubService:
         # progress repository) and fold it back onto the elements. Taking
         # the MAX across an element's positions mirrors the "headline
         # progress" a human reads from a coloured 3D scene.
+        #
+        # We also resolve the recorded DATE of each position's latest entry
+        # in the SAME round trip (the repository returns both columns), then
+        # fold the date of the element's *winning* position so the selected-
+        # element panel can show "65% as of 2026-06-01".
         current_pct_by_element_id: dict[uuid.UUID, float] = {}
+        current_pct_date_by_element_id: dict[uuid.UUID, str] = {}
         if pos_ids and model.project_id is not None:
             from app.modules.progress.repository import ProgressRepository
 
             progress_repo = ProgressRepository(self.session)
-            latest_pct_by_position = await progress_repo.latest_pct_for_positions(
+            latest_by_position = await progress_repo.latest_pct_and_date_for_positions(
                 model.project_id,
                 list(pos_ids),
             )
+            latest_pct_by_position = {pid: pct for pid, (pct, _dt) in latest_by_position.items()}
+            date_by_position: dict[uuid.UUID, str | None] = {
+                pid: (recorded_at.isoformat() if recorded_at is not None else None)
+                for pid, (_pct, recorded_at) in latest_by_position.items()
+            }
             current_pct_by_element_id = _fold_progress_onto_elements(
                 elements,
                 latest_pct_by_position,
+            )
+            current_pct_date_by_element_id = _fold_progress_date_onto_elements(
+                elements,
+                latest_pct_by_position,
+                date_by_position,
             )
 
         return (
@@ -1070,6 +1131,7 @@ class BIMHubService:
             requirement_briefs_by_element_id,
             validation_summaries_by_element_id,
             current_pct_by_element_id,
+            current_pct_date_by_element_id,
         )
 
     async def get_element(self, element_id: uuid.UUID) -> BIMElement:

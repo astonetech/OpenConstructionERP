@@ -12,8 +12,9 @@ before it lands here, so a batch never blends currencies.
 """
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import GUID, Base
@@ -42,8 +43,13 @@ class PayrollBatch(Base):
     # ISO YYYY-MM-DD bounds of the labour aggregated into this batch.
     period_start: Mapped[str | None] = mapped_column(String(20), nullable=True)
     period_end: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # draft / approved - free-form on the DB side; the service FSM is
-    # authoritative. New batches always start ``draft`` (human-confirmed).
+    # draft / submitted / approved / posted - free-form on the DB side; the
+    # service FSM is authoritative. New batches always start ``draft``
+    # (human-confirmed). The lifecycle is:
+    #   draft     -> generated, manager reviews/edits
+    #   submitted -> sent for approval (no money moved yet)
+    #   approved  -> labour cost posted to the cost-spine budget line
+    #   posted    -> approved AND handed to the finance GL (terminal)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -57,6 +63,20 @@ class PayrollBatch(Base):
     entry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     created_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    # ── Lifecycle audit (FSM transitions) ────────────────────────────────
+    # Each transition stamps its own timestamp + actor so the batch carries a
+    # full audit trail. Plain UUIDs (no FK) - the acting user may be archived
+    # while the pay history survives.
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_by: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
+    # Finance ledger transaction reference written when the batch is posted to
+    # the GL. NULL until the batch reaches ``posted``; the value doubles as the
+    # idempotency guard so a re-post never writes a second journal.
+    gl_transaction_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
     metadata_: Mapped[dict] = mapped_column(  # type: ignore[assignment]
         "metadata",
         JSON,

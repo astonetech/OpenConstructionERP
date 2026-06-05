@@ -471,6 +471,29 @@ class AgentService:
         await self.custom_repo.update_metadata(agent_id, auto)
         return await self.get_agent_metadata(agent_id, user_id)
 
+    async def set_triggers(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        user_id: uuid.UUID,
+        triggers: list[str],
+    ) -> dict[str, Any] | None:
+        """Replace the event-trigger subscriptions on an owned agent.
+
+        Triggers fire the agent on a platform event (RFI created, document
+        uploaded) independently of any cron schedule, so they are set through
+        their own path rather than requiring a cron. Unknown trigger slugs are
+        dropped silently (a stale frontend can never persist an inert trigger).
+        ``None`` when the agent is not owned/found.
+        """
+        row = await self.custom_repo.get_for_user(agent_id, user_id)
+        if row is None:
+            return None
+        auto = self._automation_dict(row)
+        auto["triggers"] = normalise_triggers(triggers)
+        await self.custom_repo.update_metadata(agent_id, auto)
+        return await self.get_agent_metadata(agent_id, user_id)
+
     async def delete_schedule(self, agent_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         """Remove the schedule (cron + next_run_at) from an owned agent.
 
@@ -567,6 +590,7 @@ class AgentService:
         project_id: uuid.UUID | None = None,
         llm: LLMBridge | None = None,
         tool_registry: ToolRegistry | None = None,
+        trigger_source: str = "manual",
     ) -> AgentRun:
         """Create the run row, execute the loop synchronously, and persist steps.
 
@@ -578,6 +602,10 @@ class AgentService:
         custom agents (``custom:<id>`` slugs) from the DB, so the scheduler can
         fire a scheduled custom agent through this same path. Ownership for
         custom slugs is enforced in :meth:`resolve_agent`.
+
+        ``trigger_source`` records how the run was initiated ("manual",
+        "schedule", or "event:<name>") so the monitoring panel and audit trail
+        can tell automated runs apart from user-initiated ones.
         """
         agent = get_agent(agent_name)
         if agent is None:
@@ -595,6 +623,7 @@ class AgentService:
             iterations=0,
             total_tokens=0,
             started_at=_iso_now(),
+            trigger_source=trigger_source,
         )
         run = await self.run_repo.create(run)
         run_id = run.id
@@ -660,9 +689,56 @@ class AgentService:
             total_tokens=result.total_tokens,
             finished_at=_iso_now(),
         )
+        # An automated run (scheduler/event) has no user watching the page, so
+        # surface a failure through the notifications module — otherwise a
+        # silently-failing schedule is invisible. Manual runs already show the
+        # failure inline on the timeline, so they are not notified.
+        if trigger_source != "manual" and result.status == "failed":
+            await self._notify_automated_failure(
+                user_id=user_id,
+                run_id=run_id,
+                agent_name=agent_name,
+                trigger_source=trigger_source,
+                failure_reason=result.failure_reason,
+            )
         refreshed = await self.run_repo.get_by_id(run_id)
         assert refreshed is not None  # noqa: S101
         return refreshed
+
+    async def _notify_automated_failure(
+        self,
+        *,
+        user_id: uuid.UUID,
+        run_id: uuid.UUID,
+        agent_name: str,
+        trigger_source: str,
+        failure_reason: str | None,
+    ) -> None:
+        """Best-effort in-app notification when an automated run fails.
+
+        Reuses the existing notifications module (no new channel). Swallows all
+        errors: a notification hiccup must never break the run-recording path or
+        wedge the scheduler tick.
+        """
+        try:
+            from app.modules.notifications.service import NotificationService
+
+            await NotificationService(self.session).create(
+                user_id=user_id,
+                notification_type="ai_agent_run_failed",
+                title_key="notifications.ai_agent.run_failed.title",
+                body_key="notifications.ai_agent.run_failed.body",
+                body_context={
+                    "agent": _humanize_agent(agent_name),
+                    "reason": failure_reason or "unknown",
+                    "trigger": trigger_source,
+                },
+                entity_type="ai_agent_run",
+                entity_id=str(run_id),
+                action_url=f"/ai-agents?run={run_id}",
+            )
+        except Exception:  # noqa: BLE001 - notification is best-effort
+            logger.warning("Failed to notify automated-run failure for run %s", run_id, exc_info=True)
 
     # ── Read ─────────────────────────────────────────────────────────────
 
@@ -684,6 +760,15 @@ class AgentService:
             project_id=project_id,
             limit=limit,
         )
+
+    async def list_automated_runs(self, *, user_id: uuid.UUID, limit: int = 50) -> list[AgentRun]:
+        """Return the caller's automated (scheduler/event) runs, newest-first.
+
+        Powers the AI-agents monitoring panel: which scheduled / event-fired
+        runs happened, with their status, so a silently-failing schedule is
+        visible.
+        """
+        return await self.run_repo.list_automated(user_id=user_id, limit=limit)
 
     async def project_insights(
         self,

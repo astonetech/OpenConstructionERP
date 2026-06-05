@@ -37,12 +37,18 @@ from app.dependencies import (
     SessionDep,
     verify_project_access,
 )
+from app.modules.approval_routes.schemas import (
+    InstanceResponse,
+    StepStateResponse,
+)
+from app.modules.approval_routes.service import ApprovalRouteService
 from app.modules.rfi.schemas import (
     RFICreate,
     RFIRespondRequest,
     RFIResponse,
     RFIStatsResponse,
     RFIUpdate,
+    StartApprovalRequest,
 )
 from app.modules.rfi.service import RFIService
 
@@ -633,6 +639,75 @@ async def close_rfi(
     await verify_project_access(existing.project_id, str(user_id), session)
     rfi = await service.close_rfi(rfi_id, closed_by=user_id)
     return _to_response(rfi)
+
+
+# ── Approval workflow (feature 06) ─────────────────────────────────────────
+#
+# Thin convenience surface mirroring the submittals approval surface: resolve
+# the RFI's project scope and delegate to the generic approval-routes engine.
+# Decide / cancel stay on the generic engine endpoints.
+
+
+async def _instance_to_response(
+    instance: object,
+    engine: ApprovalRouteService,
+) -> InstanceResponse:
+    """Serialise an engine instance + its step states (mirror of the engine router)."""
+    states = await engine.list_step_states(instance.id)  # type: ignore[attr-defined]
+    payload = InstanceResponse.model_validate(instance)
+    payload.step_states = [StepStateResponse.model_validate(s) for s in states]
+    return payload
+
+
+@router.post(
+    "/{rfi_id}/route/",
+    response_model=InstanceResponse,
+    status_code=201,
+    # Double-permission, mirroring create_variation_from_rfi: this flow both
+    # touches the RFI (moves the FSM into the routed flow) and starts an
+    # approval instance, so the caller must hold both verbs.
+    dependencies=[
+        Depends(RequirePermission("rfi.update")),
+        Depends(RequirePermission("approval_routes.write")),
+    ],
+)
+async def start_rfi_approval(
+    rfi_id: uuid.UUID,
+    body: StartApprovalRequest,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    service: RFIService = Depends(_get_service),
+) -> InstanceResponse:
+    """Start a routed approval workflow against an RFI.
+
+    Resolves project scope from the RFI (IDOR-safe), then delegates to the
+    approval-routes engine. The engine rejects a second pending workflow on
+    the same RFI with 409.
+    """
+    rfi = await service.get_rfi(rfi_id)
+    await verify_project_access(rfi.project_id, str(user_id), session)
+    instance = await service.start_approval(rfi_id, body.route_id, started_by=user_id)
+    return await _instance_to_response(instance, ApprovalRouteService(session))
+
+
+@router.get(
+    "/{rfi_id}/route/",
+    response_model=InstanceResponse | None,
+    dependencies=[Depends(RequirePermission("rfi.read"))],
+)
+async def get_rfi_approval(
+    rfi_id: uuid.UUID,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    service: RFIService = Depends(_get_service),
+) -> InstanceResponse | None:
+    """Return the latest approval instance on an RFI, or null if none."""
+    rfi = await service.get_rfi(rfi_id)
+    await verify_project_access(rfi.project_id, str(user_id), session)
+    instance = await service.get_latest_approval(rfi_id)
+    if instance is None:
+        return None
+    return await _instance_to_response(instance, ApprovalRouteService(session))
 
 
 # ── Attachments (R5 / BUG-RFI-ATT) ─────────────────────────────────────────

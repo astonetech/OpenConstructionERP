@@ -77,6 +77,8 @@ export interface AgentRun {
   project_id: string | null;
   user_id: string;
   status: 'running' | 'completed' | 'failed';
+  // How the run was initiated: 'manual' | 'schedule' | 'event:<name>'.
+  trigger_source: string;
   failure_reason: string | null;
   user_input: string;
   final_output: string | null;
@@ -95,6 +97,8 @@ export interface AgentRunListItem {
   project_id: string | null;
   user_id: string;
   status: 'running' | 'completed' | 'failed';
+  // How the run was initiated: 'manual' | 'schedule' | 'event:<name>'.
+  trigger_source: string;
   failure_reason: string | null;
   iterations: number;
   total_tokens: number;
@@ -152,6 +156,10 @@ export interface SetToolsRequest {
   allowed_tools: string[];
 }
 
+export interface SetTriggersRequest {
+  triggers: string[];
+}
+
 /** One subscribable platform event for the trigger picker. */
 export interface EventTriggerDescriptor {
   name: string;
@@ -166,6 +174,9 @@ export const aiAgentsApi = {
     apiGet<AgentRunListItem[]>(
       `/v1/ai-agents/runs/${projectId ? `?project_id=${projectId}` : ''}`,
     ),
+  // Monitoring: automated (scheduler / event-fired) runs across all projects.
+  listAutomatedRuns: () =>
+    apiGet<AgentRunListItem[]>('/v1/ai-agents/runs/automated'),
   getRun: (runId: string) => apiGet<AgentRun>(`/v1/ai-agents/runs/${runId}`),
   startRun: (body: CreateAgentRunRequest) =>
     apiPost<AgentRun, CreateAgentRunRequest>('/v1/ai-agents/runs/', body),
@@ -192,4 +203,6 @@ export const aiAgentsApi = {
     apiPost<AgentMetadata, SetToolsRequest>(`/v1/ai-agents/custom/${id}/tools`, body),
   listEventTriggers: () =>
     apiGet<EventTriggerDescriptor[]>('/v1/ai-agents/triggers/'),
+  setAgentTriggers: (id: string, body: SetTriggersRequest) =>
+    apiPost<AgentMetadata, SetTriggersRequest>(`/v1/ai-agents/custom/${id}/triggers`, body),
 };

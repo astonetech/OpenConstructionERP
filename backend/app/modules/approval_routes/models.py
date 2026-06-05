@@ -56,6 +56,12 @@ TARGET_KINDS: tuple[str, ...] = (
     "variation",
     "invoice",
     "purchase_order",
+    # QMS hold / witness point disposition. A failed or conditional
+    # inspection on a hold point fans out ``qms.inspection.approval_requested``;
+    # when the project has a route configured for this kind, the QMS module's
+    # subscriber starts an instance against the inspection so the gate cannot
+    # release without a formal disposition approval (item 12).
+    "qms_hold_point",
 )
 
 # Aggregation mode at a single step when the approver_role expands to

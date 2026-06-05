@@ -1859,6 +1859,468 @@ async def project_count_active_kpi(
     )
 
 
+# ── Project-controls spine KPIs (feature 09) ───────────────────────────
+# Six cross-module KPIs that complete the executive controls spine (risk,
+# quality, safety, changes, schedule). Each registers into the shared
+# registry so the BI dashboards, alert engine and the project-controls
+# snapshot all gain them at once. Every formula follows the established
+# graceful-degradation + currency-honest contract.
+
+# Statuses that mean a register entry is no longer "open" / live.
+_RISK_CLOSED_STATUSES = {"closed", "mitigated", "accepted", "resolved", "retired"}
+_NCR_CLOSED_STATUSES = {"closed", "resolved", "verified", "cancelled", "void"}
+_HIGH_SEVERITY = {"high", "very_high", "critical", "severe", "catastrophic"}
+# Variation statuses that are still pending a decision (not yet approved/rejected).
+_VARIATION_PENDING_STATUSES = {"draft", "submitted", "under_review", "pending", "in_review"}
+
+
+@register_kpi(
+    "risk_open_exposure",
+    name="Open Risk Exposure",
+    unit="currency",
+    category="risk",
+    source_modules=["risk", "projects"],
+    description="Sum of impact_cost over open (not closed/mitigated/accepted) risks.",
+)
+async def risk_open_exposure_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """Total cost exposure of open risks, currency-honest.
+
+    Within a single project every risk's ``impact_cost`` is converted into
+    the project base currency via ``Project.fx_rates``; across the portfolio
+    the amounts are bucketed by each project's ISO currency and never blended.
+    The breakdown also carries a probability-weighted exposure variant
+    (``Σ impact_cost × probability``) as a secondary signal.
+    """
+    base_currency, fx_map = await _project_currency_and_fx(session, project_id)
+    seen_codes: set[str] = set()
+    by_currency: dict[str, Decimal] = {}
+    scalar_exposure = Decimal("0")
+    weighted = Decimal("0")
+    count = 0
+    # Resolve each row's owning-project base currency in portfolio mode so the
+    # per-currency bucketing is correct without re-querying every project.
+    fx_cache: dict[uuid.UUID, tuple[str, dict[str, str]]] = {}
+    try:
+        from app.modules.risk.models import RiskItem  # type: ignore
+
+        stmt = select(RiskItem)
+        if project_id is not None:
+            stmt = stmt.where(RiskItem.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val in _RISK_CLOSED_STATUSES:
+                continue
+            amt = _to_decimal(getattr(row, "impact_cost", 0))
+            code = str(getattr(row, "currency", "") or "").strip().upper()
+            prob = _to_decimal(getattr(row, "probability", 0))
+            count += 1
+            if project_id is None:
+                pid = getattr(row, "project_id", None)
+                row_base, row_fx = base_currency, fx_map
+                if pid is not None:
+                    if pid not in fx_cache:
+                        fx_cache[pid] = await _project_currency_and_fx(session, pid)
+                    row_base, row_fx = fx_cache[pid]
+                bucket_code = code or row_base or "UNKNOWN"
+                converted = _amount_in_base(amt, code, row_fx, row_base)
+                _add_currency_bucket(by_currency, converted, bucket_code, row_base)
+                scalar_exposure += converted
+                weighted += converted * prob
+            else:
+                if code:
+                    seen_codes.add(code)
+                converted = _amount_in_base(amt, code, fx_map, base_currency)
+                scalar_exposure += converted
+                weighted += converted * prob
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="currency", source_record_count=0)
+    except Exception:
+        logger.debug("risk_open_exposure: probe failed", exc_info=True)
+
+    if project_id is None:
+        value, breakdown = _portfolio_money_breakdown(by_currency)
+        breakdown["open_risk_count"] = count
+        breakdown["weighted_exposure"] = str(weighted)
+        return KPIComputation(
+            value=value,
+            unit="currency",
+            source_record_count=count,
+            breakdown=breakdown,
+        )
+    breakdown = {
+        "currency": base_currency,
+        "open_risk_count": count,
+        "weighted_exposure": str(weighted),
+    }
+    missing = _missing_fx_codes(seen_codes, fx_map, base_currency)
+    if missing:
+        breakdown["missing_fx_codes"] = missing
+    return KPIComputation(
+        value=scalar_exposure,
+        unit="currency",
+        source_record_count=count,
+        breakdown=breakdown,
+    )
+
+
+@register_kpi(
+    "risk_high_unmitigated_count",
+    name="High Unmitigated Risks",
+    unit="count",
+    category="risk",
+    source_modules=["risk"],
+    description="Count of open high/critical risks with no mitigation strategy.",
+)
+async def risk_high_unmitigated_count_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """High/critical risks that are still open and carry no mitigation.
+
+    Severity comes from ``impact_severity`` (falling back to ``risk_tier``);
+    a risk counts as unmitigated when ``mitigation_strategy`` is empty and no
+    ``mitigation_actions`` are recorded. Mirrors the ``project_intelligence``
+    collector's risk-gap signal.
+    """
+    count = 0
+    total = 0
+    try:
+        from app.modules.risk.models import RiskItem  # type: ignore
+
+        stmt = select(RiskItem)
+        if project_id is not None:
+            stmt = stmt.where(RiskItem.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val in _RISK_CLOSED_STATUSES:
+                continue
+            total += 1
+            severity = (getattr(row, "impact_severity", "") or "").strip().lower()
+            tier = (getattr(row, "risk_tier", "") or "").strip().lower()
+            if severity not in _HIGH_SEVERITY and tier not in _HIGH_SEVERITY:
+                continue
+            strategy = (getattr(row, "mitigation_strategy", "") or "").strip()
+            actions = getattr(row, "mitigation_actions", None) or []
+            if not strategy and not actions:
+                count += 1
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="count", source_record_count=0)
+    except Exception:
+        logger.debug("risk_high_unmitigated_count: probe failed", exc_info=True)
+
+    return KPIComputation(
+        value=Decimal(count),
+        unit="count",
+        source_record_count=count,
+        breakdown={"open_risk_count": total},
+    )
+
+
+@register_kpi(
+    "ncr_open_count",
+    name="Open NCRs",
+    unit="count",
+    category="quality",
+    source_modules=["ncr"],
+    description="Count of NCRs not yet closed/resolved/verified.",
+)
+async def ncr_open_count_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """Open Non-Conformance Reports — the live quality-defect backlog."""
+    count = 0
+    total = 0
+    try:
+        from app.modules.ncr.models import NCR  # type: ignore
+
+        stmt = select(NCR)
+        if project_id is not None:
+            stmt = stmt.where(NCR.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            total += 1
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val not in _NCR_CLOSED_STATUSES:
+                count += 1
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="count", source_record_count=0)
+    except Exception:
+        logger.debug("ncr_open_count: probe failed", exc_info=True)
+
+    return KPIComputation(
+        value=Decimal(count),
+        unit="count",
+        source_record_count=count,
+        breakdown={"total_ncr_count": total},
+    )
+
+
+@register_kpi(
+    "incident_count",
+    name="Safety Incidents",
+    unit="count",
+    category="safety",
+    source_modules=["safety"],
+    description="Count of safety incidents in the period (complements TRIR).",
+)
+async def incident_count_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    period_start: _date | None = None,
+    period_end: _date | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """Raw incident count, optionally windowed by ``incident_date``.
+
+    Uses the real ``SafetyIncident`` model (the ``safety_trir`` formula
+    imports a non-existent ``Incident`` alias and so silently counts zero;
+    this KPI is the working count surface).
+    """
+    count = 0
+    try:
+        from app.modules.safety.models import SafetyIncident  # type: ignore
+
+        stmt = select(SafetyIncident)
+        if project_id is not None:
+            stmt = stmt.where(SafetyIncident.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            when = _parse_date(getattr(row, "incident_date", None))
+            if period_start is not None and (when is None or when < period_start):
+                continue
+            if period_end is not None and (when is None or when > period_end):
+                continue
+            count += 1
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="count", source_record_count=0)
+    except Exception:
+        logger.debug("incident_count: probe failed", exc_info=True)
+
+    return KPIComputation(
+        value=Decimal(count),
+        unit="count",
+        source_record_count=count,
+    )
+
+
+@register_kpi(
+    "pending_variation_value",
+    name="Pending Variation Value",
+    unit="currency",
+    category="changes",
+    source_modules=["variations", "projects"],
+    description="Sum of estimated_cost_impact over variation requests awaiting a decision.",
+)
+async def pending_variation_value_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """Value of variation requests still pending (draft/submitted/under review).
+
+    Distinct from ``change_order_ratio`` which measures signed/approved change
+    orders against the contract. Currency-honest: within-project FX convert,
+    portfolio per-currency bucketing, never blended.
+    """
+    base_currency, fx_map = await _project_currency_and_fx(session, project_id)
+    seen_codes: set[str] = set()
+    by_currency: dict[str, Decimal] = {}
+    scalar_value = Decimal("0")
+    count = 0
+    fx_cache: dict[uuid.UUID, tuple[str, dict[str, str]]] = {}
+    try:
+        from app.modules.variations.models import VariationRequest  # type: ignore
+
+        stmt = select(VariationRequest)
+        if project_id is not None:
+            stmt = stmt.where(VariationRequest.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val not in _VARIATION_PENDING_STATUSES:
+                continue
+            amt = _to_decimal(getattr(row, "estimated_cost_impact", 0))
+            code = str(getattr(row, "currency", "") or "").strip().upper()
+            count += 1
+            if project_id is None:
+                pid = getattr(row, "project_id", None)
+                row_base, row_fx = base_currency, fx_map
+                if pid is not None:
+                    if pid not in fx_cache:
+                        fx_cache[pid] = await _project_currency_and_fx(session, pid)
+                    row_base, row_fx = fx_cache[pid]
+                bucket_code = code or row_base or "UNKNOWN"
+                converted = _amount_in_base(amt, code, row_fx, row_base)
+                _add_currency_bucket(by_currency, converted, bucket_code, row_base)
+                scalar_value += converted
+            else:
+                if code:
+                    seen_codes.add(code)
+                scalar_value += _amount_in_base(amt, code, fx_map, base_currency)
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="currency", source_record_count=0)
+    except Exception:
+        logger.debug("pending_variation_value: probe failed", exc_info=True)
+
+    if project_id is None:
+        value, breakdown = _portfolio_money_breakdown(by_currency)
+        breakdown["pending_count"] = count
+        return KPIComputation(
+            value=value,
+            unit="currency",
+            source_record_count=count,
+            breakdown=breakdown,
+        )
+    breakdown = {"currency": base_currency, "pending_count": count}
+    missing = _missing_fx_codes(seen_codes, fx_map, base_currency)
+    if missing:
+        breakdown["missing_fx_codes"] = missing
+    return KPIComputation(
+        value=scalar_value,
+        unit="currency",
+        source_record_count=count,
+        breakdown=breakdown,
+    )
+
+
+async def _active_baseline_finishes(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+) -> dict[str, _date]:
+    """Map activity-id / wbs-code → baselined finish date for one project.
+
+    The baseline ``snapshot_data`` is a caller-defined JSON blob. We accept
+    the common shapes defensively: a top-level ``activities`` list, or a bare
+    list, where each entry carries an id (``id``/``activity_id``) and/or a
+    ``wbs_code`` plus a finish date (``end_date``/``finish``/``baseline_finish``).
+    The most recent active baseline wins.
+    """
+    finishes: dict[str, _date] = {}
+    try:
+        from app.modules.schedule.models import ScheduleBaseline  # type: ignore
+
+        stmt = (
+            select(ScheduleBaseline)
+            .where(ScheduleBaseline.project_id == project_id)
+            .where(ScheduleBaseline.is_active.is_(True))
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+        # Prefer the latest baseline_date when several are active.
+        rows = sorted(rows, key=lambda r: str(getattr(r, "baseline_date", "") or ""))
+        for row in rows:
+            data = getattr(row, "snapshot_data", None)
+            entries: list[Any] = []
+            if isinstance(data, dict):
+                raw = data.get("activities")
+                if isinstance(raw, list):
+                    entries = raw
+            elif isinstance(data, list):
+                entries = data
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                finish = _parse_date(
+                    entry.get("end_date")
+                    or entry.get("finish")
+                    or entry.get("baseline_finish")
+                    or entry.get("baseline_end"),
+                )
+                if finish is None:
+                    continue
+                for key in (entry.get("id"), entry.get("activity_id"), entry.get("wbs_code")):
+                    if key:
+                        finishes[str(key)] = finish
+    except ImportError:
+        return {}
+    except Exception:
+        logger.debug("milestone_slippage: baseline probe failed", exc_info=True)
+    return finishes
+
+
+@register_kpi(
+    "milestone_slippage_days",
+    name="Milestone Slippage",
+    unit="days",
+    category="schedule",
+    source_modules=["schedule"],
+    description="Max positive delta between an activity's current finish and its baseline finish.",
+)
+async def milestone_slippage_days_kpi(
+    session: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    **_: Any,
+) -> KPIComputation:
+    """Worst-case schedule slip: the largest number of days any activity's
+    current finish has moved past its baselined finish.
+
+    Pure ISO-string date arithmetic via ``_parse_date`` (schedule dates are
+    ``String`` columns). Region-neutral. Returns 0 when no baseline exists or
+    nothing has slipped.
+    """
+    max_slip = 0
+    slipped = 0
+    total = 0
+    try:
+        from app.modules.schedule.models import Activity, Schedule  # type: ignore
+
+        # Resolve which project owns each schedule (Activity has no
+        # project_id — it hangs off Schedule).
+        sched_stmt = select(Schedule.id, Schedule.project_id)
+        sched_rows = (await session.execute(sched_stmt)).all()
+        sched_to_project = {sid: pid for sid, pid in sched_rows}
+
+        target_pids = [project_id] if project_id is not None else sorted({p for p in sched_to_project.values() if p})
+        baselines: dict[uuid.UUID, dict[str, _date]] = {}
+        for pid in target_pids:
+            baselines[pid] = await _active_baseline_finishes(session, pid)
+
+        act_stmt = select(Activity)
+        if project_id is not None:
+            scoped_schedule_ids = [sid for sid, pid in sched_to_project.items() if pid == project_id]
+            if not scoped_schedule_ids:
+                return KPIComputation(value=Decimal("0"), unit="days", source_record_count=0)
+            act_stmt = act_stmt.where(Activity.schedule_id.in_(scoped_schedule_ids))
+        rows = (await session.execute(act_stmt)).scalars().all()
+        for row in rows:
+            owning_project = sched_to_project.get(getattr(row, "schedule_id", None))
+            if owning_project is None:
+                continue
+            baseline = baselines.get(owning_project, {})
+            if not baseline:
+                continue
+            current = _parse_date(getattr(row, "end_date", None))
+            if current is None:
+                continue
+            base_finish = baseline.get(str(getattr(row, "id", ""))) or baseline.get(str(getattr(row, "wbs_code", "")))
+            if base_finish is None:
+                continue
+            total += 1
+            slip = (current - base_finish).days
+            if slip > 0:
+                slipped += 1
+                max_slip = max(max_slip, slip)
+    except ImportError:
+        return KPIComputation(value=Decimal("0"), unit="days", source_record_count=0)
+    except Exception:
+        logger.debug("milestone_slippage_days: probe failed", exc_info=True)
+
+    return KPIComputation(
+        value=Decimal(max_slip),
+        unit="days",
+        source_record_count=total,
+        breakdown={"activities_compared": total, "activities_slipped": slipped},
+    )
+
+
 # ── Bootstrap ──────────────────────────────────────────────────────────
 
 
@@ -2032,6 +2494,216 @@ async def _projects_active_records(
         pass
     except Exception:
         logger.debug("project_count_active drilldown: probe failed", exc_info=True)
+    return records
+
+
+# ── Project-controls spine drill-down providers (feature 09) ────────────
+
+
+async def _risk_drilldown_records(
+    session: AsyncSession,
+    project_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Open risks behind ``risk_open_exposure`` / ``risk_high_unmitigated_count``."""
+    records: list[dict[str, Any]] = []
+    try:
+        from app.modules.risk.models import RiskItem  # type: ignore
+
+        stmt = select(RiskItem).limit(limit)
+        if project_id is not None:
+            stmt = stmt.where(RiskItem.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val in _RISK_CLOSED_STATUSES:
+                continue
+            records.append(
+                {
+                    "kind": "risk",
+                    "id": str(row.id),
+                    "code": getattr(row, "code", "") or "",
+                    "title": getattr(row, "title", "") or "",
+                    "status": getattr(row, "status", "") or "",
+                    "impact_severity": getattr(row, "impact_severity", "") or "",
+                    "impact_cost": str(_to_decimal(getattr(row, "impact_cost", 0))),
+                    "currency": getattr(row, "currency", "") or "",
+                    "mitigation_strategy": (getattr(row, "mitigation_strategy", "") or "")[:200],
+                    "project_id": str(getattr(row, "project_id", "") or ""),
+                },
+            )
+    except ImportError:
+        pass
+    except Exception:
+        logger.debug("risk drilldown: probe failed", exc_info=True)
+    return records
+
+
+KPI_RECORD_PROVIDERS["risk_open_exposure"] = _risk_drilldown_records
+KPI_RECORD_PROVIDERS["risk_high_unmitigated_count"] = _risk_drilldown_records
+
+
+@register_kpi_records("ncr_open_count")
+async def _ncr_open_records(
+    session: AsyncSession,
+    project_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        from app.modules.ncr.models import NCR  # type: ignore
+
+        stmt = select(NCR).limit(limit)
+        if project_id is not None:
+            stmt = stmt.where(NCR.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val in _NCR_CLOSED_STATUSES:
+                continue
+            records.append(
+                {
+                    "kind": "ncr",
+                    "id": str(row.id),
+                    "ncr_number": getattr(row, "ncr_number", "") or "",
+                    "title": getattr(row, "title", "") or "",
+                    "severity": getattr(row, "severity", "") or "",
+                    "status": getattr(row, "status", "") or "",
+                    "cost_impact": str(getattr(row, "cost_impact", "") or ""),
+                    "project_id": str(getattr(row, "project_id", "") or ""),
+                },
+            )
+    except ImportError:
+        pass
+    except Exception:
+        logger.debug("ncr_open_count drilldown: probe failed", exc_info=True)
+    return records
+
+
+@register_kpi_records("incident_count")
+async def _incident_records(
+    session: AsyncSession,
+    project_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        from app.modules.safety.models import SafetyIncident  # type: ignore
+
+        stmt = select(SafetyIncident).limit(limit)
+        if project_id is not None:
+            stmt = stmt.where(SafetyIncident.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            records.append(
+                {
+                    "kind": "incident",
+                    "id": str(row.id),
+                    "incident_number": getattr(row, "incident_number", "") or "",
+                    "severity": getattr(row, "severity", "") or "",
+                    "incident_date": str(getattr(row, "incident_date", "") or ""),
+                    "status": getattr(row, "status", "") or "",
+                    "project_id": str(getattr(row, "project_id", "") or ""),
+                },
+            )
+    except ImportError:
+        pass
+    except Exception:
+        logger.debug("incident_count drilldown: probe failed", exc_info=True)
+    return records
+
+
+@register_kpi_records("pending_variation_value")
+async def _pending_variation_records(
+    session: AsyncSession,
+    project_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        from app.modules.variations.models import VariationRequest  # type: ignore
+
+        stmt = select(VariationRequest).limit(limit)
+        if project_id is not None:
+            stmt = stmt.where(VariationRequest.project_id == project_id)
+        rows = (await session.execute(stmt)).scalars().all()
+        for row in rows:
+            status_val = (getattr(row, "status", "") or "").strip().lower()
+            if status_val not in _VARIATION_PENDING_STATUSES:
+                continue
+            records.append(
+                {
+                    "kind": "variation_request",
+                    "id": str(row.id),
+                    "code": getattr(row, "code", "") or "",
+                    "status": getattr(row, "status", "") or "",
+                    "estimated_cost_impact": str(_to_decimal(getattr(row, "estimated_cost_impact", 0))),
+                    "currency": getattr(row, "currency", "") or "",
+                    "project_id": str(getattr(row, "project_id", "") or ""),
+                },
+            )
+    except ImportError:
+        pass
+    except Exception:
+        logger.debug("pending_variation_value drilldown: probe failed", exc_info=True)
+    return records
+
+
+@register_kpi_records("milestone_slippage_days")
+async def _milestone_slippage_records(
+    session: AsyncSession,
+    project_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Activities whose current finish has slipped past their baseline finish."""
+    records: list[dict[str, Any]] = []
+    try:
+        from app.modules.schedule.models import Activity, Schedule  # type: ignore
+
+        sched_rows = (await session.execute(select(Schedule.id, Schedule.project_id))).all()
+        sched_to_project = {sid: pid for sid, pid in sched_rows}
+        target_pids = [project_id] if project_id is not None else sorted({p for p in sched_to_project.values() if p})
+        baselines: dict[uuid.UUID, dict[str, _date]] = {}
+        for pid in target_pids:
+            baselines[pid] = await _active_baseline_finishes(session, pid)
+
+        act_stmt = select(Activity)
+        if project_id is not None:
+            scoped = [sid for sid, pid in sched_to_project.items() if pid == project_id]
+            if not scoped:
+                return records
+            act_stmt = act_stmt.where(Activity.schedule_id.in_(scoped))
+        rows = (await session.execute(act_stmt)).scalars().all()
+        for row in rows:
+            owning_project = sched_to_project.get(getattr(row, "schedule_id", None))
+            if owning_project is None:
+                continue
+            baseline = baselines.get(owning_project, {})
+            base_finish = baseline.get(str(getattr(row, "id", ""))) or baseline.get(str(getattr(row, "wbs_code", "")))
+            current = _parse_date(getattr(row, "end_date", None))
+            if base_finish is None or current is None:
+                continue
+            slip = (current - base_finish).days
+            if slip <= 0:
+                continue
+            records.append(
+                {
+                    "kind": "activity",
+                    "id": str(row.id),
+                    "name": getattr(row, "name", "") or "",
+                    "wbs_code": getattr(row, "wbs_code", "") or "",
+                    "baseline_finish": base_finish.isoformat(),
+                    "current_finish": current.isoformat(),
+                    "slip_days": slip,
+                    "project_id": str(owning_project),
+                },
+            )
+            if len(records) >= limit:
+                break
+    except ImportError:
+        pass
+    except Exception:
+        logger.debug("milestone_slippage_days drilldown: probe failed", exc_info=True)
     return records
 
 

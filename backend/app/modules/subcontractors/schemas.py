@@ -761,6 +761,28 @@ class AwardEligibility(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class VendorEligibility(BaseModel):
+    """Award-eligibility verdict resolved from a CRM contact id (TOP-30 #20).
+
+    Procurement POs reference a vendor by ``vendor_contact_id`` (a CRM
+    ``Contact``), not a subcontractor id. This shape lets the PO-row badge
+    and the create/issue/update gate resolve the prequalification / block
+    status from that contact. ``known`` is false when the contact is not a
+    registered subcontractor - the gate then treats it as an ad-hoc vendor
+    (no block, no warning) rather than an error.
+    """
+
+    contact_id: UUID
+    known: bool = False
+    subcontractor_id: UUID | None = None
+    legal_name: str | None = None
+    awardable: bool = True
+    prequalification_status: str | None = None
+    is_blocked: bool = False
+    rating_score: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
 class CurrencyAmount(BaseModel):
     """One ISO-currency bucket of a money rollup.
 

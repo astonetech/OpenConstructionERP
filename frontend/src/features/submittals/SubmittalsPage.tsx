@@ -48,6 +48,10 @@ import {
 import { SubmittalStatusPipeline } from './SubmittalStatusPipeline';
 import { DueDateBadge } from './DueDateBadge';
 import { DaysInCourtBadge } from './DaysInCourtBadge';
+import {
+  ApprovalInstanceCard,
+  ApprovalTargetBadge,
+} from '@/features/approval-routes';
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
 
@@ -449,11 +453,13 @@ function ApproveModal({
 
 const SubmittalRow = React.memo(function SubmittalRow({
   submittal,
+  projectId,
   onSubmit,
   onReview,
   onEdit,
 }: {
   submittal: Submittal;
+  projectId: string;
   onSubmit: (id: string) => void;
   onReview: (s: Submittal) => void;
   onEdit: (s: Submittal) => void;
@@ -511,6 +517,9 @@ const SubmittalRow = React.memo(function SubmittalRow({
             })}
           </Badge>
           <SubmittalStatusPipeline status={submittal.status} />
+          {/* Pending-approval indicator (feature 06) — renders only while a
+              routed sign-off is running on this submittal. */}
+          <ApprovalTargetBadge targetKind="submittal" targetId={submittal.id} />
         </div>
 
         {/* Ball in Court + days-with-reviewer SLA chip. The chip only
@@ -554,6 +563,17 @@ const SubmittalRow = React.memo(function SubmittalRow({
               </p>
               <p className="text-sm text-content-primary whitespace-pre-wrap">
                 {submittal.description}
+              </p>
+            </div>
+          )}
+
+          {submittal.review_notes && (
+            <div className="rounded-lg border border-border-light bg-surface-secondary p-3">
+              <p className="text-xs text-content-tertiary mb-1 font-medium uppercase tracking-wide">
+                {t('submittals.label_review_notes', { defaultValue: 'Reviewer comments' })}
+              </p>
+              <p className="text-sm text-content-primary whitespace-pre-wrap">
+                {submittal.review_notes}
               </p>
             </div>
           )}
@@ -604,6 +624,22 @@ const SubmittalRow = React.memo(function SubmittalRow({
               </span>
             </div>
           )}
+
+          {/* Routed approval workflow (feature 06). When the project has an
+              active "submittal" approval route the picker lets a reviewer
+              start a multi-step sign-off; each approver's decision drives the
+              submittal FSM. Projects with no route configured keep the direct
+              Submit / Review / Approve actions below. */}
+          <div>
+            <p className="text-xs text-content-tertiary mb-1 font-medium uppercase tracking-wide">
+              {t('submittals.label_approval', { defaultValue: 'Approval workflow' })}
+            </p>
+            <ApprovalInstanceCard
+              targetKind="submittal"
+              targetId={submittal.id}
+              projectId={projectId}
+            />
+          </div>
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1">
@@ -822,6 +858,7 @@ export function SubmittalsPage() {
       createMut.mutate({
         project_id: projectId,
         title: formData.title,
+        description: formData.description || undefined,
         spec_section: formData.spec_section || undefined,
         submittal_type: formData.type,
         date_required: formData.date_required || undefined,
@@ -868,6 +905,7 @@ export function SubmittalsPage() {
         id: editingSubmittal.id,
         data: {
           title: formData.title,
+          description: formData.description || undefined,
           spec_section: formData.spec_section || undefined,
           submittal_type: formData.type,
           date_required: formData.date_required || undefined,
@@ -1131,6 +1169,7 @@ export function SubmittalsPage() {
                 <SubmittalRow
                   key={s.id}
                   submittal={s}
+                  projectId={projectId}
                   onSubmit={handleSubmit}
                   onReview={handleReview}
                   onEdit={handleEdit}

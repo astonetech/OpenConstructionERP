@@ -436,6 +436,11 @@ class BIMElementResponse(BaseModel):
     # element is unlinked or no ProgressEntry has been recorded yet — the BIM
     # viewer paints those neutral grey in the "By progress" colour mode.
     current_pct: float | None = None
+    # ISO-8601 recorded date of the headline progress entry (the same entry
+    # whose percentage lands in ``current_pct``). Lets the "By progress"
+    # element info panel show "65% as of <date>". ``None`` when there is no
+    # linked progress or the winning entry has no recorded date.
+    current_pct_date: str | None = None
     created_at: datetime
     updated_at: datetime
 

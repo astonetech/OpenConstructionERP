@@ -82,6 +82,47 @@ class ProgressRepository:
         rows = (await self.session.execute(stmt)).all()
         return {row[0]: float(row[1]) for row in rows}
 
+    async def latest_pct_and_date_for_positions(
+        self,
+        project_id: uuid.UUID,
+        position_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, tuple[float, object | None]]:
+        """Return ``{position_id: (percent_complete, recorded_at)}`` for the
+        most-recent entry of each requested position.
+
+        Same single-round-trip correlated-MAX(recorded_at) shape as
+        :meth:`latest_pct_for_positions`, but also surfaces the timestamp of
+        the winning entry so callers (the BIM "By progress" overlay) can show
+        *when* the headline percentage was recorded. ``recorded_at`` is a
+        timezone-aware datetime; the caller decides how to format it.
+        """
+        if not position_ids:
+            return {}
+
+        sub = (
+            select(
+                ProgressEntry.boq_position_id,
+                func.max(ProgressEntry.recorded_at).label("max_ra"),
+            )
+            .where(
+                ProgressEntry.project_id == project_id,
+                ProgressEntry.boq_position_id.in_(position_ids),
+            )
+            .group_by(ProgressEntry.boq_position_id)
+            .subquery()
+        )
+
+        stmt = select(
+            ProgressEntry.boq_position_id,
+            ProgressEntry.percent_complete,
+            ProgressEntry.recorded_at,
+        ).join(
+            sub,
+            (ProgressEntry.boq_position_id == sub.c.boq_position_id) & (ProgressEntry.recorded_at == sub.c.max_ra),
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return {row[0]: (float(row[1]), row[2]) for row in rows}
+
     async def get_latest_for_position(
         self,
         project_id: uuid.UUID,

@@ -22,7 +22,7 @@ import hashlib
 import logging
 import uuid
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -115,7 +115,7 @@ async def export_backup(
 async def restore_backup(
     user_id: CurrentUserId,
     file: UploadFile = File(...),
-    mode: str = "replace",
+    mode: str = Form("replace"),
 ) -> RestoreResponse:
     """Upload and restore from a backup ZIP.
 

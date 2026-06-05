@@ -56,6 +56,7 @@ import {
   type CreateRFIPayload,
   type RespondRFIPayload,
 } from './api';
+import { ApprovalTargetBadge } from '@/features/approval-routes';
 
 /* ── Constants ─────────────────────────────────────────────────────────── */
 
@@ -1238,6 +1239,10 @@ const RFIRow = React.memo(function RFIRow({
             defaultValue: rfi.status.charAt(0).toUpperCase() + rfi.status.slice(1),
           })}
         </Badge>
+
+        {/* Pending-approval indicator (feature 06) — renders only while a
+            routed sign-off is running on this RFI. */}
+        <ApprovalTargetBadge targetKind="rfi" targetId={rfi.id} />
 
         {/* Discipline chip — hidden when null */}
         {rfi.discipline && (
