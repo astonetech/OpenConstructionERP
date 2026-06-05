@@ -218,6 +218,33 @@ class BIDashboardsRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_latest_snapshots_for_widgets(
+        self,
+        widget_ids: list[uuid.UUID],
+    ) -> dict[uuid.UUID, DashboardWidgetSnapshot]:
+        """Batch-load the latest snapshot per widget in a single query.
+
+        Avoids the N+1 of calling :meth:`get_latest_snapshot` once per
+        widget when rendering a dashboard. Uses PostgreSQL ``DISTINCT ON``
+        to pick the most-recent (``computed_at`` desc, ``id`` desc as a
+        deterministic same-instant tie-breaker) row per ``widget_id``.
+        Returns ``{}`` for an empty ``widget_ids`` (no SQL issued).
+        """
+        if not widget_ids:
+            return {}
+        stmt = (
+            select(DashboardWidgetSnapshot)
+            .where(DashboardWidgetSnapshot.widget_id.in_(widget_ids))
+            .distinct(DashboardWidgetSnapshot.widget_id)
+            .order_by(
+                DashboardWidgetSnapshot.widget_id.asc(),
+                DashboardWidgetSnapshot.computed_at.desc(),
+                DashboardWidgetSnapshot.id.desc(),
+            )
+        )
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return {row.widget_id: row for row in rows}
+
     async def write_snapshot(
         self,
         *,

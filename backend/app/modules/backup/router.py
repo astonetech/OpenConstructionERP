@@ -196,24 +196,35 @@ async def restore_backup(
                     if mode == "merge":
                         record_id = record.get("id")
                         if record_id:
+                            # Resolve the PK value first. If a string id is not
+                            # a valid UUID for a UUID-keyed table we cannot run
+                            # the duplicate check, so we must NOT silently fall
+                            # through and insert it as a new row — that would
+                            # break merge semantics by importing a duplicate.
+                            # Treat an un-checkable record as skipped instead.
                             try:
-                                existing = (
-                                    await session.execute(
-                                        select(model_cls).where(
-                                            model_cls.id == uuid.UUID(record_id)
-                                            if isinstance(record_id, str)
-                                            else model_cls.id == record_id
-                                        )
-                                    )
-                                ).scalar_one_or_none()
-                                if existing is not None:
-                                    count_skipped += 1
-                                    continue
-                            except Exception:
-                                logger.debug(
-                                    "Duplicate check failed for %s, attempting insert",
-                                    backup_key,
+                                lookup_id = (
+                                    uuid.UUID(record_id)
+                                    if isinstance(record_id, str)
+                                    else record_id
                                 )
+                            except (ValueError, TypeError):
+                                count_skipped += 1
+                                logger.debug(
+                                    "Skipping un-checkable record id in %s (merge mode): %r",
+                                    backup_key,
+                                    record_id,
+                                )
+                                continue
+
+                            existing = (
+                                await session.execute(
+                                    select(model_cls).where(model_cls.id == lookup_id)
+                                )
+                            ).scalar_one_or_none()
+                            if existing is not None:
+                                count_skipped += 1
+                                continue
 
                     try:
                         obj = deserialize_row(model_cls, record)

@@ -694,7 +694,12 @@ async def export_field_reports(
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
-    reports, _ = await service.list_reports(project_id, offset=0, limit=2000)
+    # Export every report for the project. The previous ``limit=2000`` cap
+    # silently truncated the file for large projects, contradicting the
+    # "Export all field reports" contract. ``all_for_project`` fetches the
+    # full set; sort newest-first to match the list view's ordering.
+    reports = await service.repo.all_for_project(project_id)
+    reports.sort(key=lambda r: r.report_date, reverse=True)
 
     wb = Workbook()
     ws = wb.active

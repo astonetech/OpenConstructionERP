@@ -443,7 +443,16 @@ class BIMRequirementService:
             # classification filter
             skip = False
             if classification:
-                elem_class = elem.classification or {}
+                # BIMElement has no dedicated classification column; per the
+                # canonical format spec the codes live under
+                # ``properties["classification"]`` (e.g. {"din276": "330"}).
+                # Mirror bim_hub.smart_views / vector_adapter which read the
+                # same nested dict. Fall back to {} so a missing key never
+                # raises AttributeError.
+                _props = getattr(elem, "properties", None) or {}
+                elem_class = _props.get("classification") if isinstance(_props, dict) else None
+                if not isinstance(elem_class, dict):
+                    elem_class = {}
                 for code_sys, pattern in classification.items():
                     actual = str(elem_class.get(code_sys, "")).lower()
                     if not _fnmatch(actual, str(pattern).lower()):
