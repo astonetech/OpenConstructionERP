@@ -198,6 +198,14 @@ export function ProjectControlsPage() {
             {alerts.slice(0, 5).map((a) => (
               <span key={a.kpi_code}>{a.message}</span>
             ))}
+            {alerts.length > 5 && (
+              <span className="mt-0.5 text-xs font-medium opacity-80">
+                {t('controls.alerts_more', {
+                  defaultValue: '… and {{count}} more',
+                  count: alerts.length - 5,
+                })}
+              </span>
+            )}
           </div>
         </div>
       )}
