@@ -14,6 +14,15 @@
   // for "draw the on-brand SVG placeholder".
   var ARTICLES = [
     {
+      slug: 'v8-2-0',
+      href: '/news/v8-2-0.html',
+      title: 'v8.2.0 - A project journey map, an FX inversion guard and tighter import validation.',
+      date: '2026-06-14',
+      tag: 'Release',
+      tagClass: 'release',
+      thumb: null
+    },
+    {
       slug: 'v8-1-0',
       href: '/news/v8-1-0.html',
       title: 'v8.1.0 - Tighter multi-user access control and a smoother first run.',
