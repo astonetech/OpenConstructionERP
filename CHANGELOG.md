@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quantity takeoff now reports how many PDF pages came back with no text layer, usually scanned drawings, instead of silently treating them as empty, so it is clear which pages need OCR.
 - DWG drawing previews render again on newer ezdxf builds (1.1 and later), which changed how the preview SVG is produced.
 - The DIN 276 completeness and hierarchy checks now also fold dotted CAD codes such as 330.10 to their three-digit cost group, so a model classified with deeper codes is scored against the right group instead of being undercounted or wrongly flagged as out of hierarchy.
+- Importing a GAEB tender now keeps the surcharge exactly as the file states it. The resulting amount is stored verbatim as a fixed markup instead of being re-derived from the percentage against the whole bill, so an imported bill reconciles to its declared total instead of drifting high.
+- Custom validation rules are now scoped to the workspace that wrote them, so one tenant's rules can no longer run against another tenant's data or shadow a built-in rule.
+- The 3D model viewer now shows a clear message when the browser cannot provide WebGL, for example on a remote desktop or with hardware acceleration turned off, instead of replacing the whole page with an error screen.
+- Real-time BOQ co-editing no longer falls back to public demo relay servers. It stays local to your browser unless an operator points it at their own self-hosted relay, so document content is never sent through third-party infrastructure.
 
 ## [8.1.0] - 2026-06-14
 
