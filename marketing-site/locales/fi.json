@@ -1066,6 +1066,8 @@
       "cmp_h2": "Kumppaniohjelmamme yhdellä silmäyksellä.",
       "cmp_th_what": "Mitä kumppanit saavat",
       "cmp_th_us": "OpenConstructionERP-kumppaniohjelma",
+      "glance_resell_title": "Kaikesta, mita myyt edelleen meilta",
+      "glance_resell_note": "Lisenssit, CWICR, lokalisointipaketit, liittimet ja uusinnat, yksi hinta, ei tasoja.",
       "toolkit_h2": "Mitä todella saat ensimmäisenä päivänä.",
       "toolkit_lede": "\n        Kolme konkreettista asiaa: 30 päivän aikajana, valmis työkalupakki ja\n        rehellinen kartta siitä, mistä liidit tulevat. Ei isoja lupauksia, vain\n        työkalut ja kytkennät.\n      ",
       "toolkit_c1_eyebrow": "Ensimmäiset 30 päivää",

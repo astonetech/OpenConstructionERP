@@ -1021,6 +1021,8 @@
       "cmp_h2": "우리 파트너 프로그램 한눈에 보기.",
       "cmp_th_what": "파트너가 받는 것",
       "cmp_th_us": "OpenConstructionERP 파트너 프로그램",
+      "glance_resell_title": "당사에서 재판매하는 모든 항목에 대해",
+      "glance_resell_note": "라이선스, CWICR, 현지화 패키지, 커넥터, 갱신, 단일 요율, 등급 없음.",
       "toolkit_h2": "첫날 실제로 받게 되는 것.",
       "toolkit_lede": "\n        세 가지 구체적인 항목: 30일 타임라인, 바로 쓸 수 있는 툴킷, 그리고\n        리드가 어디서 오는지에 대한 솔직한 안내. 거창한 약속이 아니라, 도구와\n        연결망입니다.\n      ",
       "toolkit_c1_eyebrow": "첫 30일",

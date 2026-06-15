@@ -1543,6 +1543,67 @@
     .cmp-no { color: #dc2626; font-weight: 700; }
     .cmp-na { color: var(--ink-3); }
 
+    /* ─── PROGRAM COMMITMENTS GRID (at a glance) ─────────────────── */
+    .glance-grid {
+      max-width: 1140px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 14px;
+    }
+    .glance-card {
+      background: var(--bg-1);
+      border: 1px solid var(--line-1);
+      border-radius: 16px;
+      padding: 22px 22px 20px;
+      display: flex;
+      flex-direction: column;
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+    .glance-card:hover {
+      transform: translateY(-3px);
+      border-color: color-mix(in oklab, var(--accent) 38%, var(--line-1));
+      box-shadow: 0 14px 32px -14px color-mix(in oklab, var(--accent) 34%, transparent);
+    }
+    .glance-card .glance-t {
+      font-family: 'Inter Tight', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--ink-2);
+      letter-spacing: 0.01em;
+    }
+    .glance-card .glance-t small { display: none; }
+    .glance-card .glance-v {
+      font-family: 'Inter Tight', sans-serif;
+      font-weight: 800;
+      font-size: 30px;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--accent);
+      margin-top: 10px;
+    }
+    .glance-card .glance-v small {
+      display: block;
+      margin-top: 10px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 400;
+      font-size: 12.5px;
+      line-height: 1.5;
+      letter-spacing: 0;
+      color: var(--ink-3);
+    }
+    .glance-card.hero {
+      background: linear-gradient(150deg,
+        color-mix(in oklab, var(--accent) 12%, var(--bg-1)),
+        color-mix(in oklab, var(--accent-3) 7%, var(--bg-1)));
+      border-color: color-mix(in oklab, var(--accent) 42%, var(--line-1));
+    }
+    .glance-card.hero .glance-v { font-size: 40px; }
+    @media (max-width: 540px) {
+      .glance-card .glance-v { font-size: 26px; }
+      .glance-card.hero .glance-v { font-size: 32px; }
+    }
+
     /* ─── RISK REVERSAL ──────────────────────────────────────────── */
     .risk-grid {
       max-width: 1180px;
@@ -2880,53 +2941,35 @@
       </p>
     </div>
 
-    <div class="cmp-wrap">
-      <table class="cmp-table">
-        <thead>
-          <tr>
-            <th data-i18n="page.partners.cmp_th_what">What partners get</th>
-            <th class="us" data-i18n="page.partners.cmp_th_us">OpenConstructionERP partner program</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r1_label_v2">Annual partnership fee<small>same for everyone</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r1_value_v2"><b style="color:var(--accent);">&euro;0</b><small style="color:var(--ink-3);font-weight:400;">no certification fee, no annual minimum, no upcharge</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r2_label_v2">Margin on commercial licences and SaaS<small>partner share</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r2_value_v2">70%<small style="color:var(--ink-3);font-weight:400;">documented in the partner agreement</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r3_label">Margin on regional packs<small>localisation, vertical add-ons</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r3_value_v2">70%<small style="color:var(--ink-3);font-weight:400;">same rate as everything else you resell</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r4_label">Implementation revenue<small>partner-kept</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r4_value">100%<small style="color:var(--ink-3);font-weight:400;">we don't bill end customers for services partners deliver</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r5_label">Vendor competes on services?<small>directly with you</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r5_value"><span class="cmp-no">No</span><small style="color:var(--ink-3);font-weight:400;">written non-compete in the partner agreement</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r6_label">Headcount minimum<small>certified engineers required</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r6_value"><span style="color:#16a34a;font-weight:700;">0</span><small style="color:var(--ink-3);font-weight:400;">solo consultants and small studios welcome</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r7_label">Open-source product<small>partner can fork &amp; extend</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r7_value"><span class="cmp-yes">Full AGPL-3.0</span><small style="color:var(--ink-3);font-weight:400;">source available, no closed-source lock-in</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r8_label">Construction-native product<small>BOQ · BIM · 4D · AI takeoff</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r8_value"><span class="cmp-yes">Yes</span><small style="color:var(--ink-3);font-weight:400;">built bottom-up for construction estimation - not a generic ERP module</small></td>
-          </tr>
-          <tr>
-            <td data-i18n-html="page.partners.cmp_r9_label">Recurring renewal margin<small>passive Year-2+ stream</small></td>
-            <td class="us-cell" data-i18n-html="page.partners.cmp_r9_value_v2">70%<small style="color:var(--ink-3);font-weight:400;">paid annually on every renewing customer you brought in</small></td>
-          </tr>
-        </tbody>
-      </table>
+    <div class="glance-grid">
+      <div class="glance-card hero">
+        <div class="glance-t" data-i18n="page.partners.glance_resell_title">On everything you resell from us</div>
+        <div class="glance-v">70%<small data-i18n="page.partners.glance_resell_note">Licences, CWICR, localisation packs, connectors and renewals - one rate, no tiers.</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r4_label">Implementation revenue<small>partner-kept</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r4_value">100%<small style="color:var(--ink-3);font-weight:400;">we don't bill end customers for services partners deliver</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r1_label_v2">Annual partnership fee<small>same for everyone</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r1_value_v2"><b style="color:var(--accent);">&euro;0</b><small style="color:var(--ink-3);font-weight:400;">no certification fee, no annual minimum, no upcharge</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r5_label">Vendor competes on services?<small>directly with you</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r5_value"><span class="cmp-no">No</span><small style="color:var(--ink-3);font-weight:400;">written non-compete in the partner agreement</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r6_label">Headcount minimum<small>certified engineers required</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r6_value"><span style="color:#16a34a;font-weight:700;">0</span><small style="color:var(--ink-3);font-weight:400;">solo consultants and small studios welcome</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r7_label">Open-source product<small>partner can fork &amp; extend</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r7_value"><span class="cmp-yes">Full AGPL-3.0</span><small style="color:var(--ink-3);font-weight:400;">source available, no closed-source lock-in</small></div>
+      </div>
+      <div class="glance-card">
+        <div class="glance-t" data-i18n-html="page.partners.cmp_r8_label">Construction-native product<small>BOQ · BIM · 4D · AI takeoff</small></div>
+        <div class="glance-v" data-i18n-html="page.partners.cmp_r8_value"><span class="cmp-yes">Yes</span><small style="color:var(--ink-3);font-weight:400;">built bottom-up for construction estimation - not a generic ERP module</small></div>
+      </div>
     </div>
 
     <p class="calc-disclaimer" data-i18n-html="page.partners.cmp_disclaimer_v2">
@@ -2953,13 +2996,7 @@
     </div>
     <div class="tiers">
       <div class="tier-grid" role="table" aria-label="Partner deal rate card" data-i18n-aria-label="page.partners.deal_table_aria">
-        <div class="row-label" data-i18n="page.partners.deal_row_commercial">Commercial licences · CWICR · connectors</div>
-        <div class="num lg">70%</div>
-
-        <div class="row-label" data-i18n="page.partners.deal_row_localisation">Localisation packs · cad2data converters</div>
-        <div class="num lg">70%</div>
-
-        <div class="row-label" data-i18n="page.partners.deal_row_recurring">Recurring on renewals</div>
+        <div class="row-label" data-i18n="page.partners.glance_resell_title">On everything you resell from us</div>
         <div class="num lg">70%</div>
 
         <div class="row-label" data-i18n="page.partners.deal_row_implementation">Implementation services</div>
