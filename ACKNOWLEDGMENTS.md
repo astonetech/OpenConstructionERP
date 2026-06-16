@@ -18,3 +18,4 @@ while making sure community input is recognized.
 | [expalex1507](https://github.com/expalex1507) | [#26](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/26) |
 | [hanisedawy](https://github.com/hanisedawy) | [#124](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/124) |
 | [Hung](https://github.com/hungdd84) | [#103](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/103) |
+| [JRS](https://github.com/JORBDAAG) | [#168](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/168) |
