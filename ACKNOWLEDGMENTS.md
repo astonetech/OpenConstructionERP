@@ -16,3 +16,4 @@ while making sure community input is recognized.
 | [Cody Churchwell](https://github.com/consigcody94) | [#27](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/27) |
 | [DevpratikDevelopers](https://github.com/DevpratikDevelopers) | [#122](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/122) |
 | [expalex1507](https://github.com/expalex1507) | [#26](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/26) |
+| [hanisedawy](https://github.com/hanisedawy) | [#124](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/124) |
