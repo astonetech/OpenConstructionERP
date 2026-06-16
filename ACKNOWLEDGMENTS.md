@@ -22,3 +22,4 @@ while making sure community input is recognized.
 | [jyloveqq](https://github.com/jyloveqq) | [#171](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/171) |
 | [maher00746](https://github.com/maher00746) | [#51](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/51) |
 | [migfrazao2003](https://github.com/migfrazao2003) | [#53](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/53) |
+| [Mario Kozjak](https://github.com/mkozjak) | [#110](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/110) |
