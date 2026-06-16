@@ -25,3 +25,4 @@ while making sure community input is recognized.
 | [Mario Kozjak](https://github.com/mkozjak) | [#110](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/110) |
 | [Mohammed Shousha](https://github.com/mohandshamada) | [#197](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/197) |
 | [online14230](https://github.com/online14230) | [#116](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/116) |
+| [rashidengg-arch](https://github.com/rashidengg-arch) | [#87](https://github.com/datadrivenconstruction/OpenConstructionERP/issues/87) |
