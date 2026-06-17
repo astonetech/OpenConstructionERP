@@ -9,14 +9,16 @@
 
 // @ts-nocheck
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CalibrationDialog } from '../components/CalibrationDialog';
+import { takeoffApi } from '../api';
 import {
   deriveScale,
   toMeters,
   fromMeters,
   formatScaleRatio,
   ratioFromScale,
+  presetScale,
 } from '../../../modules/pdf-takeoff/data/scale-helpers';
 
 describe('deriveScale', () => {
@@ -137,5 +139,118 @@ describe('CalibrationDialog', () => {
       key: 'Escape',
     });
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT call detectScale and shows no banner when no documentId', () => {
+    const spy = vi.spyOn(takeoffApi, 'detectScale');
+    render(
+      <CalibrationDialog pixelDistance={500} onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('detected-scale-banner')).toBeNull();
+    spy.mockRestore();
+  });
+});
+
+describe('CalibrationDialog scale auto-detect', () => {
+  it('shows the detected scale and applies it through onConfirm', async () => {
+    const onConfirm = vi.fn();
+    vi.spyOn(takeoffApi, 'detectScale').mockResolvedValue({
+      best: {
+        ratio: 100,
+        label: '1:100',
+        confidence: 0.95,
+        page: 1,
+        evidence: 'SCALE 1:100',
+        source: 'ratio',
+        detail: {},
+      },
+      candidates: [
+        {
+          ratio: 100,
+          label: '1:100',
+          confidence: 0.95,
+          page: 1,
+          evidence: 'SCALE 1:100',
+          source: 'ratio',
+          detail: {},
+        },
+      ],
+      source: 'text_layer',
+    });
+
+    render(
+      <CalibrationDialog
+        pixelDistance={500}
+        page={1}
+        documentId="doc-1"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Banner appears once detection resolves.
+    const useBtn = await screen.findByTestId('detected-scale-use');
+    expect(screen.getByTestId('detected-scale-banner')).toBeTruthy();
+
+    fireEvent.click(useBtn);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    // The applied scale equals the canonical preset for 1:100.
+    const scale = onConfirm.mock.calls[0][0];
+    expect(scale.pixelsPerUnit).toBeCloseTo(presetScale(100).pixelsPerUnit, 6);
+    expect(scale.unitLabel).toBe('m');
+  });
+
+  it('prefers a candidate on the current page over the document-wide best', async () => {
+    const onConfirm = vi.fn();
+    vi.spyOn(takeoffApi, 'detectScale').mockResolvedValue({
+      best: { ratio: 100, label: '1:100', confidence: 0.95, page: 1, evidence: 'SCALE 1:100', source: 'ratio', detail: {} },
+      candidates: [
+        { ratio: 100, label: '1:100', confidence: 0.95, page: 1, evidence: 'SCALE 1:100', source: 'ratio', detail: {} },
+        { ratio: 20, label: '1:20', confidence: 0.95, page: 3, evidence: 'SCALE 1:20', source: 'ratio', detail: {} },
+      ],
+      source: 'text_layer',
+    });
+
+    render(
+      <CalibrationDialog
+        pixelDistance={500}
+        page={3}
+        documentId="doc-1"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Page 3's own scale (1:20) is offered, not the page-1 best.
+    await screen.findByTestId('detected-scale-use');
+    expect(screen.getByTestId('detected-scale-banner').textContent).toContain('1:20');
+    fireEvent.click(screen.getByTestId('detected-scale-use'));
+    const scale = onConfirm.mock.calls[0][0];
+    expect(scale.pixelsPerUnit).toBeCloseTo(presetScale(20).pixelsPerUnit, 6);
+  });
+
+  it('shows no banner when the backend detects no scale', async () => {
+    vi.spyOn(takeoffApi, 'detectScale').mockResolvedValue({
+      best: null,
+      candidates: [],
+      source: 'text_layer',
+    });
+    render(
+      <CalibrationDialog pixelDistance={500} documentId="doc-1" onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+    // Manual input always renders; the suggestion banner never does.
+    await screen.findByTestId('calibration-length-input');
+    await waitFor(() => expect(screen.queryByTestId('detected-scale-banner')).toBeNull());
+  });
+
+  it('does not surface an error when detection throws', async () => {
+    vi.spyOn(takeoffApi, 'detectScale').mockRejectedValue(new Error('network'));
+    render(
+      <CalibrationDialog pixelDistance={500} documentId="doc-1" onConfirm={vi.fn()} onCancel={vi.fn()} />,
+    );
+    // The manual calibration path keeps working; no banner, no throw.
+    await screen.findByTestId('calibration-length-input');
+    await waitFor(() => expect(screen.queryByTestId('detected-scale-banner')).toBeNull());
   });
 });
