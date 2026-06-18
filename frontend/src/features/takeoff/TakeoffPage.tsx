@@ -1958,16 +1958,12 @@ export function TakeoffPage() {
           { label: t('nav.pdf_measurements', 'PDF Measurements') },
         ]}
       />
-      {/* Canonical top block — the module name + icon are shown by the global
-          top app bar, so no visible in-page title. The PageHeader carries a
-          subtitle (what the page does) so the header row is never a blank
-          midline before the info card. */}
+      {/* Canonical top block - the module name + icon come from the global top
+          app bar, so there is no visible in-page title or subtitle here; the
+          PageHeader only carries the guide action. The "what this page does"
+          copy lives in the dismissible info card just below. */}
       <PageHeader
         srTitle={t('nav.pdf_measurements', 'PDF Measurements')}
-        subtitle={t('takeoff.subtitle', {
-          defaultValue:
-            'Measure areas, lengths and counts on PDF drawings and send them to a BOQ',
-        })}
         actions={
           <ModuleGuideButton
             content={takeoffGuide}

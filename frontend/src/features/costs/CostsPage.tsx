@@ -47,6 +47,7 @@ import type { CostItemMetadata, CertaintyBadge as CertaintyBadgeData, CostCatalo
 import { buildBoqPositionDraft, massEffectiveUnitRate, type FullCostItem } from './addToBoqHelpers';
 import { fetchUsageCounts, fetchCostCatalogs } from './api';
 import { CatalogsSection } from './CatalogsSection';
+import { CustomCategoryList } from './CustomCategoryList';
 import { costsGuide } from './costsGuide';
 import { UsageBadge } from './UsageBadge';
 import { EscalationCalculator } from './EscalationCalculator';
@@ -642,6 +643,23 @@ export function CostsPage() {
     staleTime: 5 * 60_000,
   });
 
+  // Distinct categories the user typed onto their OWN custom cost items
+  // (region='CUSTOM', the tag the Add Item / Edit modals stamp). The built-in
+  // classification tree below is region-scoped and excludes these, so a
+  // category like "Structural Steel" was only ever reachable via free-text
+  // search. We surface them as their own clickable browse group in the
+  // sidebar (see "My categories" below) so user-created categories are
+  // first-class. Server-cached for 30s and invalidated on every create/edit/
+  // delete via the ['costs'] key, so a freshly added category shows up at
+  // once. The endpoint already filters empty/NULL collections out, so the
+  // "Unclassified" bucket is handled by the built-in tree, not here.
+  const { data: customCategories } = useQuery({
+    queryKey: ['costs', 'categories', 'CUSTOM'],
+    queryFn: () => apiGet<string[]>('/v1/costs/categories/?region=CUSTOM'),
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
   // Fetch full classification tree (collection → department → section →
   // subsection) so the sidebar mirrors the BOQ "From Database" modal.
   // depth=4 gives the deepest drill-in; the backend's /category-tree/
@@ -1199,6 +1217,23 @@ export function CostsPage() {
               {t('costs.categories_title', { defaultValue: 'Categories' })}
             </span>
           </div>
+          {/* My categories — the collections the user typed onto their own
+              custom items (region='CUSTOM'). The built-in classification tree
+              below is region-scoped and never lists these, so they get their
+              own clickable group here. Shown only on the "All" tab (region='',
+              where custom items are actually browsable). Clicking one filters
+              the list to that collection via the existing `category` filter,
+              which `handleCategoryChange` keeps mutually exclusive with the
+              tree's classification path. */}
+          {region === '' && (
+            <CustomCategoryList
+              categories={customCategories ?? []}
+              selectedCategory={category}
+              onSelect={handleCategoryChange}
+              labelFor={categoryLabel}
+              t={t}
+            />
+          )}
           <div className="h-[calc(100vh-8rem)] min-h-[400px] flex flex-col">
             <CostCategoryTree
               tree={categoryTree ?? []}

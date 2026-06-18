@@ -1107,6 +1107,11 @@ class DwgTakeoffService:
         # cause that previously surfaced as "CAD conversion failed for
         # .rvt" in the CAD/BIM Data Explorer. Once DDC ships a v18
         # DwgExporter this code keeps working without any further patch.
+        # DWG conversion can legitimately take minutes on large drawings, so
+        # match the 300s the CAD/BIM Data Explorer (boq.cad_import) already
+        # allows. The old 120s cap timed out files the explorer converts fine.
+        # Overridable via env for very large sets or slow boxes.
+        convert_timeout_s = int(os.getenv("OE_DWG_CONVERT_TIMEOUT_S", "300"))
         xlsx_path = file_path.rsplit(".", 1)[0] + "_dwg.xlsx"
         try:
             caps = detect_converter_capabilities("dwg")
@@ -1143,7 +1148,7 @@ class DwgTakeoffService:
                     cwd=str(converter.parent),
                     env=_converter_subprocess_env(converter),
                     input=b"\n",
-                    timeout=120,
+                    timeout=convert_timeout_s,
                 )
             )
             if not os.path.exists(xlsx_path) or os.path.getsize(xlsx_path) < 100:
@@ -1195,7 +1200,7 @@ class DwgTakeoffService:
             await self.drawing_repo.update_fields(
                 drawing_id,
                 status="error",
-                error_message="DWG conversion timed out (120s limit)",
+                error_message=f"DWG conversion timed out ({convert_timeout_s}s limit)",
             )
             return
         except Exception as exc:

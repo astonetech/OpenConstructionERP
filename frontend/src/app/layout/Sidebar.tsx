@@ -89,6 +89,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useModuleStore } from '@/stores/useModuleStore';
 import { apiGet } from '@/shared/lib/api';
 import { UpdateNotification } from '@/shared/ui/UpdateChecker';
+import { VideoNewsCard } from '@/shared/ui/VideoNewsCard';
 import { useViewModeStore } from '@/stores/useViewModeStore';
 import { useNavPendingStore } from '@/shared/lib/navigationProgress';
 import { useRecentStore } from '@/stores/useRecentStore';
@@ -1783,6 +1784,16 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         {!iconified && (
           <div className="mt-3">
             <UpdateNotification />
+          </div>
+        )}
+
+        {/* Featured video card - links to the YouTube video on the
+            uberization of construction and the idea behind the platform.
+            Hidden in icon-only mode (image + text need width); dismissible
+            and remembered per-video in localStorage. */}
+        {!iconified && (
+          <div className="mt-2">
+            <VideoNewsCard />
           </div>
         )}
 

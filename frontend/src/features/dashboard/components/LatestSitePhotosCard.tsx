@@ -72,7 +72,7 @@ export function LatestSitePhotosCard() {
               {t('dashboard.latest_photos_title', { defaultValue: 'Latest site photos' })}
             </h3>
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-12">
             {Array.from({ length: 6 }).map((_unused, i) => (
               <div
                 key={i}
@@ -123,7 +123,7 @@ export function LatestSitePhotosCard() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 lg:grid-cols-8 xl:grid-cols-12">
             {items.map((photo, index) => (
               <button
                 key={photo.id}
