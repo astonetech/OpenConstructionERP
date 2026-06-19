@@ -251,6 +251,24 @@ CLASH_GROUP_BY = ("discipline", "type", "category", "ifc_entity")
 CLASH_PROPERTY_GROUP_PREFIX = "property:"
 
 
+class ClashModelOption(BaseModel):
+    """One BIM model in the run-config model picker (lightweight projection).
+
+    Surfaced by ``GET /projects/{id}/models`` so the Set A / Set B picker
+    can list the project's models without pulling the full BIM-model row.
+    ``name`` falls back to the model filename then a generic label;
+    ``element_count`` is coerced to a non-negative int; ``status`` is the
+    model's processing state (``None`` when the source carries none). A
+    fixed schema (rather than a bare ``dict``) keeps the response typed in
+    the OpenAPI contract and stops ORM internals leaking onto the wire.
+    """
+
+    id: str
+    name: str
+    element_count: int = 0
+    status: str | None = None
+
+
 class ClashCategoryItem(BaseModel):
     """One distinct grouping value with its element count."""
 

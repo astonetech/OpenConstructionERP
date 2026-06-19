@@ -107,9 +107,11 @@ import {
   loadFilters,
 } from './clashFilterPersistence';
 import { ClashClusterChips } from './ClashClusterChips';
+import { ClashRunDiffBadge } from './ClashRunDiffBadge';
 import { ClashRuleEditor } from './ClashRuleEditor';
 import { ClashRuleSuggestionBanner } from './ClashRuleSuggestionBanner';
 import { ClashKpiPanel } from './ClashKpiPanel';
+import { ClashSmartIssuesPanel } from './ClashSmartIssuesPanel';
 import { ClashCostImpactColumn } from './ClashCostImpactColumn';
 import { clashGuide } from './clashGuide';
 
@@ -209,7 +211,13 @@ type ResultGroupBy =
   | 'status'
   | 'element_a';
 
-const OPEN_STATUSES = ['new', 'active'];
+// Statuses that still need attention - MUST match the backend's
+// ``schemas.OPEN_STATUSES`` (new, active, reviewed). The server computes
+// every matrix/KPI ``open_count`` with ``reviewed`` included, and
+// ``ClashKpiPanel`` + the "Open" matrix badges already count it as open;
+// dropping it here made the page's "Open" KPI tile and the ``open`` quick
+// filter silently disagree with those surfaces for any reviewed clash.
+const OPEN_STATUSES = ['new', 'active', 'reviewed'];
 const STATUS_OPTIONS = [
   'new',
   'active',
@@ -535,6 +543,9 @@ export function ClashDetectionPage() {
   // Wave A4 — UI flags for the new rule editor modal + KPI dashboard tab.
   const [rulesOpen, setRulesOpen] = useState(false);
   const [kpiTabOpen, setKpiTabOpen] = useState(false);
+  // Project-wide Smart Issues management panel (persistent clash identities
+  // + suppress/unsuppress). Toggled from the run header like the KPI tab.
+  const [issuesTabOpen, setIssuesTabOpen] = useState(false);
 
   // Table state.
   const [sortKey, setSortKey] = useState<SortKey>('idx');
@@ -1203,6 +1214,12 @@ export function ClashDetectionPage() {
         queryKey: ['clash-results', projectId, runId],
       });
       qc.invalidateQueries({ queryKey: ['clash-run', projectId, runId] });
+      // Suppressing result rows flips their underlying smart issues to
+      // ``ignored``; keep the project-wide Smart Issues panel and the
+      // run-diff badge (whose "ignored" bucket is derived from these
+      // identities) in sync with the review table.
+      qc.invalidateQueries({ queryKey: ['clash-issues', projectId] });
+      qc.invalidateQueries({ queryKey: ['clash', projectId] });
     },
   });
 
@@ -2670,6 +2687,7 @@ export function ClashDetectionPage() {
                   )}
                 >
                   <button
+                    type="button"
                     className="flex-1 truncate text-left"
                     title={r.description || r.name}
                     onClick={() =>
@@ -2696,6 +2714,7 @@ export function ClashDetectionPage() {
                     </span>
                   </button>
                   <button
+                    type="button"
                     aria-label={t('common.delete', {
                       defaultValue: 'Delete',
                     })}
@@ -2805,6 +2824,11 @@ export function ClashDetectionPage() {
                 projectId={projectId}
                 runId={runId}
               />
+              {/* Smart-issue lifecycle vs the previous run (new / persisting
+                  / resolved / reopened / suppressed). Self-hides on a
+                  project's first run. Complements the geometric Compare
+                  panel above, which needs an explicit base-run pick. */}
+              <ClashRunDiffBadge projectId={projectId} runId={runId} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <ClashClusterChips
                   projectId={projectId}
@@ -2822,6 +2846,19 @@ export function ClashDetectionPage() {
                     {t('clash.rules.open_editor', { defaultValue: 'Rules…' })}
                   </Button>
                   <Button
+                    variant={issuesTabOpen ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setIssuesTabOpen((v) => !v)}
+                  >
+                    {issuesTabOpen
+                      ? t('clash.issues.hide', {
+                          defaultValue: 'Hide smart issues',
+                        })
+                      : t('clash.issues.show', {
+                          defaultValue: 'Smart issues',
+                        })}
+                  </Button>
+                  <Button
                     variant={kpiTabOpen ? 'primary' : 'secondary'}
                     size="sm"
                     onClick={() => setKpiTabOpen((v) => !v)}
@@ -2832,6 +2869,9 @@ export function ClashDetectionPage() {
                   </Button>
                 </div>
               </div>
+              {issuesTabOpen && (
+                <ClashSmartIssuesPanel projectId={projectId} />
+              )}
               {kpiTabOpen && (
                 <ClashKpiPanel projectId={projectId} runId={runId} />
               )}
@@ -3016,7 +3056,9 @@ export function ClashDetectionPage() {
                               return (
                                 <td key={col} className="p-1">
                                   <button
+                                    type="button"
                                     disabled={c === 0}
+                                    aria-pressed={isActive}
                                     onClick={() =>
                                       setFPair((cur) =>
                                         cur === pairKey ? '' : pairKey,
@@ -3290,6 +3332,8 @@ export function ClashDetectionPage() {
                       {STATUS_OPTIONS.map((s) => (
                         <button
                           key={s}
+                          type="button"
+                          aria-pressed={fStatus.has(s)}
                           onClick={() => toggleStatusFilter(s)}
                           className={clsx(
                             'rounded-full px-2 py-0.5 text-2xs font-medium transition-colors',
@@ -3315,6 +3359,8 @@ export function ClashDetectionPage() {
                       {SEVERITY_OPTIONS.map((s) => (
                         <button
                           key={s}
+                          type="button"
+                          aria-pressed={fSeverity.has(s)}
                           onClick={() => toggleSeverityFilter(s)}
                           className={clsx(
                             'rounded-full px-2 py-0.5 text-2xs font-medium capitalize transition-colors',
@@ -3458,6 +3504,7 @@ export function ClashDetectionPage() {
                         />
                       )}
                       <button
+                        type="button"
                         onClick={clearAllFilters}
                         className="ml-1 text-2xs font-medium text-oe-blue hover:underline"
                       >
@@ -3980,6 +4027,7 @@ export function ClashDetectionPage() {
                                     </Badge>
                                   )}
                                   <button
+                                    type="button"
                                     aria-label={t('clash.open_detail', {
                                       defaultValue:
                                         'Open clash details',
@@ -3994,6 +4042,7 @@ export function ClashDetectionPage() {
                                     <MessageSquare className="h-3.5 w-3.5" />
                                   </button>
                                   <button
+                                    type="button"
                                     aria-label={t('clash.export_row', {
                                       defaultValue:
                                         'Export this clash to BCF',
@@ -4113,6 +4162,7 @@ export function ClashDetectionPage() {
                             n: selResults.size,
                           })}
                           <button
+                            type="button"
                             onClick={() => setSelResults(new Set())}
                             className="text-oe-blue hover:underline"
                           >
@@ -4565,6 +4615,9 @@ function SortableTh({
   const isActive = sortKey === k;
   return (
     <th
+      aria-sort={
+        isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
       className={clsx(
         'select-none px-3 py-2.5 font-medium',
         align === 'right' ? 'text-right' : 'text-left',
@@ -4572,6 +4625,7 @@ function SortableTh({
       )}
     >
       <button
+        type="button"
         onClick={() => onSort(k)}
         className={clsx(
           'inline-flex items-center gap-1 hover:text-content-primary',
@@ -4601,13 +4655,18 @@ function FilterChip({
   label: string;
   onClear: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-oe-blue/10 py-0.5 pl-2 pr-1 text-2xs font-medium text-oe-blue">
       <span className="max-w-[160px] truncate">{label}</span>
       <button
+        type="button"
         onClick={onClear}
         className="rounded-full p-0.5 hover:bg-oe-blue/20"
-        aria-label="clear"
+        aria-label={t('clash.filters.removeChip', {
+          defaultValue: 'Remove filter: {{label}}',
+          label,
+        })}
       >
         <X className="h-3 w-3" />
       </button>
@@ -4860,6 +4919,7 @@ function BulkActionsBar({
         </Button>
       </label>
       <button
+        type="button"
         onClick={onClear}
         className="ml-auto text-2xs font-medium text-content-tertiary hover:text-content-primary"
       >
@@ -4992,6 +5052,7 @@ function FacetRail({
       />
       <div className="md:col-span-2 lg:col-span-3">
         <button
+          type="button"
           onClick={onClear}
           className="text-2xs font-medium text-oe-blue hover:underline"
         >

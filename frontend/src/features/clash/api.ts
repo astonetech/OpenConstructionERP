@@ -258,6 +258,67 @@ export interface ClashResultSummary {
   assigned_to: string | null;
 }
 
+/** GET …/runs/{rid}/diff response - smart-issue lifecycle counts for a
+ *  run vs the project's previous run. Unlike `ClashCompare` (which diffs
+ *  the raw geometric result set against a user-picked base run), this
+ *  diffs the run's clash *signatures* against the persistent smart-issue
+ *  identities, so it reflects coordination progress over time:
+ *  `new` = signatures first seen this run; `persisted` = seen in both
+ *  this run and the previous one; `resolved` = present before but gone
+ *  now; `reopened` = a resolved signature that resurfaced; `ignored` =
+ *  signatures whose smart issue is suppressed. All non-negative ints. */
+export interface ClashRunDiff {
+  new: number;
+  persisted: number;
+  resolved: number;
+  reopened: number;
+  ignored: number;
+}
+
+/** Canonical lifecycle states a smart issue can occupy. Mirrors the
+ *  backend `CLASH_ISSUE_STATUSES` tuple; the project-wide Smart Issues
+ *  panel filters/labels by these. */
+export type ClashIssueStatus =
+  | 'new'
+  | 'persisted'
+  | 'resolved'
+  | 'ignored'
+  | 'archived';
+
+/** GET /v1/clash/issues row - the persistent, signature-scoped identity
+ *  of a clash across re-runs (project-scoped, not run-scoped). Unlike a
+ *  `ClashResult` (one geometric pair in one run) a smart issue tracks the
+ *  same physical clash over time, which is what suppression acts on.
+ *  `member_count` is how many `ClashResult` rows currently point at it. */
+export interface ClashIssue {
+  id: string;
+  project_id: string;
+  signature_hash: string;
+  status: ClashIssueStatus;
+  first_seen_run_id: string;
+  last_seen_run_id: string;
+  resolved_run_id: string | null;
+  missing_run_count: number;
+  assignee_id: string | null;
+  /** ISO "YYYY-MM-DD" or null when unset. */
+  due_date: string | null;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  server_assigned_id: string;
+  tags: string[];
+  signature_quality: 'strong' | 'weak';
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /v1/clash/issues paginated envelope. */
+export interface ClashIssuePage {
+  items: ClashIssue[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 /** GET …/runs/{rid}/compare?base_run_id=<uuid> response. `persistent`
  *  carries both sides so the UI can show status drift. */
 export interface ClashCompare {
@@ -659,6 +720,53 @@ export const clashApi = {
       `/v1/clash/projects/${projectId}/runs/${runId}/compare?base_run_id=${encodeURIComponent(
         baseRunId,
       )}`,
+    ),
+
+  /** Smart-issue lifecycle counts for this run vs the project's previous
+   *  run (new / persisted / resolved / reopened / ignored). Unlike
+   *  `compare` this needs no base-run id - the server picks the prior run
+   *  automatically and diffs against the persistent smart-issue identities,
+   *  so it answers "what changed since last time" without the user choosing
+   *  a baseline. Zeros across the board on a project's very first run. */
+  runDiff: (projectId: string, runId: string) =>
+    apiGet<ClashRunDiff>(
+      `/v1/clash/runs/${runId}/diff`,
+    ),
+
+  /**
+   * Project-wide list of smart issues (the persistent identities behind
+   * clashes), newest activity first, paginated. Optional `status` filter
+   * narrows to one lifecycle state. Backs the Smart Issues management
+   * panel. The endpoint is project-scoped via the required `project_id`
+   * query param (IDOR-checked server-side).
+   */
+  issues: (
+    projectId: string,
+    params: { status?: ClashIssueStatus; offset?: number; limit?: number } = {},
+  ) => {
+    const q = new URLSearchParams();
+    q.set('project_id', projectId);
+    if (params.status) q.set('status', params.status);
+    q.set('offset', String(params.offset ?? 0));
+    q.set('limit', String(params.limit ?? 100));
+    return apiGet<ClashIssuePage>(`/v1/clash/issues?${q.toString()}`);
+  },
+
+  /** Suppress a single smart issue - flip it to `ignored` so its signature
+   *  stops auto-resurfacing in future runs. `reason` (1..500 chars) is a
+   *  required audit note. Returns the updated issue. */
+  suppressIssue: (projectId: string, issueId: string, reason: string) =>
+    apiPost<ClashIssue, { reason: string }>(
+      `/v1/clash/issues/${issueId}/suppress`,
+      { reason },
+    ),
+
+  /** Lift a suppression - flip the issue from `ignored` back to
+   *  `persisted`. Returns the updated issue. */
+  unsuppressIssue: (projectId: string, issueId: string) =>
+    apiPost<ClashIssue, undefined>(
+      `/v1/clash/issues/${issueId}/unsuppress`,
+      undefined,
     ),
 
   exportBcf: (
