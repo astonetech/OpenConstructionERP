@@ -504,17 +504,17 @@ class ProcurementService:
             )
             await self.po_item_repo.create(item)
 
-        # ``po_repo.create`` refreshed the PO BEFORE these line items were
-        # inserted, so the identity-mapped instance carries an empty ``items``
-        # collection cached on it. A plain re-``get`` returns that very same
-        # cached instance and ``selectinload`` will NOT overwrite an
-        # already-loaded collection without ``populate_existing`` - so the
-        # create response would still serialise ``items: []`` even though the
-        # rows are in the DB. Refresh the relationships the response carries
-        # straight from the database so the freshly persisted line items are
-        # populated (BUG-015).
+        # Reload the PO so the freshly inserted line items are populated on the
+        # ``items`` relationship. ``po_repo.create`` refreshed the PO BEFORE the
+        # items existed, caching an empty ``items`` collection on the
+        # identity-mapped instance; ``po_repo.get`` re-reads it with
+        # ``populate_existing`` so ``selectinload`` overwrites that stale empty
+        # collection (a plain selectinload would keep the cached one), giving
+        # the create response its line items (BUG-015).
         if data.items:
-            await self.session.refresh(po, attribute_names=["items", "goods_receipts"])
+            reloaded = await self.po_repo.get(po.id)
+            if reloaded is not None:
+                po = reloaded
 
         await _safe_publish(
             "procurement.po.created",

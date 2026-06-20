@@ -32,6 +32,14 @@ class PurchaseOrderRepository:
         """
         from sqlalchemy.orm import selectinload
 
+        # ``populate_existing`` forces the eager loaders to overwrite any
+        # already-cached column values and relationship collections on an
+        # identity-mapped instance. Without it, a PO that is still in the
+        # session with an ``items`` collection that was loaded empty (e.g. a
+        # freshly created PO whose line items were inserted afterwards, or a PO
+        # whose items were just replaced) would keep that stale empty/old
+        # collection, since ``selectinload`` will not clobber an already-loaded
+        # one. This makes ``get`` an authoritative "current state" read.
         stmt = (
             select(PurchaseOrder)
             .options(
@@ -39,6 +47,7 @@ class PurchaseOrderRepository:
                 selectinload(PurchaseOrder.goods_receipts),
             )
             .where(PurchaseOrder.id == po_id)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
