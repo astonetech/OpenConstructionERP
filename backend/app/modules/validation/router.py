@@ -56,13 +56,15 @@ async def _require_project_access(
     project_id: uuid.UUID | None,
     user_id: str | None,
 ) -> None:
-    """‌⁠‍Verify the current user owns (or is admin on) the referenced project.
+    """‌⁠‍Verify the current user may access the referenced project.
 
-    Central choke-point for project-scoped validation endpoints. Mirrors
-    the pattern used by ``finance.router._require_project_access``.
-    Raises HTTP 403 if the user has no access. ``None`` project_id is a
-    no-op - callers that accept global aggregates must scope at the
-    service layer.
+    Central choke-point for project-scoped validation endpoints. Delegates
+    to the canonical :func:`app.dependencies.verify_project_access`, which
+    grants access to the owner, admins, and team members, and raises HTTP
+    404 (not 403) on both "missing" and "denied" so the endpoint never
+    leaks the existence of a project UUID the caller cannot see (IDOR
+    defence). ``None`` project_id is a no-op - callers that accept global
+    aggregates must scope at the service layer.
     """
     if project_id is None:
         return
@@ -72,40 +74,9 @@ async def _require_project_access(
             detail="Authentication required",
         )
 
-    try:
-        from app.modules.projects.repository import ProjectRepository
-        from app.modules.users.repository import UserRepository
+    from app.dependencies import verify_project_access
 
-        proj_repo = ProjectRepository(session)
-        project = await proj_repo.get_by_id(project_id)
-        if project is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found",
-            )
-
-        # Admin bypass
-        try:
-            user_repo = UserRepository(session)
-            user = await user_repo.get_by_id(user_id)
-            if user is not None and getattr(user, "role", "") == "admin":
-                return
-        except Exception:  # noqa: BLE001 - best-effort admin check
-            pass
-
-        if str(getattr(project, "owner_id", "")) != str(user_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: you do not own this project",
-            )
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Validation project access check failed for %s: %s", project_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authorization check failed",
-        )
+    await verify_project_access(project_id, user_id, session)
 
 
 async def _require_report_access(
@@ -544,18 +515,24 @@ async def validation_report_similar(
 ) -> dict[str, Any]:
     """Return validation reports semantically similar to the given one."""
     from app.core.vector_index import find_similar
+    from app.dependencies import allowed_project_ids_for_similar
     from app.modules.validation.vector_adapter import validation_report_adapter
 
     # Verify the caller owns the source report's project before running
     # cross-project similarity, mirroring get_report/export_report_sarif.
     row = await _require_report_access(session, report_id, user_id)
     project_id = str(row.project_id) if row.project_id else None
+    # Restrict cross-project hits to projects the caller may access so a
+    # cross-project search never leaks reports from inaccessible projects
+    # (None == admin/unrestricted, mirroring verify_project_access).
+    allowed = await allowed_project_ids_for_similar(session, str(user_id), project_id, cross_project)
     hits = await find_similar(
         validation_report_adapter,
         row,
         project_id=project_id,
         cross_project=cross_project,
         limit=limit,
+        allowed_project_ids=allowed,
     )
     return {
         "source_id": str(report_id),

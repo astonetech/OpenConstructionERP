@@ -962,6 +962,29 @@ class QMSService:
         signatures = await self.repo.list_signatures(inspection_id)
         attachments = await self.repo.list_inspection_attachments(inspection_id)
         release = await self.repo.get_hold_point_release(inspection_id)
+        return self._assemble_inspection_compliance_record(
+            inspection,
+            item,
+            signatures,
+            attachments,
+            release,
+        )
+
+    @staticmethod
+    def _assemble_inspection_compliance_record(
+        inspection: QMSInspection,
+        item: ITPItem | None,
+        signatures: list[QMSInspectionSignature],
+        attachments: list[QMSInspectionAttachment],
+        release: QMSHoldPointRelease | None,
+    ) -> dict[str, Any]:
+        """Build the compliance record dict from already-loaded rows.
+
+        Pure / synchronous so it can be driven both by the single-inspection
+        path (which loads each piece on demand) and by the batched whole-plan
+        export (which pre-loads everything and groups in memory). The output
+        shape is identical for both callers.
+        """
         return {
             "inspection_id": str(inspection.id),
             "project_id": str(inspection.project_id),
@@ -1019,11 +1042,51 @@ class QMSService:
         if plan is None:
             raise ValueError(f"ITP plan {plan_id} not found")
         items = await self.repo.list_itp_items(plan_id)
+
+        # Batch-load the whole dossier instead of fanning out one query per
+        # control point and ~5 more per inspection (BUG-perf-qms N+1). The
+        # item ids drive the inspection fetch; the inspection ids drive the
+        # signature / attachment / release fetches. Everything is then grouped
+        # in memory so the assembled records are byte-identical to the
+        # per-inspection path.
+        item_ids = [item.id for item in items]
+        inspections = await self.repo.list_inspections_for_itp_items(item_ids)
+        inspection_ids = [ins.id for ins in inspections]
+
+        # Group inspections under their control point. The batch query orders
+        # by ``(itp_item_id, created_at)`` so each per-item bucket stays in the
+        # oldest-first order ``list_inspections_for_itp_item`` produced.
+        inspections_by_item: dict[uuid.UUID, list[QMSInspection]] = {}
+        for ins in inspections:
+            if ins.itp_item_id is not None:
+                inspections_by_item.setdefault(ins.itp_item_id, []).append(ins)
+
+        sigs_by_inspection: dict[uuid.UUID, list[QMSInspectionSignature]] = {}
+        for sig in await self.repo.list_signatures_for_inspections(inspection_ids):
+            sigs_by_inspection.setdefault(sig.inspection_id, []).append(sig)
+        atts_by_inspection: dict[uuid.UUID, list[QMSInspectionAttachment]] = {}
+        for att in await self.repo.list_inspection_attachments_for_inspections(inspection_ids):
+            atts_by_inspection.setdefault(att.inspection_id, []).append(att)
+        release_by_inspection: dict[uuid.UUID, QMSHoldPointRelease] = {
+            rel.inspection_id: rel
+            for rel in await self.repo.list_hold_point_releases_for_inspections(inspection_ids)
+        }
+
+        # Walk items in their loaded order (``sequence`` ASC) and, within each,
+        # the oldest-first inspections - byte-for-byte the same traversal the
+        # previous nested loop produced, just without the per-row queries.
         records: list[dict[str, Any]] = []
         for item in items:
-            inspections = await self.repo.list_inspections_for_itp_item(item.id)
-            for ins in inspections:
-                records.append(await self.build_inspection_compliance_record(ins.id))
+            for ins in inspections_by_item.get(item.id, []):
+                records.append(
+                    self._assemble_inspection_compliance_record(
+                        ins,
+                        item,
+                        sigs_by_inspection.get(ins.id, []),
+                        atts_by_inspection.get(ins.id, []),
+                        release_by_inspection.get(ins.id),
+                    )
+                )
         return {
             "plan_id": str(plan.id),
             "project_id": str(plan.project_id),

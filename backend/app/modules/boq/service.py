@@ -4256,11 +4256,16 @@ class BOQService:
         updated = 0
         unchanged = 0
         failed_ids: list[uuid.UUID] = []
-        # Pre-load all positions in one pass to surface 404s early.
-        # The membership check protects against cross-BOQ id smuggling.
+        # Pre-load all positions in a single batch query to surface 404s early
+        # (was an N+1: one ``get_by_id`` per id). The membership check still
+        # protects against cross-BOQ id smuggling, and validating in
+        # ``payload.ids`` order keeps the 404 detail pointing at the same
+        # offending id the per-row loop would have reported first.
+        loaded = await self.position_repo.list_by_ids(list(payload.ids))
+        loaded_by_id: dict[uuid.UUID, Position] = {row.id: row for row in loaded}
         positions: dict[uuid.UUID, Position] = {}
         for pid in payload.ids:
-            row = await self.position_repo.get_by_id(pid)
+            row = loaded_by_id.get(pid)
             if row is None or row.boq_id != boq_id:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

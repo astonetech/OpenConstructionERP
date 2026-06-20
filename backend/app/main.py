@@ -1231,13 +1231,34 @@ def create_app() -> FastAPI:
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
 
+    from app.middleware.request_id import get_request_id
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
+        # Surface the SAME correlation id the RequestIDMiddleware already
+        # assigned (and echoed on the X-Request-ID response header) - do NOT
+        # mint a new one. A client / support engineer can quote this id and we
+        # can find the matching ``logger.exception`` line below in the server
+        # logs (the RequestIDLogFilter tags every record with it). The full
+        # stack trace stays server-side; the client only ever sees the opaque
+        # id, never the exception text.
+        request_id = get_request_id()
+        logger.exception(
+            "Unhandled exception on %s %s (request_id=%s)",
+            request.method,
+            request.url.path,
+            request_id or "-",
         )
+        body: dict[str, str] = {"detail": "Internal server error"}
+        if request_id:
+            body["request_id"] = request_id
+        response = JSONResponse(status_code=500, content=body)
+        # The exception path bypasses the RequestIDMiddleware's normal
+        # response-header injection (the middleware's call_next raised), so
+        # re-attach the header here for trace correlation parity.
+        if request_id:
+            response.headers["X-Request-ID"] = request_id
+        return response
 
     # BUG-API02: sanitise FastAPI's default RequestValidationError response.
     #

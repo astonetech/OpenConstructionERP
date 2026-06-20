@@ -1014,6 +1014,7 @@ async def requirement_similar(
     from sqlalchemy.orm import selectinload
 
     from app.core.vector_index import find_similar
+    from app.dependencies import allowed_project_ids_for_similar
     from app.modules.requirements.models import Requirement
     from app.modules.requirements.vector_adapter import requirement_vector_adapter
 
@@ -1032,12 +1033,20 @@ async def requirement_similar(
         if row.requirement_set is not None and row.requirement_set.project_id
         else None
     )
+    # Cross-tenant guard: you may only seed a similarity search from a
+    # requirement whose project you can access (404 on denial), and the
+    # cross-project results are restricted to projects the caller may reach
+    # (None == admin/unrestricted, mirroring verify_project_access).
+    if row.requirement_set is not None and row.requirement_set.project_id is not None:
+        await verify_project_access(row.requirement_set.project_id, str(_user_id), session)
+    allowed = await allowed_project_ids_for_similar(session, str(_user_id), project_id, cross_project)
     hits = await find_similar(
         requirement_vector_adapter,
         row,
         project_id=project_id,
         cross_project=cross_project,
         limit=limit,
+        allowed_project_ids=allowed,
     )
     return {
         "source_id": str(req_id),

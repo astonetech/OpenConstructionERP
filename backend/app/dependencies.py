@@ -118,9 +118,21 @@ def decode_access_token(
                 )
         return payload
     except JWTError as exc:
+        # Do NOT echo the raw jose exception text to the client - it leaks
+        # crypto-library internals (algorithm names, signature/segment counts,
+        # expiry deltas) that aid token-forgery probing. Log the full detail
+        # server-side, tagged with the request-id by the RequestIDLogFilter,
+        # and hand the caller only a generic message + the same correlation id.
+        from app.middleware.request_id import get_request_id
+
+        request_id = get_request_id()
+        logger.warning("JWT decode rejected (request_id=%s): %s", request_id or "-", exc)
+        detail = "Invalid or expired token"
+        if request_id:
+            detail = f"{detail} (request_id: {request_id})"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
+            detail=detail,
         ) from exc
 
 
@@ -563,6 +575,42 @@ async def accessible_project_ids(
     stmt = select(Project.id).where((Project.owner_id == uid) | (Project.id.in_(member_project_ids_subquery(uid))))
     rows = (await session.execute(stmt)).scalars().all()
     return {r if isinstance(r, _uuid.UUID) else _uuid.UUID(str(r)) for r in rows}
+
+
+async def allowed_project_ids_for_similar(
+    session: AsyncSession,
+    user_id: str | None,
+    source_project_id: str | None,
+    cross_project: bool,
+) -> set[str] | None:
+    """Compute the project-scope set for a ``/{id}/similar/`` search.
+
+    Shared by every per-module ``similar`` endpoint so cross-project
+    semantic search can never leak row text from a project the caller
+    cannot access (the set-level analogue of the per-endpoint
+    :func:`verify_project_access` gate already applied to the source row).
+
+    Returns a value to pass straight to ``find_similar(..., allowed_project_ids=)``:
+
+    * ``None`` -> no restriction.  Returned for admins (``accessible_project_ids``
+      yields ``None``) and for same-project searches, where the result set
+      is already constrained to the caller-authorised ``source_project_id``.
+    * a ``set[str]`` -> the caller's accessible project UUIDs (as strings),
+      always including ``source_project_id`` so the already-authorised source
+      project's own rows survive the filter.  An empty set returns nothing,
+      the safe default for a caller with no accessible projects.
+    """
+    if not cross_project:
+        # Same-project search is already scoped to source_project_id, which
+        # the router authorised via verify_project_access - no extra filter.
+        return None
+    ids = await accessible_project_ids(session, user_id)
+    if ids is None:
+        return None  # admin / unrestricted
+    allowed = {str(p) for p in ids}
+    if source_project_id:
+        allowed.add(str(source_project_id))
+    return allowed
 
 
 # ── Locale resolution (per-request, for HTTPException i18n) ────────────────

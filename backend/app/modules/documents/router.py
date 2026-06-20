@@ -1869,6 +1869,7 @@ async def documents_similar(
     from sqlalchemy import select
 
     from app.core.vector_index import find_similar
+    from app.dependencies import allowed_project_ids_for_similar
     from app.modules.documents.models import Document
     from app.modules.documents.vector_adapter import document_vector_adapter
 
@@ -1887,12 +1888,17 @@ async def documents_similar(
         await _verify_project_membership_or_404(row.project_id, _user_id, session)
 
     project_id = str(row.project_id) if row.project_id is not None else None
+    # Restrict cross-project hits to projects the caller may access so the
+    # opt-in cross_project search can never leak documents from inaccessible
+    # projects (None == admin/unrestricted, mirroring verify_project_access).
+    allowed = await allowed_project_ids_for_similar(session, str(_user_id), project_id, cross_project)
     hits = await find_similar(
         document_vector_adapter,
         row,
         project_id=project_id,
         cross_project=cross_project,
         limit=limit,
+        allowed_project_ids=allowed,
     )
     return {
         "source_id": str(document_id),

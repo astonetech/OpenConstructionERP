@@ -856,10 +856,11 @@ async def get_run(
     """Return the full run incl. ordered steps timeline."""
     uid = uuid.UUID(user_id)
     run = await service.get_run(run_id)
-    if run is None:
+    # 404 (not 403) when the run belongs to another user, so we never confirm
+    # the existence of a run_id the caller is not allowed to see (IDOR / UUID
+    # existence-oracle defence - same policy as verify_project_access).
+    if run is None or str(run.user_id) != str(uid):
         raise HTTPException(status_code=404, detail="Run not found")
-    if str(run.user_id) != str(uid):
-        raise HTTPException(status_code=403, detail="You can only view your own runs")
     steps = await service.get_run_steps(run_id)
     return _serialise_run(run, steps=steps)
 

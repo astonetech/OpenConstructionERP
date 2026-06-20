@@ -8381,6 +8381,7 @@ async def boq_position_similar(
     from sqlalchemy.orm import selectinload
 
     from app.core.vector_index import find_similar
+    from app.dependencies import allowed_project_ids_for_similar
     from app.modules.boq.models import BOQ as BOQModel  # noqa: N811  -- domain class, not constant
     from app.modules.boq.models import Position
     from app.modules.boq.vector_adapter import boq_position_adapter
@@ -8405,12 +8406,17 @@ async def boq_position_similar(
     await _verify_boq_owner(session, row.boq_id, _user_id, payload)
 
     project_id = str(row.boq.project_id) if row.boq is not None and row.boq.project_id is not None else None
+    # Restrict cross-project hits to projects the caller may access so a
+    # cross-project search never leaks positions from inaccessible projects
+    # (None == admin/unrestricted, mirroring verify_project_access).
+    allowed = await allowed_project_ids_for_similar(session, str(_user_id), project_id, cross_project)
     hits = await find_similar(
         boq_position_adapter,
         row,
         project_id=project_id,
         cross_project=cross_project,
         limit=limit,
+        allowed_project_ids=allowed,
     )
     return {
         "source_id": str(position_id),
