@@ -17,9 +17,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const apiGet = vi.fn(async () => ({}) as unknown);
-const apiPost = vi.fn(async () => ({}) as unknown);
-const apiPatch = vi.fn(async () => ({}) as unknown);
+const apiGet = vi.fn(async (..._args: unknown[]) => ({}) as unknown);
+const apiPost = vi.fn(async (..._args: unknown[]) => ({}) as unknown);
+const apiPatch = vi.fn(async (..._args: unknown[]) => ({}) as unknown);
 
 vi.mock('@/shared/lib/api', () => ({
   apiGet: (...args: unknown[]) => apiGet(...args),
@@ -44,11 +44,23 @@ beforeEach(() => {
   apiPatch.mockClear();
 });
 
+// Read the Nth positional arg of a mock's Mth call. `vi.fn` infers an
+// empty-tuple call signature from a no-arg implementation and
+// `noUncheckedIndexedAccess` makes `calls[m]` possibly-undefined, so index the
+// recorded calls through this helper to keep the URL-contract assertions clean.
+function nthArg(
+  mock: { mock: { calls: unknown[][] } },
+  call: number,
+  arg: number,
+): unknown {
+  return mock.mock.calls[call]?.[arg];
+}
+
 describe('getRFI', () => {
   it('GETs /v1/rfi/{id} with NO trailing slash', async () => {
     await getRFI('abc-123');
     expect(apiGet).toHaveBeenCalledTimes(1);
-    expect(apiGet.mock.calls[0][0]).toBe('/v1/rfi/abc-123');
+    expect(nthArg(apiGet, 0, 0)).toBe('/v1/rfi/abc-123');
   });
 });
 
@@ -57,8 +69,8 @@ describe('updateRFI', () => {
     const body = { subject: 'New' };
     await updateRFI('abc-123', body);
     expect(apiPatch).toHaveBeenCalledTimes(1);
-    expect(apiPatch.mock.calls[0][0]).toBe('/v1/rfi/abc-123');
-    expect(apiPatch.mock.calls[0][1]).toEqual(body);
+    expect(nthArg(apiPatch, 0, 0)).toBe('/v1/rfi/abc-123');
+    expect(nthArg(apiPatch, 0, 1)).toEqual(body);
   });
 });
 
@@ -66,46 +78,46 @@ describe('createVariationFromRFI', () => {
   it('POSTs the trailing-slash create-variation route', async () => {
     await createVariationFromRFI('abc-123');
     expect(apiPost).toHaveBeenCalledTimes(1);
-    expect(apiPost.mock.calls[0][0]).toBe('/v1/rfi/abc-123/create-variation/');
+    expect(nthArg(apiPost, 0, 0)).toBe('/v1/rfi/abc-123/create-variation/');
   });
 });
 
 describe('respondToRFI / closeRFI', () => {
   it('respondToRFI POSTs the trailing-slash respond route with the body', async () => {
     await respondToRFI('r1', { official_response: 'done' });
-    expect(apiPost.mock.calls[0][0]).toBe('/v1/rfi/r1/respond/');
-    expect(apiPost.mock.calls[0][1]).toEqual({ official_response: 'done' });
+    expect(nthArg(apiPost, 0, 0)).toBe('/v1/rfi/r1/respond/');
+    expect(nthArg(apiPost, 0, 1)).toEqual({ official_response: 'done' });
   });
 
   it('closeRFI POSTs the trailing-slash close route', async () => {
     await closeRFI('r1');
-    expect(apiPost.mock.calls[0][0]).toBe('/v1/rfi/r1/close/');
+    expect(nthArg(apiPost, 0, 0)).toBe('/v1/rfi/r1/close/');
   });
 });
 
 describe('createRFI', () => {
   it('POSTs the collection root with a trailing slash', async () => {
     await createRFI({ project_id: 'p1', subject: 's', question: 'q' });
-    expect(apiPost.mock.calls[0][0]).toBe('/v1/rfi/');
+    expect(nthArg(apiPost, 0, 0)).toBe('/v1/rfi/');
   });
 });
 
 describe('fetchRFIStats', () => {
   it('encodes the project id into the stats query', async () => {
     await fetchRFIStats('p1/2');
-    expect(apiGet.mock.calls[0][0]).toBe('/v1/rfi/stats/?project_id=p1%2F2');
+    expect(nthArg(apiGet, 0, 0)).toBe('/v1/rfi/stats/?project_id=p1%2F2');
   });
 });
 
 describe('fetchRFIs query-string assembly', () => {
   it('returns the bare collection root when no filters are supplied', async () => {
     await fetchRFIs();
-    expect(apiGet.mock.calls[0][0]).toBe('/v1/rfi/');
+    expect(nthArg(apiGet, 0, 0)).toBe('/v1/rfi/');
   });
 
   it('omits empty status and whitespace-only search', async () => {
     await fetchRFIs({ project_id: 'p1', status: '', search: '   ' });
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = nthArg(apiGet, 0, 0) as string;
     expect(url).toContain('project_id=p1');
     expect(url).not.toContain('status=');
     expect(url).not.toContain('search=');
@@ -119,7 +131,7 @@ describe('fetchRFIs query-string assembly', () => {
       offset: 20,
       limit: 50,
     });
-    const url = apiGet.mock.calls[0][0] as string;
+    const url = nthArg(apiGet, 0, 0) as string;
     const qs = new URLSearchParams(url.split('?')[1]);
     expect(qs.get('project_id')).toBe('p1');
     expect(qs.get('status')).toBe('open');
@@ -131,7 +143,7 @@ describe('fetchRFIs query-string assembly', () => {
   it('includes offset=0 (a real number, not falsy-dropped)', async () => {
     await fetchRFIs({ project_id: 'p1', offset: 0 });
     const qs = new URLSearchParams(
-      (apiGet.mock.calls[0][0] as string).split('?')[1],
+      (nthArg(apiGet, 0, 0) as string).split('?')[1],
     );
     // offset 0 is meaningful (first page) and must survive the typeof check.
     expect(qs.get('offset')).toBe('0');

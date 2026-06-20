@@ -49,7 +49,7 @@ describe('getSupplierScorecard', () => {
       '/v1/procurement/suppliers/contact-1/scorecard/',
     );
     // A dangling "?" must not be appended for an empty query.
-    const url = mockGet.mock.calls[0][0];
+    const url = mockGet.mock.calls[0]?.[0] as string;
     expect(url.endsWith('?')).toBe(false);
   });
 
