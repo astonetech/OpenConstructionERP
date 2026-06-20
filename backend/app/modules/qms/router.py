@@ -1378,9 +1378,11 @@ async def copq_detailed_report(
     session: SessionDep,
     user_id: CurrentUserId,
     project_id: uuid.UUID = Query(...),
-    rework_cost_per_punch: Decimal | None = Query(default=None, ge=0),
-    warranty_cost: Decimal | None = Query(default=None, ge=0),
-    delay_penalty_cost: Decimal | None = Query(default=None, ge=0),
+    # le bound mirrors the NCR cost_impact_amount guard so an absurd override
+    # cannot inflate this report's COPQ total (1e15 == schemas._MONEY_MAX).
+    rework_cost_per_punch: Decimal | None = Query(default=None, ge=0, le=Decimal("1e15")),
+    warranty_cost: Decimal | None = Query(default=None, ge=0, le=Decimal("1e15")),
+    delay_penalty_cost: Decimal | None = Query(default=None, ge=0, le=Decimal("1e15")),
     currency: str = Query(default=""),
     _perm: None = Depends(RequirePermission("qms.report.read")),
     service: QMSService = Depends(_get_service),
