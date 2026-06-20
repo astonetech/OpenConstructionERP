@@ -369,7 +369,7 @@ async def test_csv_export_neutralises_formula_payload(http_client, two_schedule_
         f"/api/v1/schedule/schedules/{a['schedule_id']}/activities/",
         json={
             "name": payload,
-            "wbs_code": "=HYPERLINK(\"http://evil\")",
+            "wbs_code": '=HYPERLINK("http://evil")',
             "start_date": "2026-06-01",
             "end_date": "2026-06-10",
             "activity_type": "task",
@@ -387,4 +387,4 @@ async def test_csv_export_neutralises_formula_payload(http_client, two_schedule_
     # The raw, un-neutralised formula must NOT appear as a cell start; the
     # apostrophe-guarded variant must.
     assert "'" + payload in body, f"formula payload not neutralised: {body!r}"
-    assert ',=cmd' not in body and '"=cmd' not in body, f"raw formula leaked into a cell: {body!r}"
+    assert ",=cmd" not in body and '"=cmd' not in body, f"raw formula leaked into a cell: {body!r}"

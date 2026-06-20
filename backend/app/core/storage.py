@@ -561,8 +561,7 @@ class LocalStorageBackend(StorageBackend):
                 continue
             if candidate.is_file():
                 logger.info(
-                    "storage: key %r absent under active base %s; served from "
-                    "back-compat data root %s",
+                    "storage: key %r absent under active base %s; served from back-compat data root %s",
                     key,
                     self.base_dir,
                     base,
@@ -1483,11 +1482,7 @@ def resolve_data_dir() -> Path:
 
     ``app/core/storage.py`` -> ``parents[3]`` == repo/package root.
     """
-    override = (
-        os.environ.get("OE_DATA_DIR")
-        or os.environ.get("DATA_DIR")
-        or os.environ.get("OE_CLI_DATA_DIR")
-    )
+    override = os.environ.get("OE_DATA_DIR") or os.environ.get("DATA_DIR") or os.environ.get("OE_CLI_DATA_DIR")
     if override:
         return Path(override)
     here = Path(__file__).resolve()

@@ -99,8 +99,7 @@ def _existing_parquet_path(
         cand = _candidate(base)
         if cand is not None and cand.is_file():
             logger.info(
-                "bim parquet: sidecar for %s/%s absent under active root %s; "
-                "served from back-compat data root %s",
+                "bim parquet: sidecar for %s/%s absent under active root %s; served from back-compat data root %s",
                 project_id,
                 model_id,
                 active,

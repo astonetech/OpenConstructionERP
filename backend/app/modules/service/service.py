@@ -510,7 +510,9 @@ class ServiceService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(asset, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(asset, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if not fields:
             return asset
@@ -1397,7 +1399,9 @@ class ServiceService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(sched, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(sched, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if not fields:
             return sched

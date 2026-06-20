@@ -81,9 +81,7 @@ _SCALE_WORDS: tuple[str, ...] = (
 # right-hand side). We capture the left and right numbers separately and reject
 # anything but a unit antecedent (left side must be 1..few - a "16:9" aspect
 # ratio or a "2:34" timestamp is filtered downstream by the antecedent check).
-_RATIO_RE = re.compile(
-    r"(?<![\d.])(\d{1,3})\s*[:\uff1a]\s*(\d{1,3}(?:[ \u00a0]\d{3})*|\d{1,6})(?![\d.])"
-)
+_RATIO_RE = re.compile(r"(?<![\d.])(\d{1,3})\s*[:\uff1a]\s*(\d{1,3}(?:[ \u00a0]\d{3})*|\d{1,6})(?![\d.])")
 
 # Imperial fraction or whole inch on the LEFT of an equals sign:
 #   1/4" = 1'-0"      3/8" = 1'-0"      1/2 in = 1 ft       1" = 20'
@@ -290,7 +288,7 @@ def _scan_imperial(text: str, page: int) -> list[ScaleCandidate]:
         if rf:
             right_label += f"{_trim(rf)}'"
         if ri:
-            right_label += f"-{_trim(ri)}\"" if rf else f"{_trim(ri)}\""
+            right_label += f'-{_trim(ri)}"' if rf else f'{_trim(ri)}"'
         out.append(
             ScaleCandidate(
                 ratio=ratio,

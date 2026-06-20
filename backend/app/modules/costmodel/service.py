@@ -735,7 +735,9 @@ class CostModelService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(line, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(line, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
 
         if fields:
@@ -1978,7 +1980,9 @@ class CostSpineService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(line, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(line, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
 
         if fields:

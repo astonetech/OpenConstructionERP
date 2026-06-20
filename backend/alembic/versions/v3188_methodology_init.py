@@ -272,9 +272,7 @@ def upgrade() -> None:
                 sa.Column(column, sa.String(length=length), nullable=True),
             )
 
-    logger.info(
-        "v3188 methodology_init: 5 tables + indexes + 5 oe_boq_position columns ensured"
-    )
+    logger.info("v3188 methodology_init: 5 tables + indexes + 5 oe_boq_position columns ensured")
 
 
 def downgrade() -> None:

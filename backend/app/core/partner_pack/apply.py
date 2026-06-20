@@ -234,9 +234,7 @@ async def apply_pack(
                     # partner's cascade (bases + markup steps), not the flat
                     # international default. Builtin template slug only; an
                     # unknown slug is skipped with a warning. Fail-soft.
-                    _meth_effect = await _activate_pack_methodology(
-                        demo_session, m, demo_res.get("project_id")
-                    )
+                    _meth_effect = await _activate_pack_methodology(demo_session, m, demo_res.get("project_id"))
                     if _meth_effect:
                         effects["methodology"] = _meth_effect
                     await demo_session.commit()

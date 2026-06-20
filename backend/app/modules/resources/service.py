@@ -600,7 +600,9 @@ class ResourcesService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(skill, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(skill, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if not fields:
             return skill
@@ -686,7 +688,9 @@ class ResourcesService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(cert, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(cert, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         # Re-derive status if expiry changed
         new_valid_until = fields.get("valid_until", cert.valid_until)
@@ -1230,7 +1234,9 @@ class ResourcesService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(link, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(link, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if not fields:
             return link

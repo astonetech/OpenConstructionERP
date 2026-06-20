@@ -62,9 +62,7 @@ def test_uz_mapping_resolves_each_base() -> None:
     }
     # The result feeds compute_cascade directly: SMR = labor + machinery +
     # materials = 350000, equipment = 150000.
-    assert result["labor"] + result["machinery"] + result["materials"] == Decimal(
-        "350000"
-    )
+    assert result["labor"] + result["machinery"] + result["materials"] == Decimal("350000")
 
 
 def test_uz_mapping_missing_resource_type_contributes_zero() -> None:

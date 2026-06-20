@@ -451,9 +451,7 @@ _BOQ_WRITE_JSON_ENDPOINTS = [
 
 @pytest.mark.parametrize("suffix,method,body", _BOQ_WRITE_JSON_ENDPOINTS)
 @pytest.mark.asyncio
-async def test_outsider_denied_on_boq_write_json_endpoint(
-    http_client, a_boq, outsider_b, suffix, method, body
-):
+async def test_outsider_denied_on_boq_write_json_endpoint(http_client, a_boq, outsider_b, suffix, method, body):
     """An outsider must be owner-gated out of every BOQ write/analyse endpoint."""
     boq_id = a_boq["boq_id"]
     resp = await getattr(http_client, method)(
@@ -478,9 +476,7 @@ _BOQ_OWNER_OK_JSON_ENDPOINTS = [
 
 @pytest.mark.parametrize("suffix,method,body", _BOQ_OWNER_OK_JSON_ENDPOINTS)
 @pytest.mark.asyncio
-async def test_owner_allowed_on_boq_write_json_endpoint(
-    http_client, a_boq, owner_a, suffix, method, body
-):
+async def test_owner_allowed_on_boq_write_json_endpoint(http_client, a_boq, owner_a, suffix, method, body):
     """Owner A is allowed (2xx) on the DB-only write endpoints they own."""
     boq_id = a_boq["boq_id"]
     resp = await getattr(http_client, method)(
@@ -505,9 +501,7 @@ _BOQ_IMPORT_ENDPOINTS = [
 
 @pytest.mark.parametrize("suffix,fname,blob,ctype", _BOQ_IMPORT_ENDPOINTS)
 @pytest.mark.asyncio
-async def test_outsider_denied_on_boq_import_endpoint(
-    http_client, a_boq, outsider_b, suffix, fname, blob, ctype
-):
+async def test_outsider_denied_on_boq_import_endpoint(http_client, a_boq, outsider_b, suffix, fname, blob, ctype):
     """An outsider must not import positions into A's BOQ (owner gate first)."""
     boq_id = a_boq["boq_id"]
     resp = await http_client.post(

@@ -1710,7 +1710,9 @@ class SheetService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(sheet, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(sheet, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
 
         if not fields:

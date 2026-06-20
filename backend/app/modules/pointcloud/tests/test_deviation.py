@@ -33,10 +33,7 @@ def test_no_rms_is_unknown() -> None:
 def test_rms_above_tolerance_is_over() -> None:
     # Survey tier bound is 6 mm; an 8 mm RMS deviates beyond what the scan
     # can certify -> red, regardless of coverage / out-of-tolerance count.
-    assert (
-        classify_deviation(rms_mm=Decimal("8"), tolerance_mm=Decimal("6"))
-        == SEVERITY_OVER
-    )
+    assert classify_deviation(rms_mm=Decimal("8"), tolerance_mm=Decimal("6")) == SEVERITY_OVER
 
 
 def test_rms_at_tolerance_bound_is_within() -> None:
@@ -104,10 +101,7 @@ def test_unknown_tolerance_still_flags_out_of_tolerance_points() -> None:
 
 
 def test_unknown_tolerance_clean_reads_within() -> None:
-    assert (
-        classify_deviation(rms_mm=Decimal("3"), tolerance_mm=None)
-        == SEVERITY_WITHIN
-    )
+    assert classify_deviation(rms_mm=Decimal("3"), tolerance_mm=None) == SEVERITY_WITHIN
 
 
 def test_non_finite_or_unparseable_values_never_crash() -> None:
@@ -142,11 +136,5 @@ def test_severity_color_maps_each_band() -> None:
 def test_worst_severity_reduces_to_most_serious() -> None:
     assert worst_severity([]) == SEVERITY_UNKNOWN
     assert worst_severity([SEVERITY_WITHIN, SEVERITY_UNKNOWN]) == SEVERITY_WITHIN
-    assert (
-        worst_severity([SEVERITY_WITHIN, SEVERITY_WARNING, SEVERITY_UNKNOWN])
-        == SEVERITY_WARNING
-    )
-    assert (
-        worst_severity([SEVERITY_WARNING, SEVERITY_OVER, SEVERITY_WITHIN])
-        == SEVERITY_OVER
-    )
+    assert worst_severity([SEVERITY_WITHIN, SEVERITY_WARNING, SEVERITY_UNKNOWN]) == SEVERITY_WARNING
+    assert worst_severity([SEVERITY_WARNING, SEVERITY_OVER, SEVERITY_WITHIN]) == SEVERITY_OVER

@@ -170,7 +170,7 @@ async def test_export_csv_neutralises_formula_injection(app_factory, db_session)
         db_session,
         run_id,
         a_name="=cmd|'/c calc'!A0",
-        b_name="+HYPERLINK(\"http://evil\")",
+        b_name='+HYPERLINK("http://evil")',
         a_discipline="-2+3",
         b_discipline="@SUM(A1)",
         assigned_to="=1+1",
@@ -190,9 +190,7 @@ async def test_export_csv_neutralises_formula_injection(app_factory, db_session)
         # and must NOT start with a raw formula trigger.
         dangerous = ("=", "+", "-", "@")
         guarded = [c for c in data if c.startswith("'")]
-        assert any(c.lstrip("'").startswith("=cmd") for c in guarded), (
-            f"a_name formula was not neutralised: {data!r}"
-        )
+        assert any(c.lstrip("'").startswith("=cmd") for c in guarded), f"a_name formula was not neutralised: {data!r}"
         # No cell that carried injected content leaks a bare formula trigger.
         for cell in data:
             if any(t in cell for t in ("cmd|", "HYPERLINK", "SUM(")):
@@ -256,13 +254,9 @@ async def test_comment_author_is_server_authoritative(app_factory, db_session):
         assert comments, "comment was not appended"
         added = comments[-1]
         # author_id MUST be the caller, never the forged victim id.
-        assert added.get("author_id") == str(caller_id), (
-            f"author_id was spoofable: {added!r}"
-        )
+        assert added.get("author_id") == str(caller_id), f"author_id was spoofable: {added!r}"
         assert added.get("author_id") != str(victim_id)
         # The free-text author label must not be the attacker-supplied string.
-        assert added.get("author") != forged_author, (
-            f"author label was spoofable: {added!r}"
-        )
+        assert added.get("author") != forged_author, f"author label was spoofable: {added!r}"
     finally:
         app.dependency_overrides.clear()

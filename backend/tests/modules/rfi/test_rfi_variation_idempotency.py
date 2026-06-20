@@ -109,9 +109,7 @@ async def _count_change_orders(session, project_id: uuid.UUID) -> int:
     from app.modules.changeorders.models import ChangeOrder
 
     return (
-        await session.execute(
-            select(func.count()).select_from(ChangeOrder).where(ChangeOrder.project_id == project_id)
-        )
+        await session.execute(select(func.count()).select_from(ChangeOrder).where(ChangeOrder.project_id == project_id))
     ).scalar_one()
 
 

@@ -390,8 +390,7 @@ def test_router_supplier_scorecard_scopes_cross_project_overview() -> None:
                 if kw.arg == "accessible_project_ids":
                     forwarded = True
     assert forwarded, (
-        "accessible_project_ids is computed but not passed to "
-        "get_supplier_scorecard — the aggregate is still unscoped."
+        "accessible_project_ids is computed but not passed to get_supplier_scorecard — the aggregate is still unscoped."
     )
 
 

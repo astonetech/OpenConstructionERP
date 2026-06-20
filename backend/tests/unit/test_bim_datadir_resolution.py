@@ -119,9 +119,7 @@ def test_default_local_base_dir_is_alias(tmp_path, monkeypatch) -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_safe_data_roots_includes_package_default_even_with_oe_data_dir(
-    tmp_path, monkeypatch
-) -> None:
+def test_safe_data_roots_includes_package_default_even_with_oe_data_dir(tmp_path, monkeypatch) -> None:
     """The package-relative ``<package>/data`` is a permanent read root.
 
     This is what lets a blob written under the old default be served once an

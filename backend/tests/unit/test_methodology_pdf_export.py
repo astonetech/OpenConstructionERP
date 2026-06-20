@@ -103,9 +103,7 @@ def test_currency_and_decimals_variants_render() -> None:
     # CHF apostrophe grouping, JPY zero-decimal, and a blank currency must all
     # render without error (the formatter is locale-aware + empty-safe).
     for currency, decimals in (("CHF", 2), ("JPY", 0), ("", 2)):
-        out = generate_methodology_pdf(
-            _sample_data(currency=currency, decimals=decimals)
-        )
+        out = generate_methodology_pdf(_sample_data(currency=currency, decimals=decimals))
         assert out.startswith(b"%PDF")
 
 

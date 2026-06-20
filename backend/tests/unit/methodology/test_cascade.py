@@ -428,9 +428,7 @@ def test_composite_bad_leaf_raises() -> None:
         composites={"SMR": ("labor", "ghost")},  # 'ghost' is not a base
         steps=(),
     )
-    with pytest.raises(
-        CascadeError, match="composite 'SMR' references unknown leaf base 'ghost'"
-    ):
+    with pytest.raises(CascadeError, match="composite 'SMR' references unknown leaf base 'ghost'"):
         compute_cascade(spec, {"labor": Decimal("100")})
 
 

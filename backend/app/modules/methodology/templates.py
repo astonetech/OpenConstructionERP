@@ -101,9 +101,7 @@ _FLAT_COMPOSITES: dict[str, list[str]] = {
 }
 
 
-def _flat_steps(
-    *, overhead: str, profit: str, vat: str
-) -> list[dict[str, Any]]:
+def _flat_steps(*, overhead: str, profit: str, vat: str) -> list[dict[str, Any]]:
     """Build the canonical flat cascade: overhead, profit, then VAT.
 
     Args:
@@ -626,39 +624,27 @@ def build_cascade_spec(
     from app.modules.methodology.cascade import CascadeSpec, MarkupStep
 
     if not isinstance(composites, Mapping):
-        raise TemplateError(
-            f"composites must be a mapping, got {type(composites).__name__}"
-        )
+        raise TemplateError(f"composites must be a mapping, got {type(composites).__name__}")
 
     composites_built: dict[str, tuple[str, ...]] = {}
     for name, members in composites.items():
         if isinstance(members, str) or not _is_sequence(members):
-            raise TemplateError(
-                f"composite {name!r} must map to a list of base tokens, "
-                f"got {type(members).__name__}"
-            )
+            raise TemplateError(f"composite {name!r} must map to a list of base tokens, got {type(members).__name__}")
         composites_built[str(name)] = tuple(str(m) for m in members)
 
     steps_built: list[MarkupStep] = []
     for raw in cascade_steps or ():
         if not isinstance(raw, Mapping):
-            raise TemplateError(
-                f"each cascade step must be a mapping, got {type(raw).__name__}"
-            )
+            raise TemplateError(f"each cascade step must be a mapping, got {type(raw).__name__}")
         try:
             key = str(raw["key"])
             kind = str(raw["kind"])
         except KeyError as exc:
-            raise TemplateError(
-                f"cascade step is missing required field {exc.args[0]!r}"
-            ) from exc
+            raise TemplateError(f"cascade step is missing required field {exc.args[0]!r}") from exc
 
         base_raw = raw.get("base", ())
         if isinstance(base_raw, str) or not _is_sequence(base_raw):
-            raise TemplateError(
-                f"cascade step {key!r} base must be a list of tokens, "
-                f"got {type(base_raw).__name__}"
-            )
+            raise TemplateError(f"cascade step {key!r} base must be a list of tokens, got {type(base_raw).__name__}")
 
         steps_built.append(
             MarkupStep(

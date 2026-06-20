@@ -444,16 +444,12 @@ async def export_methodology_excel(
 ) -> StreamingResponse:
     """Export the computed methodology estimate as a formatted .xlsx file."""
     await verify_project_access(project_id, user_id, session)
-    data = await service.build_export_data(
-        methodology_id, project_id, boq_id=boq_id
-    )
+    data = await service.build_export_data(methodology_id, project_id, boq_id=boq_id)
     content = service.generate_excel_export(data)
     filename = service.export_filename(data, "xlsx")
     return StreamingResponse(
         iter([content]),
-        media_type=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -479,9 +475,7 @@ async def export_methodology_pdf(
 ) -> StreamingResponse:
     """Export the computed methodology estimate as a professional PDF report."""
     await verify_project_access(project_id, user_id, session)
-    data = await service.build_export_data(
-        methodology_id, project_id, boq_id=boq_id
-    )
+    data = await service.build_export_data(methodology_id, project_id, boq_id=boq_id)
     try:
         pdf_bytes = service.generate_pdf_export(data)
     except Exception:
@@ -491,9 +485,7 @@ async def export_methodology_pdf(
         logger.exception("Methodology PDF generation failed for %s", methodology_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(
-                "PDF generation failed. Please try exporting as Excel instead."
-            ),
+            detail=("PDF generation failed. Please try exporting as Excel instead."),
         )
     filename = service.export_filename(data, "pdf")
 

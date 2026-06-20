@@ -1068,8 +1068,7 @@ class QMSService:
         for att in await self.repo.list_inspection_attachments_for_inspections(inspection_ids):
             atts_by_inspection.setdefault(att.inspection_id, []).append(att)
         release_by_inspection: dict[uuid.UUID, QMSHoldPointRelease] = {
-            rel.inspection_id: rel
-            for rel in await self.repo.list_hold_point_releases_for_inspections(inspection_ids)
+            rel.inspection_id: rel for rel in await self.repo.list_hold_point_releases_for_inspections(inspection_ids)
         }
 
         # Walk items in their loaded order (``sequence`` ASC) and, within each,

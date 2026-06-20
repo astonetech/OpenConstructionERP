@@ -248,9 +248,7 @@ def test_no_base_mapping_falls_back_to_single_direct_base() -> None:
             ),
         ),
     )
-    total = sum(
-        {"labor": Decimal("100"), "material": Decimal("100")}.values(), Decimal(0)
-    )
+    total = sum({"labor": Decimal("100"), "material": Decimal("100")}.values(), Decimal(0))
     bases = {"direct": total}
     r = compute_cascade(spec, bases)
     assert r.direct_total == Decimal("200.00")

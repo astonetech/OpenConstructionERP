@@ -76,12 +76,8 @@ def _coerce_decimal(value: object, what: str) -> Decimal:
         try:
             return Decimal(value)
         except Exception as exc:  # noqa: BLE001 - re-raised as a clear error.
-            raise BaseResolutionError(
-                f"{what} is not a valid number: {value!r}"
-            ) from exc
-    raise BaseResolutionError(
-        f"{what} must be a Decimal (or int/str), got {type(value).__name__}"
-    )
+            raise BaseResolutionError(f"{what} is not a valid number: {value!r}") from exc
+    raise BaseResolutionError(f"{what} must be a Decimal (or int/str), got {type(value).__name__}")
 
 
 def resolve_bases(
@@ -126,48 +122,30 @@ def resolve_bases(
             not a valid number.
     """
     if not isinstance(base_mapping, Mapping):
-        raise BaseResolutionError(
-            f"base_mapping must be a mapping, got {type(base_mapping).__name__}"
-        )
+        raise BaseResolutionError(f"base_mapping must be a mapping, got {type(base_mapping).__name__}")
     if not isinstance(resource_totals, Mapping):
-        raise BaseResolutionError(
-            f"resource_totals must be a mapping, got "
-            f"{type(resource_totals).__name__}"
-        )
+        raise BaseResolutionError(f"resource_totals must be a mapping, got {type(resource_totals).__name__}")
 
     # Resolve and validate resource totals up front (Decimal-exact, float-free).
     resolved_totals: dict[str, Decimal] = {}
     for res_type, raw in resource_totals.items():
         if not isinstance(res_type, str):
-            raise BaseResolutionError(
-                f"resource type key must be a string, got "
-                f"{type(res_type).__name__}"
-            )
-        resolved_totals[res_type] = _coerce_decimal(
-            raw, f"resource total {res_type!r}"
-        )
+            raise BaseResolutionError(f"resource type key must be a string, got {type(res_type).__name__}")
+        resolved_totals[res_type] = _coerce_decimal(raw, f"resource total {res_type!r}")
 
     # Fallback path: an empty mapping, or a scope with no resources at all.
     if (not base_mapping or not resolved_totals) and fallback_token is not None:
         if not isinstance(fallback_token, str):
-            raise BaseResolutionError(
-                f"fallback_token must be a string, got "
-                f"{type(fallback_token).__name__}"
-            )
+            raise BaseResolutionError(f"fallback_token must be a string, got {type(fallback_token).__name__}")
         return {fallback_token: _coerce_decimal(fallback_amount, "fallback_amount")}
 
     resolved: dict[str, Decimal] = {}
     for base_token, resource_types in base_mapping.items():
         if not isinstance(base_token, str):
-            raise BaseResolutionError(
-                f"base token key must be a string, got "
-                f"{type(base_token).__name__}"
-            )
+            raise BaseResolutionError(f"base token key must be a string, got {type(base_token).__name__}")
         # A bare string is a sequence of characters - almost never intended and
         # a classic silent bug, so reject it explicitly (a list/tuple is meant).
-        if isinstance(resource_types, str) or not isinstance(
-            resource_types, Sequence
-        ):
+        if isinstance(resource_types, str) or not isinstance(resource_types, Sequence):
             raise BaseResolutionError(
                 f"base_mapping[{base_token!r}] must be a sequence of resource "
                 f"types, got {type(resource_types).__name__}"
@@ -176,8 +154,7 @@ def resolve_bases(
         for res_type in resource_types:
             if not isinstance(res_type, str):
                 raise BaseResolutionError(
-                    f"base_mapping[{base_token!r}] contains a non-string "
-                    f"resource type: {type(res_type).__name__}"
+                    f"base_mapping[{base_token!r}] contains a non-string resource type: {type(res_type).__name__}"
                 )
             # Missing resource types contribute 0.
             total += resolved_totals.get(res_type, Decimal(0))

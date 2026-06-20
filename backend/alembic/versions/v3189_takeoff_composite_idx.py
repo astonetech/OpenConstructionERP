@@ -40,9 +40,14 @@ Live DDL (run on prod without restart)
         ix_oe_takeoff_measurement_project_document
     ON oe_takeoff_measurement (project_id, document_id);
 
-Revision ID: v3189_takeoff_measurement_composite_index
+Revision ID: v3189_takeoff_composite_idx
 Revises: v3188_methodology_init
 Create Date: 2026-06-19
+
+Note: the revision id is kept <= 32 chars because the create_all + ``stamp head``
+bootstrap path (fresh installs and the test conftest) creates alembic's
+``alembic_version.version_num`` at its default ``VARCHAR(32)`` - a longer head id
+fails to stamp there with ``value too long for type character varying(32)``.
 """
 
 from __future__ import annotations
@@ -52,7 +57,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "v3189_takeoff_measurement_composite_index"
+revision: str = "v3189_takeoff_composite_idx"
 down_revision: Union[str, Sequence[str], None] = "v3188_methodology_init"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

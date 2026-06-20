@@ -385,7 +385,9 @@ class TaskService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(task, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(task, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if "checklist" in fields and fields["checklist"] is not None:
             fields["checklist"] = [

@@ -284,9 +284,7 @@ def _make_header_footer(
         canvas.saveState()
         canvas.setFont(BODY_FONT, 7)
         canvas.setFillColor(colors.HexColor("#999999"))
-        canvas.drawString(
-            MARGIN_LEFT, 10 * mm, f"OpenConstructionERP  |  Generated: {generated_date}"
-        )
+        canvas.drawString(MARGIN_LEFT, 10 * mm, f"OpenConstructionERP  |  Generated: {generated_date}")
         if getattr(doc, "page_count", 0) > 0:
             page_text = f"Page {doc.page} of {doc.page_count}"
         else:
@@ -353,8 +351,7 @@ def _build_cover_page(
         ("Currency:", currency or "-"),
     ]
     info_table_data = [
-        [Paragraph(label, styles["info_label"]), _safe_para(value, styles["info_value"])]
-        for label, value in info_rows
+        [Paragraph(label, styles["info_label"]), _safe_para(value, styles["info_value"])] for label, value in info_rows
     ]
     info_table = Table(info_table_data, colWidths=[35 * mm, 95 * mm], hAlign="CENTER")
     info_table.setStyle(
@@ -405,9 +402,7 @@ def _build_cover_page(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
     ]
     last_row = len(summary_rows) - 1
-    summary_style_commands.append(
-        ("LINEABOVE", (0, last_row), (-1, last_row), 1, colors.HexColor("#1a1a2e"))
-    )
+    summary_style_commands.append(("LINEABOVE", (0, last_row), (-1, last_row), 1, colors.HexColor("#1a1a2e")))
     summary_table.setStyle(TableStyle(summary_style_commands))
     elements.append(summary_table)
 
@@ -526,9 +521,7 @@ def _build_cascade_table(
         elif row_type == "tax":
             style_commands.append(("BACKGROUND", (0, ri), (-1, ri), colors.HexColor("#eef2fb")))
         elif row_type == "grand_total":
-            style_commands.append(
-                ("LINEABOVE", (0, ri), (-1, ri), 1.5, colors.HexColor("#1a1a2e"))
-            )
+            style_commands.append(("LINEABOVE", (0, ri), (-1, ri), 1.5, colors.HexColor("#1a1a2e")))
             style_commands.append(("BACKGROUND", (0, ri), (-1, ri), colors.HexColor("#e8e8ee")))
     table.setStyle(TableStyle(style_commands))
     elements.append(table)
@@ -632,9 +625,7 @@ def generate_methodology_pdf(data: dict[str, Any]) -> bytes:
     project_name = str(data.get("project_name", "") or "")
     methodology_name = str(data.get("methodology_name", "") or "")
 
-    header_func, footer_func = _make_header_footer(
-        project_name, methodology_name, generated_date
-    )
+    header_func, footer_func = _make_header_footer(project_name, methodology_name, generated_date)
 
     cover_frame = Frame(
         MARGIN_LEFT,

@@ -98,10 +98,7 @@ def test_template_is_internally_consistent(tpl: dict) -> None:
     for comp_name, members in tpl["composites"].items():
         assert comp_name not in base_tokens, "composite collides with a base"
         for member in members:
-            assert member in base_tokens, (
-                f"{tpl['slug']}: composite {comp_name} references unknown "
-                f"base {member}"
-            )
+            assert member in base_tokens, f"{tpl['slug']}: composite {comp_name} references unknown base {member}"
 
     # Every step base token is a leaf base, a composite, or an earlier step.
     legal: set[str] = set(base_tokens) | set(tpl["composites"].keys())
@@ -109,10 +106,7 @@ def test_template_is_internally_consistent(tpl: dict) -> None:
         for field in ("key", "kind", "base"):
             assert field in step
         for token in step["base"]:
-            assert token in legal, (
-                f"{tpl['slug']}: step {step['key']} references unknown "
-                f"token {token}"
-            )
+            assert token in legal, f"{tpl['slug']}: step {step['key']} references unknown token {token}"
         legal.add(step["key"])  # later steps may reference this one
 
 
@@ -220,9 +214,7 @@ def test_build_spec_rejects_string_step_base() -> None:
             currency="",
             decimals=2,
             composites={},
-            cascade_steps=[
-                {"key": "o", "kind": "percentage", "rate": "5", "base": "direct"}
-            ],
+            cascade_steps=[{"key": "o", "kind": "percentage", "rate": "5", "base": "direct"}],
         )
 
 

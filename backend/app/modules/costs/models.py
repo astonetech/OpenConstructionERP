@@ -95,12 +95,8 @@ class CostItem(Base):
     # computed at apply time (see ``service.mass_effective_unit_rate``); the
     # stored ``rate`` is never mutated. Both columns are additive and
     # default to empty so every existing row is unaffected.
-    mass_per_unit: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="", server_default=""
-    )
-    mass_basis: Mapped[str] = mapped_column(
-        String(10), nullable=False, default="", server_default=""
-    )
+    mass_per_unit: Mapped[str] = mapped_column(String(50), nullable=False, default="", server_default="")
+    mass_basis: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
     # Owning user catalog (oe_costs_catalog.id). Kept as a bare indexed UUID
     # column (no FK constraint) following the cross-table convention used by
     # ``CostItemUsage.project_id``; detach/delete semantics live in the

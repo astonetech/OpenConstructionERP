@@ -306,9 +306,7 @@ class AiEstimatorService:
             assert refreshed is not None  # noqa: S101
             return refreshed
 
-        await self.run_repo.update_fields(
-            run.id, metadata_=merge_metadata(run.metadata_, {"envelopes": envelopes})
-        )
+        await self.run_repo.update_fields(run.id, metadata_=merge_metadata(run.metadata_, {"envelopes": envelopes}))
 
         detected, suggested, ai_provenance = await self._classify_source(run, envelopes, use_ai=use_ai)
 

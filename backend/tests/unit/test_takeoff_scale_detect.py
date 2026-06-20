@@ -85,7 +85,7 @@ def test_three_eighths_inch_equals_one_foot() -> None:
 
 def test_one_inch_equals_twenty_feet() -> None:
     # 1" = 20'  ->  240 / 1 = 240
-    best, _all = scale_detect.detect_best_scale([{"page": 1, "text": 'Site: 1" = 20\''}])
+    best, _all = scale_detect.detect_best_scale([{"page": 1, "text": "Site: 1\" = 20'"}])
     assert best is not None
     assert best.ratio == 240
 

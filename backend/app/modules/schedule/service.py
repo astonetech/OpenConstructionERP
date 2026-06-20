@@ -1198,11 +1198,7 @@ class ScheduleService:
             if sib.id == activity_id:
                 continue
             deps = sib.dependencies or []
-            pruned = [
-                dep
-                for dep in deps
-                if not (isinstance(dep, dict) and str(dep.get("activity_id")) == deleted_str)
-            ]
+            pruned = [dep for dep in deps if not (isinstance(dep, dict) and str(dep.get("activity_id")) == deleted_str)]
             if len(pruned) != len(deps):
                 successors_to_clean.append((sib.id, pruned))
 

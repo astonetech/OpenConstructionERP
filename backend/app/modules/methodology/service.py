@@ -82,9 +82,7 @@ class MethodologyService:
 
     # ── Methodology CRUD ───────────────────────────────────────────────────
 
-    async def list_methodologies(
-        self, project_id: uuid.UUID
-    ) -> list[Methodology]:
+    async def list_methodologies(self, project_id: uuid.UUID) -> list[Methodology]:
         """Return every methodology visible to a project.
 
         Visibility = the platform built-ins / pack templates (``project_id`` is
@@ -94,10 +92,7 @@ class MethodologyService:
         """
         stmt = (
             select(Methodology)
-            .where(
-                (Methodology.project_id.is_(None))
-                | (Methodology.project_id == str(project_id))
-            )
+            .where((Methodology.project_id.is_(None)) | (Methodology.project_id == str(project_id)))
             .order_by(Methodology.scope.desc(), Methodology.name.asc())
         )
         rows = (await self.session.execute(stmt)).scalars().all()
@@ -113,9 +108,7 @@ class MethodologyService:
             )
         return obj
 
-    async def get_methodology_for_project(
-        self, methodology_id: uuid.UUID, project_id: uuid.UUID
-    ) -> Methodology:
+    async def get_methodology_for_project(self, methodology_id: uuid.UUID, project_id: uuid.UUID) -> Methodology:
         """Fetch a methodology and assert it is visible to ``project_id``.
 
         A project may read its own clones and any global builtin / pack
@@ -185,9 +178,7 @@ class MethodologyService:
         )
         self.session.add(obj)
         await self.session.flush()
-        logger.info(
-            "Methodology created: %s (project=%s)", obj.slug, data.project_id
-        )
+        logger.info("Methodology created: %s (project=%s)", obj.slug, data.project_id)
         return obj
 
     async def update_methodology(
@@ -212,9 +203,7 @@ class MethodologyService:
             obj.cascade_steps = [s.model_dump(mode="json") for s in data.cascade_steps]
             fields.pop("cascade_steps")
         if "vat_rate" in fields:
-            obj.vat_rate = (
-                format(data.vat_rate, "f") if data.vat_rate is not None else None
-            )
+            obj.vat_rate = format(data.vat_rate, "f") if data.vat_rate is not None else None
             fields.pop("vat_rate")
         if "metadata" in fields and data.metadata is not None:
             # Merge, do not overwrite, so unrelated extension keys survive a
@@ -232,9 +221,7 @@ class MethodologyService:
         logger.info("Methodology updated: %s", obj.slug)
         return obj
 
-    async def delete_methodology(
-        self, methodology_id: uuid.UUID, project_id: uuid.UUID
-    ) -> None:
+    async def delete_methodology(self, methodology_id: uuid.UUID, project_id: uuid.UUID) -> None:
         """Delete an editable, project-owned methodology.
 
         Built-ins / pack templates and other projects' clones cannot be
@@ -348,9 +335,7 @@ class MethodologyService:
         )
         return obj
 
-    async def _find_installed_clone(
-        self, project_id: uuid.UUID, template_slug: str
-    ) -> Methodology | None:
+    async def _find_installed_clone(self, project_id: uuid.UUID, template_slug: str) -> Methodology | None:
         """Return the project's existing clone of a template, if any."""
         stmt = select(Methodology).where(
             Methodology.project_id == str(project_id),
@@ -368,16 +353,10 @@ class MethodologyService:
         self, project_id: uuid.UUID, *, methodology_slug: str | None = None
     ) -> list[AnalyticDimension]:
         """List a project's analytical dimensions (optionally one methodology)."""
-        stmt = select(AnalyticDimension).where(
-            AnalyticDimension.project_id == str(project_id)
-        )
+        stmt = select(AnalyticDimension).where(AnalyticDimension.project_id == str(project_id))
         if methodology_slug is not None:
-            stmt = stmt.where(
-                AnalyticDimension.methodology_slug == methodology_slug
-            )
-        stmt = stmt.order_by(
-            AnalyticDimension.sort_order.asc(), AnalyticDimension.label.asc()
-        )
+            stmt = stmt.where(AnalyticDimension.methodology_slug == methodology_slug)
+        stmt = stmt.order_by(AnalyticDimension.sort_order.asc(), AnalyticDimension.label.asc())
         rows = (await self.session.execute(stmt)).scalars().all()
         return list(rows)
 
@@ -428,9 +407,7 @@ class MethodologyService:
         )
         return dim
 
-    async def get_dimension_for_project(
-        self, dimension_id: uuid.UUID, project_id: uuid.UUID
-    ) -> AnalyticDimension:
+    async def get_dimension_for_project(self, dimension_id: uuid.UUID, project_id: uuid.UUID) -> AnalyticDimension:
         """Fetch a dimension and assert it belongs to ``project_id`` (404 else)."""
         obj = await self.session.get(AnalyticDimension, dimension_id)
         if obj is None or obj.project_id != str(project_id):
@@ -440,9 +417,7 @@ class MethodologyService:
             )
         return obj
 
-    async def delete_dimension(
-        self, dimension_id: uuid.UUID, project_id: uuid.UUID
-    ) -> None:
+    async def delete_dimension(self, dimension_id: uuid.UUID, project_id: uuid.UUID) -> None:
         """Delete a project-owned dimension (its values cascade)."""
         obj = await self.get_dimension_for_project(dimension_id, project_id)
         await self.session.delete(obj)
@@ -504,9 +479,7 @@ class MethodologyService:
 
     # ── Funding sources ────────────────────────────────────────────────────
 
-    async def list_funding_sources(
-        self, project_id: uuid.UUID
-    ) -> list[FundingSource]:
+    async def list_funding_sources(self, project_id: uuid.UUID) -> list[FundingSource]:
         """List a project's funding-source master entries."""
         stmt = (
             select(FundingSource)
@@ -516,9 +489,7 @@ class MethodologyService:
         rows = (await self.session.execute(stmt)).scalars().all()
         return list(rows)
 
-    async def create_funding_source(
-        self, data: FundingSourceCreate
-    ) -> FundingSource:
+    async def create_funding_source(self, data: FundingSourceCreate) -> FundingSource:
         """Create a funding-source master entry for a project."""
         obj = FundingSource(
             project_id=str(data.project_id),
@@ -529,9 +500,7 @@ class MethodologyService:
         )
         self.session.add(obj)
         await self.session.flush()
-        logger.info(
-            "Funding source created: %s (project=%s)", obj.code, data.project_id
-        )
+        logger.info("Funding source created: %s (project=%s)", obj.code, data.project_id)
         return obj
 
     async def get_funding_source_for_project(
@@ -565,9 +534,7 @@ class MethodologyService:
         await self.session.flush()
         return obj
 
-    async def delete_funding_source(
-        self, funding_source_id: uuid.UUID, project_id: uuid.UUID
-    ) -> None:
+    async def delete_funding_source(self, funding_source_id: uuid.UUID, project_id: uuid.UUID) -> None:
         """Delete a project-owned funding source."""
         obj = await self.get_funding_source_for_project(funding_source_id, project_id)
         await self.session.delete(obj)
@@ -585,9 +552,7 @@ class MethodologyService:
                 return slug
         return templates_mod.INTERNATIONAL_SLUG
 
-    async def set_active_methodology(
-        self, project_id: uuid.UUID, slug: str
-    ) -> str:
+    async def set_active_methodology(self, project_id: uuid.UUID, slug: str) -> str:
         """Set the project's active methodology slug on its metadata blob.
 
         The slug must reference a methodology visible to the project (a global
@@ -598,8 +563,7 @@ class MethodologyService:
         if slug not in templates_mod.TEMPLATES_BY_SLUG:
             stmt = select(Methodology.id).where(
                 Methodology.slug == slug,
-                (Methodology.project_id.is_(None))
-                | (Methodology.project_id == str(project_id)),
+                (Methodology.project_id.is_(None)) | (Methodology.project_id == str(project_id)),
             )
             if (await self.session.execute(stmt)).first() is None:
                 raise HTTPException(
@@ -620,9 +584,7 @@ class MethodologyService:
         logger.info("Project %s active methodology set to %s", project_id, slug)
         return slug
 
-    async def _clear_active_if_slug(
-        self, project_id: uuid.UUID, slug: str
-    ) -> None:
+    async def _clear_active_if_slug(self, project_id: uuid.UUID, slug: str) -> None:
         """Clear the project's active pointer iff it equals ``slug``."""
         project = await self._get_project(project_id)
         if project is None:
@@ -645,9 +607,7 @@ class MethodologyService:
 
     # ── Compute estimate ───────────────────────────────────────────────────
 
-    async def _resolve_methodology_config(
-        self, project_id: uuid.UUID, slug: str
-    ) -> dict[str, Any]:
+    async def _resolve_methodology_config(self, project_id: uuid.UUID, slug: str) -> dict[str, Any]:
         """Resolve a methodology slug to a config dict for the cascade.
 
         Resolution order:
@@ -659,8 +619,7 @@ class MethodologyService:
         """
         stmt = select(Methodology).where(
             Methodology.slug == slug,
-            (Methodology.project_id.is_(None))
-            | (Methodology.project_id == str(project_id)),
+            (Methodology.project_id.is_(None)) | (Methodology.project_id == str(project_id)),
         )
         row = (await self.session.execute(stmt)).scalars().first()
         if row is not None:
@@ -689,9 +648,7 @@ class MethodologyService:
             detail=f"Methodology '{slug}' not found for this project",
         )
 
-    async def _aggregate_boq_resource_totals(
-        self, boq_id: uuid.UUID
-    ) -> dict[str, Decimal]:
+    async def _aggregate_boq_resource_totals(self, boq_id: uuid.UUID) -> dict[str, Decimal]:
         """Sum a BOQ's resource costs per resource type via the BOQ service.
 
         Returns a ``{resource_type: Decimal}`` map (labor / material /
@@ -723,9 +680,7 @@ class MethodologyService:
             totals[str(res_type)] = totals.get(str(res_type), Decimal(0)) + amount
         return totals
 
-    async def compute_estimate(
-        self, data: ComputeEstimateRequest
-    ) -> dict[str, Any]:
+    async def compute_estimate(self, data: ComputeEstimateRequest) -> dict[str, Any]:
         """Compute the markup cascade for a project under a methodology.
 
         Resource totals are taken, in priority order, from
@@ -747,8 +702,7 @@ class MethodologyService:
         # Source the per-resource-type totals.
         if data.resource_totals is not None:
             resource_totals: dict[str, Decimal] = {
-                str(k): (v if isinstance(v, Decimal) else Decimal(str(v)))
-                for k, v in data.resource_totals.items()
+                str(k): (v if isinstance(v, Decimal) else Decimal(str(v))) for k, v in data.resource_totals.items()
             }
         elif data.boq_id is not None:
             resource_totals = await self._aggregate_boq_resource_totals(data.boq_id)
@@ -975,9 +929,7 @@ class MethodologyService:
                 column=1,
                 value=neutralise_formula(str(step.get("label") or step.get("key", ""))),
             )
-            ws.cell(
-                row=row, column=2, value=neutralise_formula(str(step.get("category", "")))
-            )
+            ws.cell(row=row, column=2, value=neutralise_formula(str(step.get("category", ""))))
             if kind == "percentage":
                 rate_cell = ws.cell(row=row, column=3, value=_num(step.get("rate")))
                 rate_cell.number_format = number_format
@@ -1052,9 +1004,7 @@ class MethodologyService:
             wb.properties.creator = "OpenConstructionERP · DataDrivenConstruction"
             wb.properties.lastModifiedBy = "OpenConstructionERP"
             wb.properties.title = f"Cost Estimate - {data.get('methodology_name', '')}"
-            wb.properties.description = (
-                "Generated by OpenConstructionERP (https://openconstructionerp.com)"
-            )
+            wb.properties.description = "Generated by OpenConstructionERP (https://openconstructionerp.com)"
         except Exception:  # noqa: BLE001 - metadata stamp must never break export
             logger.debug("Workbook metadata stamp failed", exc_info=True)
 

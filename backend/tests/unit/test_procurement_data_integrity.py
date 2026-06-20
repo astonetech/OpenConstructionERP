@@ -240,9 +240,7 @@ async def test_update_po_replace_items_blocked_when_gr_exists() -> None:
     # real GoodsReceipt ORM instance so assigning to the instrumented
     # ``goods_receipts`` relationship does not trip SQLAlchemy's backref event.
     svc.po_repo.rows[po.id].status = "partially_received"
-    svc.po_repo.rows[po.id].goods_receipts = [
-        GoodsReceipt(po_id=po.id, receipt_date="2026-04-10", status="confirmed")
-    ]
+    svc.po_repo.rows[po.id].goods_receipts = [GoodsReceipt(po_id=po.id, receipt_date="2026-04-10", status="confirmed")]
 
     with pytest.raises(HTTPException) as exc:
         await svc.update_po(
@@ -284,9 +282,7 @@ async def test_update_po_header_only_change_allowed_with_gr() -> None:
     svc = _make_service()
     po = await svc.create_po(_po_data())
     svc.po_repo.rows[po.id].status = "partially_received"
-    svc.po_repo.rows[po.id].goods_receipts = [
-        GoodsReceipt(po_id=po.id, receipt_date="2026-04-10", status="confirmed")
-    ]
+    svc.po_repo.rows[po.id].goods_receipts = [GoodsReceipt(po_id=po.id, receipt_date="2026-04-10", status="confirmed")]
 
     updated = await svc.update_po(po.id, POUpdate(notes="updated note"))
     assert updated.notes == "updated note"

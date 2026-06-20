@@ -196,7 +196,9 @@ class MoCService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(entry, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(entry, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if "cost_impact" in fields and fields["cost_impact"] is not None:
             fields["cost_impact"] = _to_decimal(fields["cost_impact"])

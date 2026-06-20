@@ -367,8 +367,7 @@ def _dwg_existing_path(base_subdir: str, key: str) -> str | None:
         if os.path.isfile(candidate):
             if root != active:
                 logger.info(
-                    "dwg: %s/%s absent under active root %s; served from "
-                    "back-compat data root %s",
+                    "dwg: %s/%s absent under active root %s; served from back-compat data root %s",
                     base_subdir,
                     key,
                     active,

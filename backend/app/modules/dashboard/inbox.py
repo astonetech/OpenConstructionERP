@@ -287,9 +287,7 @@ async def compute_inbox(
     if project_ids:
         for collector in (
             lambda: _collect_file_approvals(session, project_ids, uid),
-            lambda: _collect_change_order_approvals(
-                session, project_ids, uid, project_name_by_id
-            ),
+            lambda: _collect_change_order_approvals(session, project_ids, uid, project_name_by_id),
         ):
             try:
                 approvals.extend(await collector())
@@ -306,9 +304,7 @@ async def compute_inbox(
     for item in approvals:
         if item.get("project_name") is None and item.get("project_id"):
             try:
-                item["project_name"] = project_name_by_id.get(
-                    uuid.UUID(str(item["project_id"]))
-                )
+                item["project_name"] = project_name_by_id.get(uuid.UUID(str(item["project_id"])))
             except (ValueError, TypeError):
                 pass
 
@@ -327,9 +323,7 @@ async def compute_inbox(
     for item in alerts:
         if item.get("project_name") is None and item.get("project_id"):
             try:
-                item["project_name"] = project_name_by_id.get(
-                    uuid.UUID(str(item["project_id"]))
-                )
+                item["project_name"] = project_name_by_id.get(uuid.UUID(str(item["project_id"])))
             except (ValueError, TypeError):
                 pass
 

@@ -245,9 +245,7 @@ class TestUpdateRFIFSM:
             RFICreate(project_id=uuid.uuid4(), subject="x", question="y", status="open"),
         )
         new_assignee = str(uuid.uuid4())
-        updated = await service.update_rfi(
-            rfi.id, RFIUpdate(assigned_to=new_assignee), actor_role="manager"
-        )
+        updated = await service.update_rfi(rfi.id, RFIUpdate(assigned_to=new_assignee), actor_role="manager")
         assert str(updated.assigned_to) == new_assignee
         assert str(updated.ball_in_court) == new_assignee
 
@@ -297,9 +295,7 @@ class TestRespondBallInCourt:
         )
         await service.respond_to_rfi(rfi.id, "First.", responded_by=assignee, actor_role="editor")
         with pytest.raises(HTTPException) as exc:
-            await service.respond_to_rfi(
-                rfi.id, "Second.", responded_by=assignee, actor_role="editor"
-            )
+            await service.respond_to_rfi(rfi.id, "Second.", responded_by=assignee, actor_role="editor")
         assert exc.value.status_code == 400
 
 

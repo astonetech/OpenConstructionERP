@@ -139,12 +139,8 @@ class TestListSearch:
     async def test_search_matches_subject_case_insensitive(self, db_session) -> None:
         owner = await _make_user(db_session)
         project_id = await _make_project(db_session, owner)
-        await _add_rfi(
-            db_session, project_id=project_id, raised_by=owner, number="RFI-001", subject="Foundation rebar"
-        )
-        await _add_rfi(
-            db_session, project_id=project_id, raised_by=owner, number="RFI-002", subject="Roof flashing"
-        )
+        await _add_rfi(db_session, project_id=project_id, raised_by=owner, number="RFI-001", subject="Foundation rebar")
+        await _add_rfi(db_session, project_id=project_id, raised_by=owner, number="RFI-002", subject="Roof flashing")
         repo = RFIRepository(db_session)
         rows, total = await repo.list_for_project(project_id, search="REBAR")
         assert total == 1
@@ -162,9 +158,7 @@ class TestListSearch:
             subject="Generic",
             official_response="Use grade C35/45 concrete",
         )
-        await _add_rfi(
-            db_session, project_id=project_id, raised_by=owner, number="RFI-002", subject="Generic"
-        )
+        await _add_rfi(db_session, project_id=project_id, raised_by=owner, number="RFI-002", subject="Generic")
         repo = RFIRepository(db_session)
         rows, total = await repo.list_for_project(project_id, search="C35/45")
         assert total == 1
@@ -186,12 +180,8 @@ class TestListSearch:
         owner = await _make_user(db_session)
         project_a = await _make_project(db_session, owner)
         project_b = await _make_project(db_session, owner)
-        await _add_rfi(
-            db_session, project_id=project_a, raised_by=owner, number="RFI-001", subject="Shared keyword"
-        )
-        await _add_rfi(
-            db_session, project_id=project_b, raised_by=owner, number="RFI-001", subject="Shared keyword"
-        )
+        await _add_rfi(db_session, project_id=project_a, raised_by=owner, number="RFI-001", subject="Shared keyword")
+        await _add_rfi(db_session, project_id=project_b, raised_by=owner, number="RFI-001", subject="Shared keyword")
         repo = RFIRepository(db_session)
         rows, total = await repo.list_for_project(project_a, search="Shared keyword")
         # Only project A's row, even though B has an identical subject.
@@ -202,12 +192,8 @@ class TestListSearch:
     async def test_status_filter_combines_with_project_scope(self, db_session) -> None:
         owner = await _make_user(db_session)
         project_id = await _make_project(db_session, owner)
-        await _add_rfi(
-            db_session, project_id=project_id, raised_by=owner, number="RFI-001", status="open"
-        )
-        await _add_rfi(
-            db_session, project_id=project_id, raised_by=owner, number="RFI-002", status="draft"
-        )
+        await _add_rfi(db_session, project_id=project_id, raised_by=owner, number="RFI-001", status="open")
+        await _add_rfi(db_session, project_id=project_id, raised_by=owner, number="RFI-002", status="draft")
         repo = RFIRepository(db_session)
         rows, total = await repo.list_for_project(project_id, status="open")
         assert total == 1
@@ -218,9 +204,7 @@ class TestListSearch:
         owner = await _make_user(db_session)
         project_id = await _make_project(db_session, owner)
         for n in range(3):
-            await _add_rfi(
-                db_session, project_id=project_id, raised_by=owner, number=f"RFI-{n + 1:03d}"
-            )
+            await _add_rfi(db_session, project_id=project_id, raised_by=owner, number=f"RFI-{n + 1:03d}")
         repo = RFIRepository(db_session)
         rows, total = await repo.list_for_project(project_id, with_total=False, limit=2)
         # When the count is skipped, the returned total is the page length.

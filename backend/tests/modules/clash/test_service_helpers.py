@@ -396,10 +396,9 @@ def test_suggest_rule_caps_tolerance_at_half_metre() -> None:
 def test_suggest_rule_tie_break_is_full_pair_deterministic() -> None:
     """Two pairs sharing a leading discipline, equal counts -> the FULL
     (a, b) tuple breaks the tie deterministically (Wave 6 fix)."""
-    pairs = (
-        [("Mechanical", "Plumbing")] * _FP_SUGGESTION_THRESHOLD
-        + [("Mechanical", "Structural")] * _FP_SUGGESTION_THRESHOLD
-    )
+    pairs = [("Mechanical", "Plumbing")] * _FP_SUGGESTION_THRESHOLD + [
+        ("Mechanical", "Structural")
+    ] * _FP_SUGGESTION_THRESHOLD
     rule, _reason, _count = _suggest_rule_from_fps(pairs)
     assert rule is not None
     # max() over (count, pair): equal counts, larger pair tuple wins.
@@ -510,12 +509,7 @@ def test_bcf_status_unknown_or_empty_returns_none() -> None:
 
 
 def test_signature_from_description_recovers_pair_signature() -> None:
-    desc = (
-        "Hard clash · Mechanical ↔ Structural\n"
-        "A: Duct 12 (GUID-A)\n"
-        "B: Beam 7 (GUID-B)\n"
-        "Penetration: 0.12 m"
-    )
+    desc = "Hard clash · Mechanical ↔ Structural\nA: Duct 12 (GUID-A)\nB: Beam 7 (GUID-B)\nPenetration: 0.12 m"
     sig = _signature_from_description(desc)
     # Must equal the canonical signature for the same stable ids + type.
     assert sig == _signature("GUID-A", "GUID-B", "hard")

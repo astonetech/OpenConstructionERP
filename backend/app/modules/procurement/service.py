@@ -1423,9 +1423,7 @@ class ProcurementService:
             )
             inv_rows = (await self.session.execute(inv_stmt)).all()
             linked_invoice_ids: set[uuid.UUID] = {
-                inv_id
-                for inv_id, meta in inv_rows
-                if isinstance(meta, dict) and str(meta.get("po_id")) == str(po_id)
+                inv_id for inv_id, meta in inv_rows if isinstance(meta, dict) and str(meta.get("po_id")) == str(po_id)
             }
             if linked_invoice_ids:
                 # Pull line items only for the invoices actually linked to this

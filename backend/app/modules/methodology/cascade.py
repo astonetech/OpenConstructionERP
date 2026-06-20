@@ -184,14 +184,10 @@ def _coerce_decimal(value: object, what: str) -> Decimal:
             return Decimal(value)
         except Exception as exc:  # noqa: BLE001 - re-raised as a clear error.
             raise CascadeError(f"{what} is not a valid number: {value!r}") from exc
-    raise CascadeError(
-        f"{what} must be a Decimal (or int/str), got {type(value).__name__}"
-    )
+    raise CascadeError(f"{what} must be a Decimal (or int/str), got {type(value).__name__}")
 
 
-def compute_cascade(
-    spec: CascadeSpec, bases: Mapping[str, Decimal]
-) -> CascadeResult:
+def compute_cascade(spec: CascadeSpec, bases: Mapping[str, Decimal]) -> CascadeResult:
     """Compute the ordered markup cascade for one scope.
 
     Args:
@@ -220,16 +216,11 @@ def compute_cascade(
     resolved_composites: dict[str, Decimal] = {}
     for comp_name, members in spec.composites.items():
         if comp_name in resolved_bases:
-            raise CascadeError(
-                f"composite {comp_name!r} collides with a leaf base of the same name"
-            )
+            raise CascadeError(f"composite {comp_name!r} collides with a leaf base of the same name")
         total = Decimal(0)
         for member in members:
             if member not in resolved_bases:
-                raise CascadeError(
-                    f"composite {comp_name!r} references unknown leaf base "
-                    f"{member!r}"
-                )
+                raise CascadeError(f"composite {comp_name!r} references unknown leaf base {member!r}")
             total += resolved_bases[member]
         resolved_composites[comp_name] = _round(total, quant)
 
@@ -248,15 +239,12 @@ def compute_cascade(
     for index, step in enumerate(spec.steps):
         if step.kind not in _VALID_KINDS:
             raise CascadeError(
-                f"step {step.key!r} has unknown kind {step.kind!r}; "
-                f"expected one of {sorted(_VALID_KINDS)}"
+                f"step {step.key!r} has unknown kind {step.kind!r}; expected one of {sorted(_VALID_KINDS)}"
             )
         if step.key in seen_step_keys:
             raise CascadeError(f"duplicate step key {step.key!r}")
         if step.key in resolved_bases or step.key in resolved_composites:
-            raise CascadeError(
-                f"step key {step.key!r} collides with a base or composite name"
-            )
+            raise CascadeError(f"step key {step.key!r} collides with a base or composite name")
 
         base_amount = Decimal(0)
         for token in step.base:
@@ -267,18 +255,14 @@ def compute_cascade(
             elif token in step_amounts:
                 base_amount += step_amounts[token]
             elif token == step.key:
-                raise CascadeError(
-                    f"step {step.key!r} references itself in its base"
-                )
+                raise CascadeError(f"step {step.key!r} references itself in its base")
             elif _is_later_step(spec.steps, token, index):
                 raise CascadeError(
-                    f"step {step.key!r} forward-references step {token!r} "
-                    f"(a step may only reference earlier steps)"
+                    f"step {step.key!r} forward-references step {token!r} (a step may only reference earlier steps)"
                 )
             else:
                 raise CascadeError(
-                    f"step {step.key!r} references unknown token {token!r} "
-                    f"(not a base, composite, or earlier step)"
+                    f"step {step.key!r} references unknown token {token!r} (not a base, composite, or earlier step)"
                 )
 
         base_amount = _round(base_amount, quant)
@@ -321,9 +305,7 @@ def compute_cascade(
     )
 
 
-def _is_later_step(
-    steps: tuple[MarkupStep, ...], token: str, current_index: int
-) -> bool:
+def _is_later_step(steps: tuple[MarkupStep, ...], token: str, current_index: int) -> bool:
     """Return True if ``token`` names a step at ``current_index`` or later.
 
     Used purely to produce a precise "forward reference" error message instead

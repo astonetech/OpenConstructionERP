@@ -96,7 +96,5 @@ async def controls_drill(
         await verify_project_access(project_id, user_id, session)
     else:
         allowed = await accessible_project_ids(session, user_id)
-    result = await service.drill(
-        kpi_code, project_id=project_id, limit=limit, allowed_project_ids=allowed
-    )
+    result = await service.drill(kpi_code, project_id=project_id, limit=limit, allowed_project_ids=allowed)
     return ControlsDrillResponse(**result)

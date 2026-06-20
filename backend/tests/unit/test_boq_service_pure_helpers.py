@@ -80,9 +80,7 @@ from app.modules.boq.service import (
         (250, 95.0, 90.0, 1),
     ],
 )
-def test_determine_aace_class_ladder(
-    total_positions: int, rate_pct: float, resource_pct: float, expected: int
-) -> None:
+def test_determine_aace_class_ladder(total_positions: int, rate_pct: float, resource_pct: float, expected: int) -> None:
     assert _determine_aace_class(total_positions, rate_pct, resource_pct) == expected
 
 

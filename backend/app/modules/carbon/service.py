@@ -1294,7 +1294,9 @@ class CarbonService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(entry, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(entry, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if fields:
             await self.embodied_repo.update_fields(entry_id, **fields)
@@ -1377,7 +1379,9 @@ class CarbonService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(entry, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(entry, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if fields:
             await self.scope1_repo.update_fields(entry_id, **fields)
@@ -1425,7 +1429,9 @@ class CarbonService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(entry, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(entry, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if fields:
             await self.scope2_repo.update_fields(entry_id, **fields)
@@ -1470,7 +1476,9 @@ class CarbonService:
         if "metadata" in fields:
             _incoming = fields.pop("metadata")
             fields["metadata_"] = (
-                merge_metadata(getattr(entry, "metadata_", None), _incoming) if isinstance(_incoming, dict) else _incoming
+                merge_metadata(getattr(entry, "metadata_", None), _incoming)
+                if isinstance(_incoming, dict)
+                else _incoming
             )
         if fields:
             await self.scope3_repo.update_fields(entry_id, **fields)

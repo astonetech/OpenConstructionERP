@@ -167,9 +167,7 @@ class TestSortInboxItems:
         a = [_item(id="a", created_at=ts), _item(id="b", created_at=ts)]
         b = [_item(id="b", created_at=ts), _item(id="a", created_at=ts)]
         # Same inputs in any order produce the same output order.
-        assert [i["id"] for i in sort_inbox_items(a)] == [
-            i["id"] for i in sort_inbox_items(b)
-        ]
+        assert [i["id"] for i in sort_inbox_items(a)] == [i["id"] for i in sort_inbox_items(b)]
 
     def test_does_not_mutate_input(self) -> None:
         items = [
@@ -186,9 +184,7 @@ class TestSortInboxItems:
 
 class TestBuildInbox:
     def test_merges_both_streams(self) -> None:
-        approvals = [
-            _item(id="ap1", kind=KIND_APPROVAL, project_id="p1", severity="warning")
-        ]
+        approvals = [_item(id="ap1", kind=KIND_APPROVAL, project_id="p1", severity="warning")]
         alerts = [_item(id="al1", kind=KIND_ALERT, project_id=None)]
         result = build_inbox(approvals, alerts, accessible_project_ids={"p1"})
         ids = {i["id"] for i in result["items"]}
