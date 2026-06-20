@@ -169,9 +169,14 @@ async def _add_position(
 
 @pytest_asyncio.fixture(scope="module")
 async def scenario(http_client):
-    # A is registered first → bootstrapped to admin (owns the project; admin
-    # bypasses project-access checks, which is correct for the owner).
+    # A owns the project. First-registration auto-admin only fires when this
+    # module is the very first to register a user, which is NOT true when the
+    # suite runs as part of a larger job (e.g. the tenant-isolation subset
+    # registers users in earlier files). Promote A to admin EXPLICITLY so the
+    # owner deterministically holds ``costmodel.write`` (the generate-from-boq
+    # RBAC gate) and bypasses project-access checks regardless of run order.
     a_id, a_headers = await _register_and_login(http_client, "A")
+    await _set_user_role(a_id, "admin")
     # B is the IDOR attacker. They MUST hold ``costmodel.write``/``read`` so the
     # RBAC dependency passes and the 404 we assert genuinely comes from
     # ``verify_project_access`` (project ownership), not from a permission gate.

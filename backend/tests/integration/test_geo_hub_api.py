@@ -927,8 +927,16 @@ class TestViewpoints:
         )
         assert created.status_code in (200, 201), created.text
         vp_id = created.json()["id"]
-        res = await http_client.delete(
+        # Mutate (PATCH) cross-tenant rather than DELETE: PATCH needs
+        # ``geo_hub.write`` which the editor attacker HOLDS, so the request
+        # clears the RBAC gate and the 404 genuinely proves the project-access
+        # (ownership) check fired - mirroring the anchor/imagery/overlay IDOR
+        # tests. (DELETE needs ``geo_hub.delete``, which the editor lacks, so it
+        # 403s uniformly at the RBAC gate before any resource lookup - that is
+        # not an existence leak, but it would not exercise the access check.)
+        res = await http_client.patch(
             f"/api/v1/geo-hub/viewpoints/{vp_id}",
+            json={"description": "ATTACKER WAS HERE"},
             headers=tenant_b["headers"],
         )
         assert res.status_code == 404
