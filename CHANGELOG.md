@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.8.1] - 2026-06-21
+
+### Fixed
+
+- Takeoff: a PDF uploaded for quantity takeoff now stays attached to the active project, so it remains in the document list after a page reload. Previously the upload was saved with no project; because the takeoff document list is filtered by the active project, the freshly uploaded file disappeared on refresh. The server already verifies the caller's access to the project before storing the file (#242).
+
 ## [8.8.0] - 2026-06-21
 
 ### Added

@@ -1432,7 +1432,15 @@ export function TakeoffPage() {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`/api/v1/takeoff/documents/upload/`, {
+      // Attach the active project so the document is stored under it (#242).
+      // Without this the row saved with project_id=NULL and the
+      // project-filtered reload (listDocuments(selectedProjectId)) dropped it,
+      // so an uploaded PDF vanished on refresh. The backend verifies access to
+      // the project before any write.
+      const uploadUrl = selectedProjectId
+        ? `/api/v1/takeoff/documents/upload/?project_id=${encodeURIComponent(selectedProjectId)}`
+        : `/api/v1/takeoff/documents/upload/`;
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         headers,
         body: formData,
