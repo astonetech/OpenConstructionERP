@@ -76,18 +76,13 @@ const STATUS_CONFIG: Record<
     cls: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   },
   issued: { variant: 'blue', cls: '' },
-  acknowledged: { variant: 'success', cls: '' },
-  closed: {
-    variant: 'neutral',
-    cls: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-  },
+  responded: { variant: 'success', cls: '' },
 };
 
 const STATUS_LABELS: Record<TransmittalStatus, string> = {
   draft: 'Draft',
   issued: 'Issued',
-  acknowledged: 'Acknowledged',
-  closed: 'Closed',
+  responded: 'Responded',
 };
 
 const PURPOSE_LABELS: Record<TransmittalPurpose, string> = {
@@ -953,9 +948,16 @@ export function TransmittalsPage() {
     const total = transmittals.length;
     const draft = transmittals.filter((tr) => tr.status === 'draft').length;
     const issued = transmittals.filter((tr) => tr.status === 'issued').length;
-    const acknowledged = transmittals.filter((tr) => tr.status === 'acknowledged').length;
-    const closed = transmittals.filter((tr) => tr.status === 'closed').length;
-    return { total, draft, issued, acknowledged, closed };
+    // Acknowledgement is a recipient-level fact, not a transmittal status:
+    // count transmittals that have recipients and where every recipient has
+    // acknowledged receipt (the backend records acknowledged_at per recipient).
+    const acknowledged = transmittals.filter(
+      (tr) => tr.recipients.length > 0 && tr.recipients.every((r) => r.acknowledged),
+    ).length;
+    // "Responded" is the backend's terminal status, set once every recipient
+    // has submitted a response.
+    const responded = transmittals.filter((tr) => tr.status === 'responded').length;
+    return { total, draft, issued, acknowledged, responded };
   }, [transmittals]);
 
   // Invalidation — scope to the current project so we only refetch the cache
@@ -1223,10 +1225,10 @@ export function TransmittalsPage() {
         </div>
         <div className="rounded-xl border border-border-light bg-surface-elevated/90 p-4 shadow-xs transition-shadow duration-normal ease-oe hover:shadow-sm animate-card-in">
           <p className="text-2xs font-medium text-content-tertiary uppercase tracking-wide">
-            {t('transmittals.stat_closed', { defaultValue: 'Closed' })}
+            {t('transmittals.stat_responded', { defaultValue: 'Responded' })}
           </p>
           <p className="text-lg font-semibold mt-1 tabular-nums text-content-primary">
-            {stats.closed}
+            {stats.responded}
           </p>
         </div>
       </div>

@@ -365,6 +365,7 @@ async def list_drawings(
             file_format=i.file_format,
             has_entities=False,
             converter_present=converter_present,
+            age_seconds=service.conversion_age_seconds(i),
         )
         out.append(_drawing_to_response(i, view_status=view_status))
     return out

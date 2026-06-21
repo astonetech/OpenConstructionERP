@@ -243,9 +243,14 @@ export async function fetchScanPoints(
 /** Derive the accepted upload format from a file name, lower-cased without the
  *  leading dot, or null when the extension is not on the allow-list. */
 export function formatFromFileName(name: string): string | null {
-  const dot = name.lastIndexOf('.');
+  const lower = name.toLowerCase();
+  // COPC ships by convention as 'scan.copc.laz' (or rarely 'scan.copc'); both
+  // must register as the COPC format, not the plain 'laz' the last-dot fallback
+  // would return.
+  if (lower.endsWith('.copc.laz') || lower.endsWith('.copc')) return 'copc';
+  const dot = lower.lastIndexOf('.');
   if (dot < 0) return null;
-  const ext = name.slice(dot + 1).toLowerCase();
+  const ext = lower.slice(dot + 1);
   return (ACCEPTED_SCAN_FORMATS as readonly string[]).includes(ext) ? ext : null;
 }
 

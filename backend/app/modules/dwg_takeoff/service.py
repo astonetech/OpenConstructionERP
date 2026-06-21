@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
@@ -61,6 +62,46 @@ def _spawn_dwg_conversion(drawing_id: uuid.UUID, file_path: str) -> "asyncio.Tas
     _BACKGROUND_CONVERSION_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_CONVERSION_TASKS.discard)
     return task
+
+
+# ── Orphaned-conversion (stale) detection ───────────────────────────────────
+# A live DWG conversion self-fails at OE_DWG_CONVERT_TIMEOUT_S (default 300s):
+# subprocess.run(timeout=...) hard-kills the converter at that bound. So a
+# drawing still sitting at "processing"/"uploaded" with NO parsed entities long
+# past that bound is orphaned - its detached background task died with the
+# process (a server restart / reinstall / crash), and asyncio tasks never
+# survive a restart, so nothing will ever complete or fail it. Left alone the
+# frontend polls "processing" forever - the "Converting... 2547m" infinite
+# spinner a real user hit after reinstalling. Treat anything older than the
+# convert timeout plus a generous margin as dead and surface an actionable error.
+
+
+def _stale_conversion_cutoff_seconds() -> int:
+    """Seconds after which a still-``processing`` drawing is deemed orphaned."""
+    convert_timeout = int(os.getenv("OE_DWG_CONVERT_TIMEOUT_S", "300"))
+    # Twice the convert timeout, floored at 10 minutes - comfortably past any
+    # real run (which is force-killed at the timeout) without false positives.
+    return max(convert_timeout * 2, 600)
+
+
+_STALE_CONVERSION_MESSAGE = (
+    "Conversion did not finish - it was most likely interrupted by a server "
+    "restart or update while processing. Please remove this drawing and upload "
+    "it again."
+)
+
+
+def _seconds_since(ts: datetime | None) -> float | None:
+    """Age in seconds of a timestamp, or ``None`` if unset.
+
+    Naive timestamps are treated as UTC (the app persists UTC).
+    """
+    if ts is None:
+        return None
+    now = datetime.now(UTC)
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return (now - ts).total_seconds()
 
 
 # ── DWG version sniff & gating (Indian-user stability ticket 2026-05-13) ────
@@ -1388,12 +1429,25 @@ class DwgTakeoffService:
         return item
 
     @staticmethod
+    def conversion_age_seconds(drawing: object) -> float | None:
+        """Seconds since a drawing was last touched (updated_at, else created_at).
+
+        Used to detect an orphaned conversion - a drawing left at
+        ``processing``/``uploaded`` long past the convert timeout because its
+        background task died with a server restart.
+        """
+        return _seconds_since(getattr(drawing, "updated_at", None)) or _seconds_since(
+            getattr(drawing, "created_at", None)
+        )
+
+    @staticmethod
     def resolve_view_status(
         *,
         status_value: str | None,
         file_format: str | None,
         has_entities: bool,
         converter_present: bool | None = None,
+        age_seconds: float | None = None,
     ) -> str:
         """Resolve a definitive viewer status for a drawing.
 
@@ -1425,6 +1479,15 @@ class DwgTakeoffService:
             return "ready"
 
         normalized = (status_value or "").lower()
+        # An orphaned conversion (processing/uploaded, no entities, untouched well
+        # past the convert timeout) is dead - report a terminal error so the
+        # viewer stops spinning forever instead of passing "processing" through.
+        if (
+            normalized in ("processing", "uploaded")
+            and age_seconds is not None
+            and age_seconds > _stale_conversion_cutoff_seconds()
+        ):
+            return "error"
         if normalized in ("ready", "empty", "error", "processing", "needs_conversion"):
             return normalized
 
@@ -1454,11 +1517,40 @@ class DwgTakeoffService:
         drawing = await self.get_drawing(drawing_id)
         version = await self.get_latest_version(drawing_id)
         has_entities = version is not None and (version.entity_count or 0) > 0 and version.entities_key is not None
+        age_seconds = self.conversion_age_seconds(drawing)
         view_status = self.resolve_view_status(
             status_value=drawing.status,
             file_format=drawing.file_format,
             has_entities=has_entities,
+            age_seconds=age_seconds,
         )
+        # Self-heal an orphaned conversion: persist the terminal error (with an
+        # actionable message) so the DB stops reporting "processing" forever and
+        # every later poll/list is fast and correct. Re-fetch the version AFTER
+        # the write - update_fields() calls session.expire_all(), which would make
+        # the already-loaded version emit an illegal lazy SELECT (MissingGreenlet)
+        # when the router serialises it.
+        if (
+            view_status == "error"
+            and (drawing.status or "").lower() in ("processing", "uploaded")
+            and not drawing.error_message
+        ):
+            try:
+                await self.drawing_repo.update_fields(
+                    drawing_id,
+                    status="error",
+                    error_message=_STALE_CONVERSION_MESSAGE,
+                )
+                await self.session.commit()
+                await self.session.refresh(drawing)
+                version = await self.get_latest_version(drawing_id)
+            except Exception:  # noqa: BLE001 - heal is best-effort; never fail the read
+                logger.warning(
+                    "Could not persist stale-conversion heal for drawing %s",
+                    drawing_id,
+                    exc_info=True,
+                )
+                await self.session.rollback()
         return drawing, version, view_status
 
     async def list_drawings(
