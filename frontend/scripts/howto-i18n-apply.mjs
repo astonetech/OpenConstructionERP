@@ -10,7 +10,7 @@
 //
 //   node scripts/howto-i18n-apply.mjs
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,10 +24,6 @@ const report = [];
 for (const f of files.sort()) {
   const code = f.replace('.json', '');
   const localeFile = join(localesDir, `${code}.ts`);
-  if (!existsSync(localeFile)) {
-    report.push(`${code}: SKIP (no locale file)`);
-    continue;
-  }
   let map;
   try {
     let rawJson = readFileSync(join(dataDir, f), 'utf8');
@@ -37,7 +33,16 @@ for (const f of files.sort()) {
     report.push(`${code}: ERROR bad JSON (${e.message})`);
     continue;
   }
-  let text = readFileSync(localeFile, 'utf8');
+  // Read the locale file directly and treat a read failure as "absent", rather
+  // than probing with existsSync first - a check-then-use pair is a file-system
+  // race (the file can change between the two calls).
+  let text;
+  try {
+    text = readFileSync(localeFile, 'utf8');
+  } catch {
+    report.push(`${code}: SKIP (no locale file)`);
+    continue;
+  }
   const idx = text.indexOf('"translation": {');
   if (idx === -1) {
     report.push(`${code}: ERROR no translation block`);
