@@ -75,6 +75,7 @@ from app.modules.takeoff.schemas import (
     PlanReadRequest,
     RecognizeResponse,
     ScaleDetectionResponse,
+    SimilarSymbolsResponse,
     TakeoffCompareResponse,
     TakeoffMeasurementBulkCreate,
     TakeoffMeasurementCreate,
@@ -4479,6 +4480,38 @@ async def recognize_document(
 
     result = await service.recognize_candidates(doc_id, page, scale_pixels_per_unit or None)
     return RecognizeResponse(**result)
+
+
+@router.post(
+    "/documents/{doc_id}/similar-symbols/",
+    response_model=SimilarSymbolsResponse,
+    dependencies=[Depends(RequirePermission("takeoff.read"))],
+)
+async def similar_symbols(
+    doc_id: str,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    seed_x: float = Query(..., description="X of the clicked point, in PDF points"),
+    seed_y: float = Query(..., description="Y of the clicked point, in PDF points"),
+    page: int = Query(1, ge=1, description="1-indexed page to search"),
+    service: TakeoffService = Depends(_get_service),
+) -> SimilarSymbolsResponse:
+    """Find every symbol matching the one under the clicked point (count by example).
+
+    The deterministic counterpart to drawing each count by hand: the user
+    clicks one symbol on a vector PDF page and this returns the centroids of
+    all near-identical symbols, which they confirm as a single count
+    measurement. Nothing is persisted (CLAUDE.md rule 7); accepted points flow
+    through the normal bulk-create path where the server re-derives quantity.
+    """
+    doc = await service.get_document(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail=translate("errors.document_not_found", locale=get_locale()))
+    # Same IDOR gate as recognize - a document's geometry is as sensitive as its text.
+    await _verify_takeoff_doc_access(doc, str(user_id) if user_id else "", session)
+
+    result = await service.find_similar_symbols(doc_id, page, seed_x, seed_y)
+    return SimilarSymbolsResponse(**result)
 
 
 # ── Detect scale (tier-1, AI-free, from the text layer) ────────────────────
