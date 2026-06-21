@@ -213,9 +213,7 @@ def _bounds_for(pos: PositionInput, opt_pct: float, pess_pct: float) -> tuple[fl
     return low, base, high
 
 
-def _apply_one_factor_correlation(
-    columns: list[list[float]], correlation: float, rng: random.Random
-) -> None:
+def _apply_one_factor_correlation(columns: list[list[float]], correlation: float, rng: random.Random) -> None:
     """Reorder each column in place so the lines move together with strength
     ``correlation`` via a one-factor Gaussian copula (Iman-Conover style).
 
@@ -286,9 +284,7 @@ def simulate(
             mean=base_total,
             std_dev=0.0,
             cv_pct=0.0,
-            percentiles=dict.fromkeys(
-                ("p5", "p10", "p25", "p50", "p75", "p80", "p90", "p95"), base_total
-            ),
+            percentiles=dict.fromkeys(("p5", "p10", "p25", "p50", "p75", "p80", "p90", "p95"), base_total),
             contingency=0.0,
             contingency_pct=0.0,
             recommended_budget=base_total,
@@ -302,7 +298,9 @@ def simulate(
 
     # Deterministic seed fallback so the panel does not flicker between renders.
     if seed is None:
-        seed = (abs(hash((round(base_total, 2), n, round(optimistic_pct, 3), round(pessimistic_pct, 3)))) % 2_000_000_000) or 1
+        seed = (
+            abs(hash((round(base_total, 2), n, round(optimistic_pct, 3), round(pessimistic_pct, 3)))) % 2_000_000_000
+        ) or 1
     rng = random.Random(seed)
 
     bounds = [(*_bounds_for(p, optimistic_pct, pessimistic_pct), p.distribution) for p in positions]

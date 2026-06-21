@@ -7542,10 +7542,7 @@ def _positions_for_risk(items: list[PositionResponse]) -> list[cre.PositionInput
     pessimistic bounds from the global band (a position may later carry an
     explicit three-point estimate).
     """
-    return [
-        cre.PositionInput(ordinal=p.ordinal, description=p.description or "", base=float(p.total))
-        for p in items
-    ]
+    return [cre.PositionInput(ordinal=p.ordinal, description=p.description or "", base=float(p.total)) for p in items]
 
 
 # ── Sensitivity Analysis (Tornado Chart) ─────────────────────────────────────
@@ -7643,11 +7640,7 @@ async def get_sensitivity(
     # Rank by variance contribution (probabilistic) when available, else by the
     # deterministic absolute impact. Take the top N.
     sensitivity_items.sort(
-        key=lambda x: (
-            x.variance_contribution_pct
-            if x.variance_contribution_pct is not None
-            else abs(x.impact_high)
-        ),
+        key=lambda x: x.variance_contribution_pct if x.variance_contribution_pct is not None else abs(x.impact_high),
         reverse=True,
     )
     sensitivity_items = sensitivity_items[:top_n]
@@ -7767,9 +7760,7 @@ async def get_cost_risk(
     base_total = float(base_total_dec)
 
     if base_total == 0 or len(items) == 0:
-        zero_pct = CostRiskPercentiles(
-            p5=0.0, p10=0.0, p25=0.0, p50=0.0, p75=0.0, p80=0.0, p90=0.0, p95=0.0
-        )
+        zero_pct = CostRiskPercentiles(p5=0.0, p10=0.0, p25=0.0, p50=0.0, p75=0.0, p80=0.0, p90=0.0, p95=0.0)
         return CostRiskResponse(
             iterations=iterations,
             base_total=Decimal("0"),
@@ -7819,10 +7810,7 @@ async def get_cost_risk(
         CostRiskHistogramBin(bin_start=round(b.bin_start, 2), bin_end=round(b.bin_end, 2), count=b.count)
         for b in result.histogram
     ]
-    cdf = [
-        CostRiskCdfPoint(cost=round(c.cost, 2), cumulative_prob=round(c.cumulative_prob, 4))
-        for c in result.cdf
-    ]
+    cdf = [CostRiskCdfPoint(cost=round(c.cost, 2), cumulative_prob=round(c.cumulative_prob, 4)) for c in result.cdf]
     risk_drivers = [
         CostRiskDriver(
             ordinal=d.ordinal,

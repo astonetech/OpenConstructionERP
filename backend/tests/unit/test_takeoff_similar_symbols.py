@@ -59,11 +59,7 @@ def test_page_with_no_vector_layer() -> None:
 
 def test_hits_are_capped_by_max_hits() -> None:
     # A dense grid of identical symbols; the review panel cap is honoured.
-    drawings = [
-        _rect_path(x, y, x + 20, y + 20)
-        for x in range(0, 400, 40)
-        for y in range(0, 400, 40)
-    ]
+    drawings = [_rect_path(x, y, x + 20, y + 20) for x in range(0, 400, 40) for y in range(0, 400, 40)]
     result = recognize.find_similar_symbols(drawings, 10.0, 10.0, max_hits=5)
     assert len(result["hits"]) == 5
     assert result["seed_found"] is True

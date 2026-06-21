@@ -1224,9 +1224,7 @@ async def update_claim_line(
             exclude_claim_id=obj.progress_claim_id,
         )
         prior = prior_by_line.get(obj.contract_line_id, Decimal("0"))
-        fields["cumulative_completed_value"] = (
-            prior + Decimal(str(period_value or 0))
-        ).quantize(Decimal("0.0001"))
+        fields["cumulative_completed_value"] = (prior + Decimal(str(period_value or 0))).quantize(Decimal("0.0001"))
         await repo.update_fields(line_id, **fields)
         await session.refresh(obj)
     return ProgressClaimLineResponse.model_validate(obj)

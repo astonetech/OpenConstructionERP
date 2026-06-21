@@ -1751,9 +1751,7 @@ class TakeoffService:
         except HTTPException:
             raise
         except Exception:
-            logger.exception(
-                "takeoff.similar_symbols failed to read page for doc %s page %s", doc_id, page
-            )
+            logger.exception("takeoff.similar_symbols failed to read page for doc %s page %s", doc_id, page)
             raise HTTPException(
                 status_code=422,
                 detail="Could not read this page. The PDF may be corrupt or password-protected.",
