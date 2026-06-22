@@ -2,10 +2,12 @@
 # Copyright (c) 2026 Artem Boiko / DataDrivenConstruction
 """Construction-control module.
 
-The universal QA/QC engine (Pillar 1): acceptance criteria, inspections with a phase
-discriminator (MIR / WIR / IR / hidden-works / acceptance) and format-agnostic model
-linking through the Universal Element Reference, where a failed inspection raises a
-non-conformance report automatically.
+The universal QA/QC engine: acceptance criteria, inspections with a phase discriminator
+(MIR / WIR / IR / hidden-works / acceptance), material records (digital passport),
+lab test results, as-built records (verified survey/scan records with a signed
+legal-record attestation) and hold/witness/surveillance/review gating, all with
+format-agnostic model linking through the Universal Element Reference, where a failed
+check raises a non-conformance report automatically.
 """
 
 

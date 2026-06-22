@@ -16,19 +16,55 @@ Inspections:
     PATCH  /inspections/{inspection_id}    - update
     DELETE /inspections/{inspection_id}    - delete
     POST   /inspections/{inspection_id}/record-result - record pass/fail; a fail raises an NCR
+
+As-built records (Pillar 3):
+    GET    /asbuilt                        - list as-built records for a project
+    POST   /asbuilt                        - create an as-built record (optional model link)
+    POST   /asbuilt/import-from-scan       - create one from a point-cloud scan registration
+    GET    /asbuilt/{record_id}            - get one (with resolved element links)
+    PATCH  /asbuilt/{record_id}            - update (blocked once recorded/void)
+    DELETE /asbuilt/{record_id}            - delete
+    POST   /asbuilt/{record_id}/record-survey - record the captured value + tolerance
+    POST   /asbuilt/{record_id}/verify     - verify; out-of-tolerance raises an NCR
+    POST   /asbuilt/{record_id}/sign-validity - e-sign the legal-record attestation
+
+Hold gates (Pillar 5):
+    GET    /gates                          - list gates for a project
+    POST   /gates                          - create a gate
+    GET    /gates/can-proceed              - check if an attached entity is gated
+    GET    /gates/{gate_id}                - get one
+    PATCH  /gates/{gate_id}                - update (blocked once not pending)
+    DELETE /gates/{gate_id}                - delete
+    POST   /gates/{gate_id}/release        - release (party-role checked, e-signed)
+    POST   /gates/{gate_id}/waive          - waive (witness/surveillance/review only)
 """
 
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
+from app.modules.construction_control.asbuilt_service import AsBuiltService
+from app.modules.construction_control.gating_service import GatingService
 from app.modules.construction_control.schemas import (
     AcceptanceCriterionCreate,
     AcceptanceCriterionResponse,
     AcceptanceCriterionUpdate,
+    AsBuiltImportFromScanIn,
+    AsBuiltRecordCreate,
+    AsBuiltRecordResponse,
+    AsBuiltRecordUpdate,
+    AsBuiltSignIn,
+    AsBuiltSurveyIn,
+    AsBuiltVerifyIn,
     ElementRefResponse,
+    GateProceedResponse,
+    HoldGateCreate,
+    HoldGateReleaseIn,
+    HoldGateResponse,
+    HoldGateUpdate,
+    HoldGateWaiveIn,
     InspectionCreate,
     InspectionResponse,
     InspectionResultIn,
@@ -50,6 +86,39 @@ logger = logging.getLogger(__name__)
 
 def _get_service(session: SessionDep) -> ConstructionControlService:
     return ConstructionControlService(session)
+
+
+def _get_asbuilt_service(session: SessionDep) -> AsBuiltService:
+    return AsBuiltService(session)
+
+
+def _get_gating_service(session: SessionDep) -> GatingService:
+    return GatingService(session)
+
+
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client IP for signature non-repudiation context (never authorisation).
+
+    Honours a single trusted proxy hop via ``X-Forwarded-For`` (spoofable, but the only
+    signal behind a reverse proxy), then falls back to the socket peer.
+    """
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        first = fwd.split(",")[0].strip()
+        if first:
+            return first[:64]
+    client = request.client
+    return client.host[:64] if client and client.host else None
+
+
+def _asbuilt_response(record, elements) -> AsBuiltRecordResponse:
+    resp = AsBuiltRecordResponse.model_validate(record)
+    resp.elements = [ElementRefResponse.model_validate(e) for e in elements]
+    return resp
+
+
+def _gate_response(gate) -> HoldGateResponse:
+    return HoldGateResponse.model_validate(gate)
 
 
 def _criterion_response(criterion) -> AcceptanceCriterionResponse:
@@ -445,3 +514,291 @@ async def record_test_result(
     test = await service.record_test_result(result_id, data, user_id=user_id)
     elements = await service.elements_for_owner("test_result", test.id)
     return _test_response(test, elements)
+
+
+# ── As-built records (Pillar 3) ───────────────────────────────────────────────
+
+
+@router.get("/asbuilt", response_model=list[AsBuiltRecordResponse])
+async def list_asbuilt(
+    session: SessionDep,
+    project_id: uuid.UUID = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status"),
+    discipline: str | None = Query(default=None),
+    source_kind: str | None = Query(default=None),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> list[AsBuiltRecordResponse]:
+    await verify_project_access(project_id, user_id, session)
+    items, _ = await service.list_asbuilt(
+        project_id,
+        offset=offset,
+        limit=limit,
+        status_filter=status_filter,
+        discipline=discipline,
+        source_kind=source_kind,
+    )
+    elements_by_owner = await service.elements_for_many([r.id for r in items])
+    return [_asbuilt_response(r, elements_by_owner.get(str(r.id), [])) for r in items]
+
+
+@router.post("/asbuilt", response_model=AsBuiltRecordResponse, status_code=201)
+async def create_asbuilt(
+    data: AsBuiltRecordCreate,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.asbuilt.create")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    await verify_project_access(data.project_id, user_id, session)
+    record = await service.create_asbuilt(data, user_id=user_id)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.post("/asbuilt/import-from-scan", response_model=AsBuiltRecordResponse, status_code=201)
+async def import_asbuilt_from_scan(
+    data: AsBuiltImportFromScanIn,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.asbuilt.create")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    """Create an as-built from a point-cloud scan registration (deviation result)."""
+    await verify_project_access(data.project_id, user_id, session)
+    record = await service.import_from_scan(data, user_id=user_id)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.get("/asbuilt/{record_id}", response_model=AsBuiltRecordResponse)
+async def get_asbuilt(
+    record_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    record = await service.get_asbuilt(record_id)
+    await verify_project_access(record.project_id, str(user_id), session)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.patch("/asbuilt/{record_id}", response_model=AsBuiltRecordResponse)
+async def update_asbuilt(
+    record_id: uuid.UUID,
+    data: AsBuiltRecordUpdate,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("cc.asbuilt.update")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    existing = await service.get_asbuilt(record_id)
+    await verify_project_access(existing.project_id, str(user_id), session)
+    record = await service.update_asbuilt(record_id, data)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.delete("/asbuilt/{record_id}", status_code=204)
+async def delete_asbuilt(
+    record_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("cc.asbuilt.delete")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> None:
+    existing = await service.get_asbuilt(record_id)
+    await verify_project_access(existing.project_id, str(user_id), session)
+    await service.delete_asbuilt(record_id)
+
+
+@router.post("/asbuilt/{record_id}/record-survey", response_model=AsBuiltRecordResponse)
+async def record_asbuilt_survey(
+    record_id: uuid.UUID,
+    data: AsBuiltSurveyIn,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.asbuilt.update")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    """Record the captured value and compute the tolerance result against the criterion."""
+    record = await service.get_asbuilt(record_id)
+    await verify_project_access(record.project_id, user_id, session)
+    record = await service.record_survey(record_id, data, user_id=user_id)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.post("/asbuilt/{record_id}/verify", response_model=AsBuiltRecordResponse)
+async def verify_asbuilt(
+    record_id: uuid.UUID,
+    data: AsBuiltVerifyIn,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.asbuilt.verify")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    """Verify a surveyed as-built. An out-of-tolerance record raises a workmanship NCR."""
+    record = await service.get_asbuilt(record_id)
+    await verify_project_access(record.project_id, user_id, session)
+    record = await service.verify_asbuilt(record_id, data, user_id=user_id)
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+@router.post("/asbuilt/{record_id}/sign-validity", response_model=AsBuiltRecordResponse)
+async def sign_asbuilt_validity(
+    record_id: uuid.UUID,
+    data: AsBuiltSignIn,
+    request: Request,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.asbuilt.sign")),
+    service: AsBuiltService = Depends(_get_asbuilt_service),
+) -> AsBuiltRecordResponse:
+    """E-sign the legal-record attestation. Only a verified record can be signed valid."""
+    record = await service.get_asbuilt(record_id)
+    await verify_project_access(record.project_id, user_id, session)
+    record = await service.sign_legal_validity(record_id, data, user_id=user_id, signature_ip=_client_ip(request))
+    elements = await service.elements_for(record.id)
+    return _asbuilt_response(record, elements)
+
+
+# ── Hold gates (Pillar 5) ──────────────────────────────────────────────────────
+
+
+@router.get("/gates", response_model=list[HoldGateResponse])
+async def list_gates(
+    session: SessionDep,
+    project_id: uuid.UUID = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    status_filter: str | None = Query(default=None, alias="status"),
+    point_type: str | None = Query(default=None),
+    attached_kind: str | None = Query(default=None),
+    attached_id: str | None = Query(default=None),
+    service: GatingService = Depends(_get_gating_service),
+) -> list[HoldGateResponse]:
+    await verify_project_access(project_id, user_id, session)
+    items, _ = await service.list_gates(
+        project_id,
+        offset=offset,
+        limit=limit,
+        status_filter=status_filter,
+        point_type=point_type,
+        attached_kind=attached_kind,
+        attached_id=attached_id,
+    )
+    return [_gate_response(g) for g in items]
+
+
+@router.post("/gates", response_model=HoldGateResponse, status_code=201)
+async def create_gate(
+    data: HoldGateCreate,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.gate.create")),
+    service: GatingService = Depends(_get_gating_service),
+) -> HoldGateResponse:
+    await verify_project_access(data.project_id, user_id, session)
+    gate = await service.create_gate(data, user_id=user_id)
+    return _gate_response(gate)
+
+
+@router.get("/gates/can-proceed", response_model=GateProceedResponse)
+async def gate_can_proceed(
+    session: SessionDep,
+    project_id: uuid.UUID = Query(...),
+    kind: str = Query(...),
+    id: str = Query(...),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: GatingService = Depends(_get_gating_service),
+) -> GateProceedResponse:
+    """Whether an attached entity (activity / handover_package / inspection) may proceed."""
+    await verify_project_access(project_id, user_id, session)
+    blocking = await service.blocking_gates_for(project_id, kind, id)
+    return GateProceedResponse(
+        project_id=project_id,
+        attached_kind=kind,
+        attached_id=id,
+        can_proceed=not blocking,
+        blocking_gate_numbers=[g.gate_number for g in blocking],
+        blocking_gate_ids=[str(g.id) for g in blocking],
+    )
+
+
+@router.get("/gates/{gate_id}", response_model=HoldGateResponse)
+async def get_gate(
+    gate_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    service: GatingService = Depends(_get_gating_service),
+) -> HoldGateResponse:
+    gate = await service.get_gate(gate_id)
+    await verify_project_access(gate.project_id, str(user_id), session)
+    return _gate_response(gate)
+
+
+@router.patch("/gates/{gate_id}", response_model=HoldGateResponse)
+async def update_gate(
+    gate_id: uuid.UUID,
+    data: HoldGateUpdate,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("cc.gate.update")),
+    service: GatingService = Depends(_get_gating_service),
+) -> HoldGateResponse:
+    existing = await service.get_gate(gate_id)
+    await verify_project_access(existing.project_id, str(user_id), session)
+    gate = await service.update_gate(gate_id, data)
+    return _gate_response(gate)
+
+
+@router.delete("/gates/{gate_id}", status_code=204)
+async def delete_gate(
+    gate_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    _perm: None = Depends(RequirePermission("cc.gate.delete")),
+    service: GatingService = Depends(_get_gating_service),
+) -> None:
+    existing = await service.get_gate(gate_id)
+    await verify_project_access(existing.project_id, str(user_id), session)
+    await service.delete_gate(gate_id)
+
+
+@router.post("/gates/{gate_id}/release", response_model=HoldGateResponse)
+async def release_gate(
+    gate_id: uuid.UUID,
+    data: HoldGateReleaseIn,
+    request: Request,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.gate.release")),
+    service: GatingService = Depends(_get_gating_service),
+) -> HoldGateResponse:
+    """Release a gate. The asserted party role must satisfy the gate's required role."""
+    gate = await service.get_gate(gate_id)
+    await verify_project_access(gate.project_id, user_id, session)
+    gate = await service.release_gate(gate_id, data, user_id=user_id, signature_ip=_client_ip(request))
+    return _gate_response(gate)
+
+
+@router.post("/gates/{gate_id}/waive", response_model=HoldGateResponse)
+async def waive_gate(
+    gate_id: uuid.UUID,
+    data: HoldGateWaiveIn,
+    user_id: CurrentUserId,
+    session: SessionDep,
+    _perm: None = Depends(RequirePermission("cc.gate.release")),
+    service: GatingService = Depends(_get_gating_service),
+) -> HoldGateResponse:
+    """Waive a gate. Only witness / surveillance / review gates may be waived."""
+    gate = await service.get_gate(gate_id)
+    await verify_project_access(gate.project_id, user_id, session)
+    gate = await service.waive_gate(gate_id, data, user_id=user_id)
+    return _gate_response(gate)

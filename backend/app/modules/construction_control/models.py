@@ -18,6 +18,15 @@ Tables:
     oe_cc_test_result          - a material or field test result (Pillar 2) judged
         against a criterion (sample id, method, ISO/IEC 17025 lab accreditation); a
         failed result raises an NCR, mirroring the inspection fail -> NCR bridge.
+    oe_cc_asbuilt_record       - the as-built / verified-record wrapper (Pillar 3):
+        ties a survey/scan/measurement to a model element with explicit metrology
+        (instrument, accuracy class, coordinate system), judges it against a
+        criterion, and carries a legally meaningful "valid for record" attestation
+        captured with an e-signature; an out-of-tolerance survey raises an NCR.
+    oe_cc_hold_gate            - the hold/witness/surveillance/review gate (Pillar 5):
+        the gating engine on top of an intervention point. A blocking gate stops
+        progress on the activity / package / inspection it is attached to until an
+        authorised party releases it (e-signed), mirroring the QMS hold-point release.
 
 Design note: the UER is a shared table rather than columns inlined on each record,
 so one resolver and one schema serve inspections today and NCR / test results /
@@ -163,7 +172,8 @@ class ElementRef(Base):
         Index("ix_oe_cc_element_ref_element", "bim_element_id"),
     )
 
-    # Polymorphic owner: inspection | ncr | criterion | test_result | material_record | asbuilt.
+    # Polymorphic owner: inspection | ncr | criterion | test_result | material_record |
+    # asbuilt.
     owner_type: Mapped[str] = mapped_column(String(40), nullable=False)
     owner_id: Mapped[str] = mapped_column(String(36), nullable=False)
     # Denormalised so every UER is tenant-scoped on its own (IDOR defence + fast filter).
@@ -383,3 +393,174 @@ class TestResult(Base):
 
     def __repr__(self) -> str:
         return f"<TestResult {self.result_number} {self.result or self.status}>"
+
+
+class AsBuiltRecord(Base):
+    """As-built / verified record (Pillar 3).
+
+    A legal-record wrapper tying a survey, scan or measurement to a model element with
+    explicit metrology (the instrument and its calibration, an accuracy class and value,
+    the coordinate system), judging the captured value against an acceptance criterion,
+    and carrying a deliberately separate ``valid_for_legal_record`` attestation that is
+    never set automatically: it is reached only through an e-signature once the record is
+    verified. An out-of-tolerance survey raises a workmanship NCR, mirroring the
+    inspection fail -> NCR bridge. The captured element is linked through the shared
+    Universal Element Reference (``owner_type="asbuilt"``).
+    """
+
+    __tablename__ = "oe_cc_asbuilt_record"
+    __table_args__ = (
+        UniqueConstraint("project_id", "record_number", name="uq_oe_cc_asbuilt_project_number"),
+        Index("ix_oe_cc_asbuilt_project", "project_id"),
+        Index("ix_oe_cc_asbuilt_project_status", "project_id", "status"),
+        Index("ix_oe_cc_asbuilt_criterion", "criterion_id"),
+        Index("ix_oe_cc_asbuilt_source", "source_kind", "source_ref"),
+        Index("ix_oe_cc_asbuilt_raised_ncr", "raised_ncr_id"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("oe_projects_project.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Per-project human number "ASB-NNN", allocated collision-safe in the repository.
+    record_number: Mapped[str] = mapped_column(String(20), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    discipline: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    location_description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # ── Metrology ───────────────────────────────────────────────────────────--
+    # How the as-built was captured: laser_scan | photogrammetry | total_station |
+    # gnss | tape | drone_lidar | model_extract | manual.
+    capture_method: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default="manual")
+    instrument: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Soft link to a calibration certificate (e.g. oe_qms_calibration); no FK.
+    instrument_calibration_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Accuracy class of the capture: survey | standard | coarse.
+    accuracy_class: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="standard", server_default="standard"
+    )
+    # Stated accuracy magnitude kept as a string (platform money/quantity convention).
+    accuracy_value: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    accuracy_unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    coordinate_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    survey_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    surveyed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # ── Conformity (judged against an acceptance criterion) ─────────────────---
+    # Acceptance criterion the as-built value is judged against (soft id).
+    criterion_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    measured_value: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    deviation_value: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # within | out_of_tolerance | not_assessed (set when the survey is recorded).
+    tolerance_result: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # ── Legal record attestation (never auto-true) ──────────────────────────---
+    valid_for_legal_record: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    validity_signed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    validity_signed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    validity_signature_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    validity_signature_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Provenance ──────────────────────────────────────────────────────────--
+    # Where the record came from: pointcloud_scan | pointcloud_registration |
+    # takeoff_measurement | cde_document | manual.
+    source_kind: Mapped[str] = mapped_column(String(30), nullable=False, default="manual", server_default="manual")
+    # Soft id of the source row in its own module (no FK).
+    source_ref: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # MinIO / CDE URI of the deviation colour map, when one exists.
+    deviation_map_uri: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    # draft | surveyed | verified | recorded | superseded | void
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft", server_default="draft")
+    # NCR auto-raised when the as-built is verified out of tolerance.
+    raised_ncr_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    metadata_: Mapped[dict] = mapped_column(  # type: ignore[assignment]
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    def __repr__(self) -> str:
+        return f"<AsBuiltRecord {self.record_number} {self.title[:40]} ({self.status})>"
+
+
+class HoldGate(Base):
+    """Hold / witness / surveillance / review gate (Pillar 5).
+
+    The gating engine built on top of the inspection ``intervention_point`` seed. A gate
+    is attached to an activity, a handover package or an inspection; a hold gate is a hard
+    block on progress, a witness gate is a configurable soft block (notify + attendance),
+    and surveillance / review gates are advisory and never block. ``blocks_progress`` is
+    the single source of truth for whether a gate stops work.
+
+    A gate is released by an authorised party whose role must satisfy the gate's
+    ``required_party_role`` (defence in depth alongside RBAC), captured with an
+    e-signature over a canonical snapshot. A witness / surveillance / review gate may be
+    waived; a hold gate may never be waived.
+    """
+
+    __tablename__ = "oe_cc_hold_gate"
+    __table_args__ = (
+        UniqueConstraint("project_id", "gate_number", name="uq_oe_cc_gate_project_number"),
+        Index("ix_oe_cc_gate_project", "project_id"),
+        Index("ix_oe_cc_gate_project_status", "project_id", "status"),
+        Index("ix_oe_cc_gate_attached", "attached_kind", "attached_id"),
+        Index("ix_oe_cc_gate_inspection", "inspection_id"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("oe_projects_project.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Per-project human number "GATE-NNN", allocated collision-safe in the repository.
+    gate_number: Mapped[str] = mapped_column(String(20), nullable=False)
+    # hold | witness | surveillance | review.
+    point_type: Mapped[str] = mapped_column(String(20), nullable=False, default="hold", server_default="hold")
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The party whose presence/sign-off the gate requires: qc | qa | tpi | ahj.
+    required_party_role: Mapped[str] = mapped_column(String(10), nullable=False, default="qa", server_default="qa")
+    # Inspection that satisfies the point (soft id), and the criterion it checks.
+    inspection_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    criterion_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # What the gate is attached to: activity | handover_package | inspection.
+    attached_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    attached_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # The single source of truth for whether the gate stops progress. A hold gate
+    # blocks by default; witness/surveillance/review default to soft but are overridable.
+    blocks_progress: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+
+    # pending | released | waived | void
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+
+    # ── Release (authorised, e-signed) ──────────────────────────────────────--
+    released_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # The party role asserted at release time; must satisfy required_party_role.
+    released_party_role: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    released_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    release_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    release_signature_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    release_signature_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # ── Waiver (witness / surveillance / review only) ───────────────────────--
+    waived_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    waived_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Optional routed approval (approval_routes) when a gate is released via a route.
+    approval_instance_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    metadata_: Mapped[dict] = mapped_column(  # type: ignore[assignment]
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    def __repr__(self) -> str:
+        return f"<HoldGate {self.gate_number} {self.point_type} ({self.status})>"

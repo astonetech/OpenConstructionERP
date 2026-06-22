@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.construction_control.models import (
     AcceptanceCriterion,
+    AsBuiltRecord,
     ElementRef,
+    HoldGate,
     Inspection,
     MaterialRecord,
     TestResult,
@@ -325,4 +327,174 @@ class TestResultRepository:
         test = await self.get_by_id(result_id)
         if test is not None:
             await self.session.delete(test)
+            await self.session.flush()
+
+
+class AsBuiltRecordRepository:
+    """Data access for as-built records, with collision-safe per-project numbering."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, record_id: uuid.UUID) -> AsBuiltRecord | None:
+        return await self.session.get(AsBuiltRecord, record_id)
+
+    async def next_record_number(self, project_id: uuid.UUID) -> str:
+        """Next ``ASB-NNN`` from MAX(suffix)+1 (only canonical ``ASB-<digits>`` rows)."""
+        stmt = (
+            select(func.coalesce(func.max(cast(func.substr(AsBuiltRecord.record_number, 5), SAInteger)), 0))
+            .where(AsBuiltRecord.project_id == project_id)
+            .where(AsBuiltRecord.record_number.regexp_match("^ASB-[0-9]+$"))
+        )
+        max_num = (await self.session.execute(stmt)).scalar_one()
+        return f"ASB-{max_num + 1:03d}"
+
+    async def create(self, record: AsBuiltRecord) -> AsBuiltRecord:
+        """Insert an as-built record, deriving ``record_number`` with a retry on collision."""
+        project_id = record.project_id
+        for _ in range(_NUMBER_RETRY_LIMIT):
+            record.record_number = await self.next_record_number(project_id)
+            savepoint = await self.session.begin_nested()
+            self.session.add(record)
+            try:
+                await self.session.flush()
+            except IntegrityError:
+                await savepoint.rollback()
+                continue
+            return record
+        raise RuntimeError(f"Could not allocate a unique as-built number for project {project_id}")
+
+    async def list_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        status: str | None = None,
+        discipline: str | None = None,
+        source_kind: str | None = None,
+    ) -> tuple[list[AsBuiltRecord], int]:
+        base = select(AsBuiltRecord).where(AsBuiltRecord.project_id == project_id)
+        if status is not None:
+            base = base.where(AsBuiltRecord.status == status)
+        if discipline is not None:
+            base = base.where(AsBuiltRecord.discipline == discipline)
+        if source_kind is not None:
+            base = base.where(AsBuiltRecord.source_kind == source_kind)
+
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        stmt = base.order_by(AsBuiltRecord.created_at.desc()).offset(offset).limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def update_fields(self, record_id: uuid.UUID, **fields: object) -> None:
+        await self.session.execute(update(AsBuiltRecord).where(AsBuiltRecord.id == record_id).values(**fields))
+        await self.session.flush()
+        self.session.expire_all()
+
+    async def delete(self, record_id: uuid.UUID) -> None:
+        record = await self.get_by_id(record_id)
+        if record is not None:
+            await self.session.delete(record)
+            await self.session.flush()
+
+
+class HoldGateRepository:
+    """Data access for hold/witness/surveillance/review gates, with per-project numbering."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, gate_id: uuid.UUID) -> HoldGate | None:
+        return await self.session.get(HoldGate, gate_id)
+
+    async def next_gate_number(self, project_id: uuid.UUID) -> str:
+        """Next ``GATE-NNN`` from MAX(suffix)+1 (only canonical ``GATE-<digits>`` rows).
+
+        The numeric suffix starts at offset 6 (``len("GATE-") + 1``), unlike the
+        4-character prefixes elsewhere in the module.
+        """
+        stmt = (
+            select(func.coalesce(func.max(cast(func.substr(HoldGate.gate_number, 6), SAInteger)), 0))
+            .where(HoldGate.project_id == project_id)
+            .where(HoldGate.gate_number.regexp_match("^GATE-[0-9]+$"))
+        )
+        max_num = (await self.session.execute(stmt)).scalar_one()
+        return f"GATE-{max_num + 1:03d}"
+
+    async def create(self, gate: HoldGate) -> HoldGate:
+        """Insert a gate, deriving ``gate_number`` with a retry on collision."""
+        project_id = gate.project_id
+        for _ in range(_NUMBER_RETRY_LIMIT):
+            gate.gate_number = await self.next_gate_number(project_id)
+            savepoint = await self.session.begin_nested()
+            self.session.add(gate)
+            try:
+                await self.session.flush()
+            except IntegrityError:
+                await savepoint.rollback()
+                continue
+            return gate
+        raise RuntimeError(f"Could not allocate a unique gate number for project {project_id}")
+
+    async def list_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        status: str | None = None,
+        point_type: str | None = None,
+        attached_kind: str | None = None,
+        attached_id: str | None = None,
+    ) -> tuple[list[HoldGate], int]:
+        base = select(HoldGate).where(HoldGate.project_id == project_id)
+        if status is not None:
+            base = base.where(HoldGate.status == status)
+        if point_type is not None:
+            base = base.where(HoldGate.point_type == point_type)
+        if attached_kind is not None:
+            base = base.where(HoldGate.attached_kind == attached_kind)
+        if attached_id is not None:
+            base = base.where(HoldGate.attached_id == attached_id)
+
+        total = (await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        stmt = base.order_by(HoldGate.created_at.desc()).offset(offset).limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def list_blocking(self, project_id: uuid.UUID, attached_kind: str, attached_id: str) -> list[HoldGate]:
+        """Pending, blocking gates attached to one entity - the enforcement query."""
+        stmt = (
+            select(HoldGate)
+            .where(HoldGate.project_id == project_id)
+            .where(HoldGate.attached_kind == attached_kind)
+            .where(HoldGate.attached_id == attached_id)
+            .where(HoldGate.blocks_progress.is_(True))
+            .where(HoldGate.status == "pending")
+            .order_by(HoldGate.created_at.asc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_unreleased_holds(self, project_id: uuid.UUID) -> int:
+        """Count pending, blocking gates across the whole project (Pillar-4 gate input)."""
+        stmt = (
+            select(func.count())
+            .select_from(HoldGate)
+            .where(HoldGate.project_id == project_id)
+            .where(HoldGate.blocks_progress.is_(True))
+            .where(HoldGate.status == "pending")
+        )
+        return (await self.session.execute(stmt)).scalar_one()
+
+    async def update_fields(self, gate_id: uuid.UUID, **fields: object) -> None:
+        await self.session.execute(update(HoldGate).where(HoldGate.id == gate_id).values(**fields))
+        await self.session.flush()
+        self.session.expire_all()
+
+    async def delete(self, gate_id: uuid.UUID) -> None:
+        gate = await self.get_by_id(gate_id)
+        if gate is not None:
+            await self.session.delete(gate)
             await self.session.flush()

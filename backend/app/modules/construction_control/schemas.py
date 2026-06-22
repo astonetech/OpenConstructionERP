@@ -27,6 +27,19 @@ MATERIAL_CREATE_STATUS_PATTERN = r"^(draft|submitted)$"
 MATERIAL_UPDATE_STATUS_PATTERN = r"^(draft|submitted|under_review|superseded)$"
 TEST_STATUS_PATTERN = r"^(draft|recorded|void)$"
 
+# Pillar 3 - as-built record discriminators.
+# How the as-built was captured (the metrology source).
+CAPTURE_METHOD_PATTERN = r"^(laser_scan|photogrammetry|total_station|gnss|tape|drone_lidar|model_extract|manual)$"
+# Accuracy class of the capture.
+ACCURACY_CLASS_PATTERN = r"^(survey|standard|coarse)$"
+# Where the record originated.
+SOURCE_KIND_PATTERN = r"^(pointcloud_scan|pointcloud_registration|takeoff_measurement|cde_document|manual)$"
+ASBUILT_UPDATE_STATUS_PATTERN = r"^(draft|surveyed|verified|superseded)$"
+
+# Pillar 5 - hold/witness/surveillance/review gate discriminators.
+POINT_TYPE_PATTERN = r"^(hold|witness|surveillance|review)$"
+GATE_ATTACHED_KIND_PATTERN = r"^(activity|handover_package|inspection)$"
+
 
 # ── Universal Element Reference (UER) ─────────────────────────────────────────
 
@@ -463,3 +476,245 @@ class TestResultResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     elements: list[ElementRefResponse] = Field(default_factory=list)
+
+
+# ── As-built record (Pillar 3) ────────────────────────────────────────────────
+
+
+class AsBuiltRecordCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+    title: str = Field(..., min_length=1, max_length=500)
+    discipline: str | None = Field(default=None, max_length=50)
+    location_description: str | None = Field(default=None, max_length=500)
+    capture_method: str = Field(default="manual", pattern=CAPTURE_METHOD_PATTERN)
+    instrument: str | None = Field(default=None, max_length=255)
+    instrument_calibration_ref: str | None = Field(default=None, max_length=120)
+    accuracy_class: str = Field(default="standard", pattern=ACCURACY_CLASS_PATTERN)
+    accuracy_value: str | None = Field(default=None, max_length=80)
+    accuracy_unit: str | None = Field(default=None, max_length=40)
+    coordinate_system: str | None = Field(default=None, max_length=120)
+    survey_date: str | None = Field(default=None, max_length=40)
+    surveyed_by: str | None = Field(default=None, max_length=255)
+    # A UUID so a cross-project criterion is rejected (IDOR); the source is a soft ref.
+    criterion_id: UUID | None = None
+    measured_value: str | None = Field(default=None, max_length=80)
+    source_kind: str = Field(default="manual", pattern=SOURCE_KIND_PATTERN)
+    source_ref: str | None = Field(default=None, max_length=36)
+    deviation_map_uri: str | None = Field(default=None, max_length=2000)
+    # Optional model element the as-built was captured against (the UER).
+    element: ElementRefIn | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AsBuiltRecordUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    discipline: str | None = Field(default=None, max_length=50)
+    location_description: str | None = Field(default=None, max_length=500)
+    capture_method: str | None = Field(default=None, pattern=CAPTURE_METHOD_PATTERN)
+    instrument: str | None = Field(default=None, max_length=255)
+    instrument_calibration_ref: str | None = Field(default=None, max_length=120)
+    accuracy_class: str | None = Field(default=None, pattern=ACCURACY_CLASS_PATTERN)
+    accuracy_value: str | None = Field(default=None, max_length=80)
+    accuracy_unit: str | None = Field(default=None, max_length=40)
+    coordinate_system: str | None = Field(default=None, max_length=120)
+    survey_date: str | None = Field(default=None, max_length=40)
+    surveyed_by: str | None = Field(default=None, max_length=255)
+    criterion_id: UUID | None = None
+    measured_value: str | None = Field(default=None, max_length=80)
+    source_kind: str | None = Field(default=None, pattern=SOURCE_KIND_PATTERN)
+    source_ref: str | None = Field(default=None, max_length=36)
+    deviation_map_uri: str | None = Field(default=None, max_length=2000)
+    status: str | None = Field(default=None, pattern=ASBUILT_UPDATE_STATUS_PATTERN)
+    metadata: dict[str, Any] | None = None
+
+
+class AsBuiltSurveyIn(BaseModel):
+    """Record the captured survey value. The service computes ``tolerance_result``
+    against the linked criterion; an out-of-tolerance result raises a workmanship NCR."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    measured_value: str | None = Field(default=None, max_length=80)
+    deviation_value: str | None = Field(default=None, max_length=80)
+    accuracy_value: str | None = Field(default=None, max_length=80)
+    accuracy_unit: str | None = Field(default=None, max_length=40)
+    survey_date: str | None = Field(default=None, max_length=40)
+    notes: str | None = Field(default=None, max_length=10000)
+
+
+class AsBuiltVerifyIn(BaseModel):
+    """Verify a surveyed as-built. An out-of-tolerance record raises a workmanship NCR."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    notes: str | None = Field(default=None, max_length=10000)
+    ncr_severity: str | None = Field(default=None, pattern=r"^(critical|major|minor|observation)$")
+
+
+class AsBuiltSignIn(BaseModel):
+    """Sign the legal-record attestation. Only ``valid=True`` (with a verified record)
+    moves the as-built to ``recorded``; the signature, timestamp and IP are captured."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    valid: bool = True
+    notes: str | None = Field(default=None, max_length=10000)
+    signed_at: str | None = Field(default=None, max_length=40)
+
+
+class AsBuiltImportFromScanIn(BaseModel):
+    """Create an as-built from a point-cloud scan registration (deviation result)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+    # The point-cloud scan registration to import (IDOR-checked against the project).
+    registration_id: UUID
+    title: str = Field(..., min_length=1, max_length=500)
+    discipline: str | None = Field(default=None, max_length=50)
+    criterion_id: UUID | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AsBuiltRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    project_id: UUID
+    record_number: str
+    title: str
+    discipline: str | None = None
+    location_description: str | None = None
+    capture_method: str = "manual"
+    instrument: str | None = None
+    instrument_calibration_ref: str | None = None
+    accuracy_class: str = "standard"
+    accuracy_value: str | None = None
+    accuracy_unit: str | None = None
+    coordinate_system: str | None = None
+    survey_date: str | None = None
+    surveyed_by: str | None = None
+    criterion_id: str | None = None
+    measured_value: str | None = None
+    deviation_value: str | None = None
+    tolerance_result: str | None = None
+    valid_for_legal_record: bool = False
+    validity_signed_by: str | None = None
+    validity_signed_at: str | None = None
+    validity_signature_ip: str | None = None
+    validity_signature_sha256: str | None = None
+    source_kind: str = "manual"
+    source_ref: str | None = None
+    deviation_map_uri: str | None = None
+    status: str = "draft"
+    raised_ncr_id: str | None = None
+    created_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
+    created_at: datetime
+    updated_at: datetime
+    elements: list[ElementRefResponse] = Field(default_factory=list)
+
+
+# ── Hold gate (Pillar 5) ───────────────────────────────────────────────────────
+
+
+class HoldGateCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+    point_type: str = Field(default="hold", pattern=POINT_TYPE_PATTERN)
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=10000)
+    required_party_role: str = Field(default="qa", pattern=PARTY_ROLE_PATTERN)
+    # The inspection that satisfies the point, and the criterion it checks; UUIDs so a
+    # cross-project reference is rejected (IDOR).
+    inspection_id: UUID | None = None
+    criterion_id: UUID | None = None
+    attached_kind: str | None = Field(default=None, pattern=GATE_ATTACHED_KIND_PATTERN)
+    attached_id: str | None = Field(default=None, max_length=36)
+    # Whether this gate blocks progress. Omitted -> derived from point_type (hold blocks,
+    # witness/surveillance/review do not).
+    blocks_progress: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HoldGateUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    point_type: str | None = Field(default=None, pattern=POINT_TYPE_PATTERN)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=10000)
+    required_party_role: str | None = Field(default=None, pattern=PARTY_ROLE_PATTERN)
+    inspection_id: UUID | None = None
+    criterion_id: UUID | None = None
+    attached_kind: str | None = Field(default=None, pattern=GATE_ATTACHED_KIND_PATTERN)
+    attached_id: str | None = Field(default=None, max_length=36)
+    blocks_progress: bool | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class HoldGateReleaseIn(BaseModel):
+    """Release a gate. ``party_role`` is the role the caller asserts and must satisfy the
+    gate's ``required_party_role`` (defence in depth alongside RBAC)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    party_role: str = Field(..., pattern=PARTY_ROLE_PATTERN)
+    justification: str | None = Field(default=None, max_length=10000)
+    released_at: str | None = Field(default=None, max_length=40)
+
+
+class HoldGateWaiveIn(BaseModel):
+    """Waive a gate. Only witness / surveillance / review gates may be waived."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: str = Field(..., min_length=1, max_length=10000)
+
+
+class HoldGateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: UUID
+    project_id: UUID
+    gate_number: str
+    point_type: str = "hold"
+    title: str
+    description: str | None = None
+    required_party_role: str = "qa"
+    inspection_id: str | None = None
+    criterion_id: str | None = None
+    attached_kind: str | None = None
+    attached_id: str | None = None
+    blocks_progress: bool = True
+    status: str = "pending"
+    released_by: str | None = None
+    released_party_role: str | None = None
+    released_at: str | None = None
+    release_justification: str | None = None
+    release_signature_ip: str | None = None
+    release_signature_sha256: str | None = None
+    waived_by: str | None = None
+    waived_reason: str | None = None
+    approval_instance_id: str | None = None
+    created_by: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict, validation_alias="metadata_")
+    created_at: datetime
+    updated_at: datetime
+
+
+class GateProceedResponse(BaseModel):
+    """The result of a can-proceed check for an attached entity."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    project_id: UUID
+    attached_kind: str
+    attached_id: str
+    can_proceed: bool
+    blocking_gate_numbers: list[str] = Field(default_factory=list)
+    blocking_gate_ids: list[str] = Field(default_factory=list)

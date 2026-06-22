@@ -11,13 +11,16 @@ manifest = ModuleManifest(
     description=(
         "Universal QA/QC engine: acceptance criteria, inspections (MIR/WIR/IR/"
         "hidden-works/acceptance), material records (digital passport: EN 10204, "
-        "CE/UKCA, batch/heat/lot traceability) and lab test results, with "
+        "CE/UKCA, batch/heat/lot traceability), lab test results, as-built records "
+        "(verified survey/scan records with metrology and a signed legal-record "
+        "attestation) and hold/witness/surveillance/review gating, with "
         "format-agnostic model linking and a failed check automatically raising "
         "a non-conformance report."
     ),
     author="OpenConstructionERP Core Team",
     category="core",
     depends=["oe_users", "oe_projects", "oe_bim_hub", "oe_ncr"],
+    optional_depends=["oe_pointcloud", "oe_approval_routes"],
     auto_install=True,
     enabled=True,
 )

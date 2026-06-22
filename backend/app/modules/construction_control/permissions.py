@@ -36,5 +36,21 @@ def register_construction_control_permissions() -> None:
             "cc.test.delete": Role.MANAGER,
             # Recording a test result can raise an NCR, so it sits at editor (not viewer).
             "cc.test.record_result": Role.EDITOR,
+            # As-built records (Pillar 3)
+            "cc.asbuilt.read": Role.VIEWER,
+            "cc.asbuilt.create": Role.EDITOR,
+            "cc.asbuilt.update": Role.EDITOR,
+            "cc.asbuilt.delete": Role.MANAGER,
+            # Verifying is a QA act (can raise an NCR) and signing is a legal attestation;
+            # both sit at manager.
+            "cc.asbuilt.verify": Role.MANAGER,
+            "cc.asbuilt.sign": Role.MANAGER,
+            # Hold/witness/surveillance/review gates (Pillar 5)
+            "cc.gate.read": Role.VIEWER,
+            "cc.gate.create": Role.EDITOR,
+            "cc.gate.update": Role.EDITOR,
+            "cc.gate.delete": Role.MANAGER,
+            # Releasing / waiving a gate is a manager act (plus a service party-role check).
+            "cc.gate.release": Role.MANAGER,
         },
     )
