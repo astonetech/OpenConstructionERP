@@ -14185,7 +14185,7 @@
         Not just a list of features. <em>See what each one actually does.</em>
       </h2>
       <p class="section-lede" data-i18n="modideas.lede">
-        Six of the flagship modules, each shown as a short loop of its core workflow - the same idea you act out the first time you open it.
+        A set of the flagship modules, each shown as a short loop of its core workflow - the same idea you act out the first time you open it.
       </p>
     </div>
 
@@ -14306,6 +14306,221 @@
           </svg>
         </div>
         <div class="mod-anim-cap"><h3 data-i18n="modideas.ai_title">AI estimate</h3><p data-i18n="modideas.ai_desc">Drop a photo or PDF; a scoped, priced first-pass estimate comes back.</p></div>
+      </div>
+
+      <!-- Construction Control (QA/QC): inspection -> hold/witness gate -> e-signed handover -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Construction control - an inspection clears a hold point and the handover is signed off">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- inspection record -->
+            <rect class="paper" x="22" y="40" width="86" height="100" rx="9"/>
+            <text class="lab-sm" x="32" y="58">INSPECTION</text>
+            <g class="pop d1"><path class="st st-2" d="M34 74 l5 5 l9 -11"/><line class="faint" x1="52" y1="74" x2="98" y2="74"/></g>
+            <g class="pop d2"><path class="st st-2" d="M34 92 l5 5 l9 -11"/><line class="faint" x1="52" y1="92" x2="98" y2="92"/></g>
+            <g class="pop d3"><path class="st st-2" d="M34 110 l5 5 l9 -11"/><line class="faint" x1="52" y1="110" x2="98" y2="110"/></g>
+            <!-- hold / witness gate -->
+            <path class="st st-2 flow" d="M112 90 L140 90"/>
+            <g transform="translate(144 56)">
+              <rect class="paper" x="0" y="0" width="44" height="68" rx="8"/>
+              <text class="lab-sm" x="7" y="16">HOLD</text>
+              <line class="faint" x1="22" y1="20" x2="22" y2="40"/>
+              <circle class="faint" cx="22" cy="22" r="5"/>
+              <g class="land f3"><circle class="fl" cx="22" cy="46" r="11"/><path class="st st-3" d="M16 46 l4 4 l8 -10"/></g>
+            </g>
+            <!-- signed handover -->
+            <path class="st st-3 flow f3" d="M192 90 L218 90"/>
+            <rect class="paper" x="222" y="44" width="74" height="92" rx="9"/>
+            <text class="lab-sm" x="232" y="62">HANDOVER</text>
+            <line class="faint" x1="232" y1="74" x2="286" y2="74"/>
+            <line class="faint" x1="232" y1="90" x2="286" y2="90"/>
+            <path class="st st-3 draw d5" style="--len:120" d="M232 116 q14 -16 26 0 q10 14 26 -4"/>
+            <text class="lab-sm lab-hi" x="232" y="132">signed</text>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.control_title">Construction control</h3><p data-i18n="modideas.control_desc">Inspections clear the hold point, then the handover is signed off.</p></div>
+      </div>
+
+      <!-- Documents / Transmittals: a document is issued and routed to recipients who acknowledge -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Transmittals - a controlled document is issued to recipients who acknowledge receipt">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- source document -->
+            <rect class="paper" x="26" y="52" width="64" height="78" rx="8"/>
+            <line class="faint" x1="36" y1="70" x2="80" y2="70"/>
+            <line class="faint" x1="36" y1="84" x2="80" y2="84"/>
+            <line class="faint" x1="36" y1="98" x2="68" y2="98"/>
+            <g class="land"><rect class="fl-2" x="36" y="112" width="34" height="10" rx="3"/><text class="lab-sm lab-hi" x="40" y="120">Rev C</text></g>
+            <text class="lab-sm" x="30" y="46">TRANSMITTAL</text>
+            <!-- routed out to three recipients -->
+            <path class="st st-2 flow" d="M92 78 L150 60"/>
+            <path class="st st-2 flow f3" d="M92 91 L150 100"/>
+            <path class="st st-2 flow d4" d="M92 104 L150 140"/>
+            <g transform="translate(154 46)">
+              <g class="pop d2"><rect class="paper" x="0" y="0" width="120" height="26" rx="7"/><circle class="st" cx="15" cy="13" r="7"/><line class="faint" x1="30" y1="13" x2="86" y2="13"/><circle class="fl" cx="106" cy="13" r="6"/><path class="st st-3" d="M102 13 l3 3 l5 -6"/></g>
+              <g class="pop d4"><rect class="paper" x="0" y="34" width="120" height="26" rx="7"/><circle class="st" cx="15" cy="47" r="7"/><line class="faint" x1="30" y1="47" x2="86" y2="47"/><circle class="fl" cx="106" cy="47" r="6"/><path class="st st-3" d="M102 47 l3 3 l5 -6"/></g>
+              <g class="pop d6"><rect class="paper" x="0" y="68" width="120" height="26" rx="7"/><circle class="st" cx="15" cy="81" r="7"/><line class="faint" x1="30" y1="81" x2="86" y2="81"/><circle class="fl" cx="106" cy="81" r="6"/><path class="st st-3" d="M102 81 l3 3 l5 -6"/></g>
+            </g>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.docs_title">Documents and transmittals</h3><p data-i18n="modideas.docs_desc">Issue a controlled revision; each recipient is tracked until acknowledged.</p></div>
+      </div>
+
+      <!-- Procurement: an RFQ goes to vendors, quotes return, the best is awarded a PO -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Procurement - one request for quote goes to vendors, their prices return, the best becomes a purchase order">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- RFQ -->
+            <rect class="paper" x="24" y="62" width="56" height="56" rx="8"/>
+            <text class="lab-sm" x="34" y="56">RFQ</text>
+            <line class="faint" x1="34" y1="80" x2="70" y2="80"/>
+            <line class="faint" x1="34" y1="94" x2="70" y2="94"/>
+            <line class="faint" x1="34" y1="108" x2="58" y2="108"/>
+            <!-- out to vendors -->
+            <path class="st st-2 flow" d="M82 78 L120 56"/>
+            <path class="st st-2 flow d2" d="M82 90 L120 90"/>
+            <path class="st st-2 flow d4" d="M82 102 L120 124"/>
+            <!-- vendor quotes returning -->
+            <g class="pop d3"><rect class="paper" x="124" y="44" width="84" height="24" rx="6"/><text class="lab-sm" x="132" y="60">Vendor A</text><text class="lab-sm lab-hi" x="180" y="60">102.0</text></g>
+            <g class="pop d4"><rect class="paper" x="124" y="78" width="84" height="24" rx="6"/><text class="lab-sm" x="132" y="94">Vendor B</text><text class="lab-sm lab-hi" x="184" y="94">96.2</text></g>
+            <g class="pop d5"><rect class="paper" x="124" y="112" width="84" height="24" rx="6"/><text class="lab-sm" x="132" y="128">Vendor C</text><text class="lab-sm lab-hi" x="180" y="128">110.5</text></g>
+            <!-- award lowest -> PO -->
+            <path class="st st-3 flow f3" d="M210 90 L238 90"/>
+            <rect class="paper" x="242" y="64" width="54" height="52" rx="8"/>
+            <g class="land f3"><circle class="fl" cx="269" cy="78" r="9"/><path class="st st-3" d="M264 78 l4 4 l7 -9"/></g>
+            <text class="lab-sm lab-hi" x="252" y="104">PO</text>
+            <text class="lab-sm" x="252" y="116" style="fill:var(--ink-3)">awarded</text>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.procure_title">Procurement</h3><p data-i18n="modideas.procure_desc">One RFQ reaches vendors; the lowest quote is awarded a purchase order.</p></div>
+      </div>
+
+      <!-- Safety: a permit-to-work checklist clears, then an observation is pinned on the site plan -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Safety - a permit to work checklist clears and a hazard observation is pinned on the site">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- permit-to-work -->
+            <rect class="paper" x="24" y="34" width="120" height="112" rx="9"/>
+            <text class="lab-sm" x="34" y="52">PERMIT TO WORK</text>
+            <g class="pop d1"><rect class="st" x="34" y="64" width="10" height="10" rx="2"/><path class="st st-2" d="M36 69 l3 3 l5 -6"/><line class="faint" x1="52" y1="69" x2="134" y2="69"/></g>
+            <g class="pop d3"><rect class="st" x="34" y="86" width="10" height="10" rx="2"/><path class="st st-2" d="M36 91 l3 3 l5 -6"/><line class="faint" x1="52" y1="91" x2="134" y2="91"/></g>
+            <g class="pop d5"><rect class="st" x="34" y="108" width="10" height="10" rx="2"/><path class="st st-2" d="M36 113 l3 3 l5 -6"/><line class="faint" x1="52" y1="113" x2="120" y2="113"/></g>
+            <g class="land"><rect class="fl" x="34" y="126" width="58" height="14" rx="4"/><text class="lab-sm lab-hi" x="40" y="137">cleared</text></g>
+            <!-- to the site plan, observation pinned -->
+            <path class="st st-2 flow f3" d="M148 90 L176 90"/>
+            <rect class="paper" x="180" y="40" width="116" height="100" rx="9"/>
+            <path class="faint" d="M196 116 L226 78 L252 104 L268 88 L284 110"/>
+            <path class="faint" d="M188 124 L288 124"/>
+            <g class="land f3"><path class="st st-3 fl" d="M244 74 c-9 0 -14 7 -14 14 c0 10 14 22 14 22 c0 0 14 -12 14 -22 c0 -7 -5 -14 -14 -14 Z"/><circle class="paper" cx="244" cy="88" r="4.5"/></g>
+            <text class="lab-sm" x="190" y="56">SITE</text>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.safety_title">Safety</h3><p data-i18n="modideas.safety_desc">Clear the permit-to-work checklist, then pin an observation on the site plan.</p></div>
+      </div>
+
+      <!-- Field / Daily Diary: weather, crew and progress captured on site sync into the record -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Field daily diary - weather, crew and progress captured on site sync into the project record">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- phone capturing the day -->
+            <g transform="translate(34 30)">
+              <rect class="paper" x="0" y="0" width="86" height="120" rx="12"/>
+              <line class="faint" x1="30" y1="10" x2="56" y2="10"/>
+              <text class="lab-sm" x="12" y="34">DAILY DIARY</text>
+              <g class="pop d1"><circle class="st st-2" cx="20" cy="52" r="7"/><path class="st st-2" d="M20 41 v-4 M20 67 v4 M9 52 h-4 M31 52 h4"/><text class="lab-sm" x="36" y="56">weather</text></g>
+              <g class="pop d3"><circle class="st" cx="20" cy="78" r="6"/><path class="st" d="M10 92 a10 8 0 0 1 20 0"/><text class="lab-sm" x="40" y="84">crew 18</text></g>
+              <g class="pop d5"><rect class="faint" x="12" y="100" width="62" height="9" rx="3"/><rect class="fl" x="12" y="100" width="40" height="9" rx="3"/><text class="lab-sm lab-hi" x="58" y="108">62%</text></g>
+            </g>
+            <!-- sync to the central record -->
+            <path class="st st-2 flow f3" d="M124 90 L188 90"/>
+            <circle class="st st-2 ping" cx="156" cy="90" r="6"/>
+            <rect class="paper" x="192" y="46" width="104" height="88" rx="10"/>
+            <text class="lab-sm" x="202" y="64">PROJECT LOG</text>
+            <line class="faint" x1="202" y1="74" x2="286" y2="74"/>
+            <g class="land f3"><rect class="fl" x="202" y="84" width="84" height="11" rx="3"/></g>
+            <g class="land d4"><rect class="fl-2" x="202" y="102" width="66" height="11" rx="3"/></g>
+            <g class="land d6"><rect class="fl" x="202" y="120" width="50" height="9" rx="3"/></g>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.field_title">Field and daily diary</h3><p data-i18n="modideas.field_desc">Capture weather, crew and progress on site; it syncs into the project log.</p></div>
+      </div>
+
+      <!-- Point Cloud / scan-to-BIM: a laser sweep of points resolves into model surfaces -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Point cloud to BIM - a scan sweep of points resolves into clean model surfaces">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- dotted point cloud of a structure -->
+            <g class="faint" fill="color-mix(in oklab, var(--ink-3) 60%, transparent)" stroke="none">
+              <circle cx="70" cy="64" r="2"/><circle cx="92" cy="56" r="2"/><circle cx="114" cy="62" r="2"/><circle cx="138" cy="56" r="2"/>
+              <circle cx="66" cy="92" r="2"/><circle cx="90" cy="86" r="2"/><circle cx="116" cy="90" r="2"/><circle cx="140" cy="86" r="2"/>
+              <circle cx="64" cy="120" r="2"/><circle cx="88" cy="116" r="2"/><circle cx="116" cy="120" r="2"/><circle cx="142" cy="116" r="2"/>
+              <circle cx="78" cy="78" r="2"/><circle cx="128" cy="78" r="2"/><circle cx="78" cy="106" r="2"/><circle cx="128" cy="104" r="2"/>
+            </g>
+            <!-- scanning beam sweeping across the cloud -->
+            <g class="scan" style="--sx:96px">
+              <line class="st st-2" x1="58" y1="44" x2="58" y2="136" opacity="0.85"/>
+              <circle class="st st-2 fl-2" cx="58" cy="44" r="4"/>
+            </g>
+            <!-- resolved model surfaces -->
+            <path class="st st-3 flow f3" d="M152 92 L182 92"/>
+            <g transform="translate(196 44)">
+              <path class="st draw d3" style="--len:260" d="M8 28 L48 8 L96 28 L96 84 L48 104 L8 84 Z"/>
+              <path class="st st-3 draw d5" style="--len:160" d="M48 8 L48 104 M8 28 L96 28"/>
+              <g class="land f3"><path class="fl" d="M8 28 L48 8 L96 28 L48 48 Z"/></g>
+              <text class="lab-sm lab-hi" x="30" y="100">BIM</text>
+            </g>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.scan_title">Point cloud to BIM</h3><p data-i18n="modideas.scan_desc">Sweep the scanned points; clean model surfaces resolve from the cloud.</p></div>
+      </div>
+
+      <!-- Schedule risk: many simulated runs build an S-curve with P50 / P80 markers -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Schedule risk - thousands of simulated runs build a probability S-curve with P50 and P80 dates">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <rect class="paper" x="24" y="22" width="272" height="136" rx="10"/>
+            <line class="faint" x1="48" y1="140" x2="284" y2="140"/>
+            <line class="faint" x1="48" y1="38" x2="48" y2="140"/>
+            <text class="lab-sm" x="34" y="44">100%</text>
+            <text class="lab-sm" x="234" y="153">finish date</text>
+            <!-- faint scatter of simulated finishes -->
+            <g class="faint" fill="color-mix(in oklab, var(--accent) 30%, transparent)" stroke="none">
+              <circle cx="120" cy="120" r="2"/><circle cx="150" cy="96" r="2"/><circle cx="168" cy="84" r="2"/><circle cx="186" cy="74" r="2"/>
+              <circle cx="138" cy="108" r="2"/><circle cx="200" cy="66" r="2"/><circle cx="160" cy="90" r="2"/><circle cx="176" cy="80" r="2"/>
+            </g>
+            <!-- the cumulative S-curve draws in -->
+            <path class="st st-2 draw" style="--len:300" d="M56 134 C108 132 128 120 150 96 C170 74 196 54 248 50"/>
+            <!-- P50 / P80 markers land on the curve -->
+            <g class="land d4"><line class="st st-3" x1="150" y1="96" x2="150" y2="140" stroke-dasharray="3 3"/><circle class="fl" cx="150" cy="96" r="4"/><text class="lab-sm lab-hi" x="132" y="74">P50</text></g>
+            <g class="land d6"><line class="st st-3" x1="210" y1="60" x2="210" y2="140" stroke-dasharray="3 3"/><circle class="fl" cx="210" cy="60" r="4"/><text class="lab-sm lab-hi" x="196" y="50">P80</text></g>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.risk_title">Schedule risk</h3><p data-i18n="modideas.risk_desc">Thousands of simulated runs build an S-curve; read the P50 and P80 dates.</p></div>
+      </div>
+
+      <!-- Portfolio: several project tiles roll up into one set of cross-project KPIs -->
+      <div class="mod-anim-card">
+        <div class="ma" role="img" aria-label="Portfolio - several projects roll up into one set of cross-project KPIs">
+          <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <!-- three project tiles -->
+            <g class="pop d1"><rect class="paper" x="22" y="40" width="80" height="30" rx="7"/><circle class="fl" cx="38" cy="55" r="7"/><line class="faint" x1="52" y1="50" x2="92" y2="50"/><line class="faint" x1="52" y1="61" x2="80" y2="61"/></g>
+            <g class="pop d2"><rect class="paper" x="22" y="76" width="80" height="30" rx="7"/><circle class="fl-2" cx="38" cy="91" r="7"/><line class="faint" x1="52" y1="86" x2="92" y2="86"/><line class="faint" x1="52" y1="97" x2="76" y2="97"/></g>
+            <g class="pop d3"><rect class="paper" x="22" y="112" width="80" height="30" rx="7"/><circle class="fl" cx="38" cy="127" r="7"/><line class="faint" x1="52" y1="122" x2="92" y2="122"/><line class="faint" x1="52" y1="133" x2="84" y2="133"/></g>
+            <!-- roll up -->
+            <path class="st st-2 flow f3" d="M104 55 C132 55 132 90 158 90"/>
+            <path class="st st-2 flow d4" d="M104 91 L158 90"/>
+            <path class="st st-2 flow d5" d="M104 127 C132 127 132 90 158 90"/>
+            <!-- portfolio KPI panel -->
+            <rect class="paper" x="162" y="40" width="134" height="100" rx="10"/>
+            <text class="lab-sm" x="172" y="58">PORTFOLIO</text>
+            <line class="faint" x1="172" y1="66" x2="286" y2="66"/>
+            <g class="land f3"><text class="lab lab-hi" x="172" y="92" style="font-size:18px">EUR 41.6M</text><text class="lab-sm" x="172" y="106">total value</text></g>
+            <!-- mini rollup bars -->
+            <line class="st st-2 draw d4" style="--len:42" x1="172" y1="124" x2="206" y2="124" stroke-width="7"/>
+            <line class="st st-3 draw d5" style="--len:38" x1="214" y1="124" x2="244" y2="124" stroke-width="7"/>
+            <line class="st st-2 draw d6" style="--len:42" x1="252" y1="124" x2="286" y2="124" stroke-width="7"/>
+          </svg>
+        </div>
+        <div class="mod-anim-cap"><h3 data-i18n="modideas.portfolio_title">Portfolio</h3><p data-i18n="modideas.portfolio_desc">Several projects roll up into one live set of cross-project KPIs.</p></div>
       </div>
     </div>
   </section>
