@@ -2534,3 +2534,9 @@ router.include_router(_codes_router)
 from app.modules.schedule.progress_router import progress_router as _progress_router  # noqa: E402
 
 router.include_router(_progress_router)
+
+# Lossless schedule interchange (T1.1): neutral export / import document plus a
+# normalise-on-import cleaner (DCMA-style hygiene). Same /api/v1/schedule prefix.
+from app.modules.schedule.interchange_router import interchange_router as _interchange_router  # noqa: E402
+
+router.include_router(_interchange_router)
