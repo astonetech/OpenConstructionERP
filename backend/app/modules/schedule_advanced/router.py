@@ -24,6 +24,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.schedule_advanced.delay_service import DelayAnalysisService
+from app.modules.schedule_advanced.resource_leveling_schemas import (
+    LevelPreviewRequest,
+    LevelPreviewResponse,
+    LevelPreviewSegment,
+    LevelPreviewSegmentRun,
+    LevelPreviewShift,
+    LevelPreviewUnresolvable,
+)
 from app.modules.schedule_advanced.schemas import (
     AutoFragnetRequest,
     BaselineCreate,
@@ -1511,6 +1519,117 @@ async def level_resources_for_schedule(
         schedule_id=schedule_id,
         shifts=rows,
         num_shifted=len(rows),
+    )
+
+
+@router.post(
+    "/{schedule_id}/level-preview",
+    response_model=LevelPreviewResponse,
+)
+async def level_preview_for_schedule(
+    schedule_id: uuid.UUID,
+    data: LevelPreviewRequest,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    _perm: None = Depends(RequirePermission("schedule_advanced.read")),
+) -> LevelPreviewResponse:
+    """Resource-leveling PREVIEW honouring SS/FF/SF, splits, and fractional units.
+
+    Read-only. Returns the shifted starts, any split day-runs, the explicit
+    single-activity self-overloads, the per-resource peak demand before/after,
+    and - the headline differentiator - the honest finish-date impact computed
+    from a copy of the network, before anything is committed. The arithmetic is
+    the pure :func:`app.modules.resources.resource_engine.level_preview`; the
+    older ``/level-resources`` endpoint (FS-only, no finish impact) is kept for
+    back-compat.
+    """
+    from sqlalchemy import select
+
+    from app.modules.resources.resource_engine import level_preview as _level_preview
+    from app.modules.schedule.models import Activity as _Activity
+    from app.modules.schedule.models import ScheduleRelationship as _Rel
+    from app.modules.schedule_advanced.cpm import Activity as _CPMActivity
+    from app.modules.schedule_advanced.cpm import TaskNetwork as _CPMNetwork
+
+    project_id = await _project_id_for_schedule(schedule_id, session)
+    await verify_project_access(project_id, user_id, session)
+
+    act_rows = (
+        (
+            await session.execute(
+                select(_Activity).where(_Activity.schedule_id == schedule_id),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rel_rows = (
+        (
+            await session.execute(
+                select(_Rel).where(_Rel.schedule_id == schedule_id),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    rel_index: dict[uuid.UUID, list[tuple[uuid.UUID, str, int]]] = {}
+    for r in rel_rows:
+        rel_index.setdefault(r.successor_id, []).append(
+            (r.predecessor_id, r.relationship_type or "FS", int(r.lag_days or 0)),
+        )
+
+    cpm_acts: list[_CPMActivity] = []
+    for a in act_rows:
+        required: dict[str, int] = {}
+        for res in a.resources or []:
+            if isinstance(res, dict) and res.get("name"):
+                required[str(res["name"])] = int(res.get("count", 1) or 1)
+        cpm_acts.append(
+            _CPMActivity(
+                id=a.id,
+                duration=int(a.duration_days or 0),
+                predecessors=rel_index.get(a.id, []),
+                required_resources=required,
+            ),
+        )
+
+    network = _CPMNetwork(cpm_acts)
+    preview = _level_preview(network, dict(data.resource_limits or {}), splittable=set(data.splittable))
+
+    return LevelPreviewResponse(
+        schedule_id=schedule_id,
+        num_shifted=len(preview.shifts),
+        finish_delta_days=preview.finish_delta_days,
+        base_finish_workday=preview.base_finish_workday,
+        leveled_finish_workday=preview.leveled_finish_workday,
+        shifts=[
+            LevelPreviewShift(
+                activity_id=uuid.UUID(str(s.activity_id)),
+                base_es=s.base_es,
+                new_es=s.new_es,
+                delta=s.delta,
+            )
+            for s in preview.shifts
+        ],
+        segments=[
+            LevelPreviewSegment(
+                activity_id=uuid.UUID(str(aid)),
+                runs=[LevelPreviewSegmentRun(start=run_start, finish=run_finish) for (run_start, run_finish) in runs],
+            )
+            for aid, runs in preview.segments.items()
+        ],
+        unresolvable=[
+            LevelPreviewUnresolvable(
+                activity_id=uuid.UUID(str(u.activity_id)),
+                resource=u.resource,
+                required=u.required,
+                limit=u.limit,
+            )
+            for u in preview.unresolvable
+        ],
+        peak_before=preview.peak_before,
+        peak_after=preview.peak_after,
     )
 
 
