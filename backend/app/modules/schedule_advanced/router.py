@@ -25,6 +25,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from app.dependencies import CurrentUserId, RequirePermission, SessionDep, verify_project_access
 from app.modules.schedule_advanced.delay_service import DelayAnalysisService
 from app.modules.schedule_advanced.resource_leveling_schemas import (
+    LevelApplyResponse,
     LevelPreviewRequest,
     LevelPreviewResponse,
     LevelPreviewSegment,
@@ -1630,6 +1631,109 @@ async def level_preview_for_schedule(
         ],
         peak_before=preview.peak_before,
         peak_after=preview.peak_after,
+    )
+
+
+def _shift_iso_date(value: str | None, delta_days: int) -> str | None:
+    """Shift an ISO date string by ``delta_days`` calendar days.
+
+    Returns the new ``YYYY-MM-DD`` string, or ``None`` when the input is empty
+    or unparseable (the caller leaves such a row untouched).
+    """
+    from datetime import date, timedelta
+
+    if not value:
+        return None
+    try:
+        parsed = date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+    return (parsed + timedelta(days=delta_days)).isoformat()
+
+
+@router.post(
+    "/{schedule_id}/level-apply",
+    response_model=LevelApplyResponse,
+)
+async def level_apply_for_schedule(
+    schedule_id: uuid.UUID,
+    data: LevelPreviewRequest,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    _perm: None = Depends(RequirePermission("schedule_advanced.update")),
+) -> LevelApplyResponse:
+    """Run resource leveling and COMMIT it: persist each shifted activity's
+    start / end dates (moved by its leveling delta in calendar days, span
+    preserved). Same pure arithmetic as ``/level-preview``; this one writes.
+
+    Calendar-day shift keeps the result consistent with the calendar-day CPM; a
+    working-day-aware shift is a later refinement (tracked with CPM calendar
+    wiring).
+    """
+    from sqlalchemy import select
+
+    from app.modules.resources.resource_engine import level_preview as _level_preview
+    from app.modules.schedule.models import Activity as _Activity
+    from app.modules.schedule.models import ScheduleRelationship as _Rel
+    from app.modules.schedule_advanced.cpm import Activity as _CPMActivity
+    from app.modules.schedule_advanced.cpm import TaskNetwork as _CPMNetwork
+
+    project_id = await _project_id_for_schedule(schedule_id, session)
+    await verify_project_access(project_id, user_id, session)
+
+    act_rows = (await session.execute(select(_Activity).where(_Activity.schedule_id == schedule_id))).scalars().all()
+    rel_rows = (await session.execute(select(_Rel).where(_Rel.schedule_id == schedule_id))).scalars().all()
+
+    rel_index: dict[uuid.UUID, list[tuple[uuid.UUID, str, int]]] = {}
+    for r in rel_rows:
+        rel_index.setdefault(r.successor_id, []).append(
+            (r.predecessor_id, r.relationship_type or "FS", int(r.lag_days or 0)),
+        )
+
+    cpm_acts: list[_CPMActivity] = []
+    for a in act_rows:
+        required: dict[str, int] = {}
+        for res in a.resources or []:
+            if isinstance(res, dict) and res.get("name"):
+                required[str(res["name"])] = int(res.get("count", 1) or 1)
+        cpm_acts.append(
+            _CPMActivity(
+                id=a.id,
+                duration=int(a.duration_days or 0),
+                predecessors=rel_index.get(a.id, []),
+                required_resources=required,
+            ),
+        )
+
+    network = _CPMNetwork(cpm_acts)
+    preview = _level_preview(network, dict(data.resource_limits or {}), splittable=set(data.splittable))
+
+    shift_by_id = {str(s.activity_id): int(s.delta) for s in preview.shifts if int(s.delta) != 0}
+    applied = 0
+    skipped = 0
+    for a in act_rows:
+        delta = shift_by_id.get(str(a.id))
+        if not delta:
+            continue
+        new_start = _shift_iso_date(a.start_date, delta)
+        new_end = _shift_iso_date(a.end_date, delta)
+        if new_start is None or new_end is None:
+            skipped += 1
+            continue
+        a.start_date = new_start
+        a.end_date = new_end
+        applied += 1
+
+    await session.flush()
+
+    return LevelApplyResponse(
+        schedule_id=schedule_id,
+        num_shifted=len(preview.shifts),
+        num_applied=applied,
+        num_skipped=skipped,
+        finish_delta_days=preview.finish_delta_days,
+        base_finish_workday=preview.base_finish_workday,
+        leveled_finish_workday=preview.leveled_finish_workday,
     )
 
 

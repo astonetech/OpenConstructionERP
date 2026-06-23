@@ -72,3 +72,22 @@ class LevelPreviewResponse(BaseModel):
     unresolvable: list[LevelPreviewUnresolvable] = Field(default_factory=list)
     peak_before: dict[str, float] = Field(default_factory=dict)
     peak_after: dict[str, float] = Field(default_factory=dict)
+
+
+class LevelApplyResponse(BaseModel):
+    """Result of committing a leveling run to the schedule.
+
+    Runs the same pure leveling arithmetic as the preview, then persists each
+    shifted activity's ``start_date`` / ``end_date`` (moved by the activity's
+    leveling delta in calendar days, preserving its span). ``num_applied`` counts
+    rows actually written; ``num_skipped`` counts shifted activities whose stored
+    dates could not be parsed and so were left untouched.
+    """
+
+    schedule_id: UUID
+    num_shifted: int
+    num_applied: int
+    num_skipped: int
+    finish_delta_days: int
+    base_finish_workday: int
+    leveled_finish_workday: int
