@@ -33,6 +33,7 @@ from sqlalchemy.orm import aliased
 from app.modules.saved_views.errors import WhitelistError
 from app.modules.schedule.codes_bandtree import NONE_KEY as _NONE_KEY
 from app.modules.schedule.codes_bandtree import build_band_tree
+from app.modules.schedule.codes_bandtree import group_key as _group_key
 from app.modules.schedule.codes_models import (
     CodeAssignment,
     CodeDictionary,
@@ -47,18 +48,26 @@ from app.modules.schedule.models import Activity
 __all__ = ["build_band_tree", "resolve_grouped_layout"]
 
 
+def _udf_value_col(value_type: str) -> str:
+    """Map a UDF ``value_type`` to its typed value column name.
+
+    The same mapping the EXISTS filter uses, named so the grouping path can pull
+    the column off an aliased value row with ``getattr``.
+    """
+    if value_type in ("text", "enum"):
+        return "value_text"
+    if value_type == "number":
+        return "value_number"
+    if value_type == "date":
+        return "value_date"
+    return "value_bool"
+
+
 def _udf_exists_predicate(uf: UdfFilter, value_type: str):  # noqa: ANN202 - SQLAlchemy expression
     """Build an EXISTS predicate over a UDF value for one activity."""
     sv = aliased(ScheduleUdfValue)
     base = [sv.activity_id == Activity.id, sv.udf_id == uf.udf_id]
-    if value_type in ("text", "enum"):
-        col = sv.value_text
-    elif value_type == "number":
-        col = sv.value_number
-    elif value_type == "date":
-        col = sv.value_date
-    else:
-        col = sv.value_bool
+    col = getattr(sv, _udf_value_col(value_type))
 
     if uf.op == "is_null":
         return ~exists(select(sv.id).where(*base, col.isnot(None)))
@@ -129,8 +138,19 @@ async def resolve_grouped_layout(
             if d is None or d.project_id != project_id:
                 raise WhitelistError("Group dictionary is not in this project", field=gb.key)
             level_specs.append({"kind": "code", "dictionary_id": dict_id})
-        else:  # udf grouping deferred to a fast-follow
-            raise WhitelistError("Grouping by a UDF is not supported yet", field=gb.key)
+        else:  # kind == "udf"
+            udf_id = uuid.UUID(str(ref))
+            udf = await session.get(ScheduleUdf, udf_id)
+            if udf is None or udf.project_id != project_id:
+                raise WhitelistError("Group UDF is not in this project", field=gb.key)
+            level_specs.append(
+                {
+                    "kind": "udf",
+                    "udf_id": udf_id,
+                    "value_col": _udf_value_col(udf.value_type),
+                    "value_type": udf.value_type,
+                }
+            )
 
     # ── common WHERE: schedule scope + static filter + code/udf predicates ──
     where_terms: list[Any] = [Activity.schedule_id == schedule_id]
@@ -165,6 +185,10 @@ async def resolve_grouped_layout(
             ca = aliased(CodeAssignment, name=f"ca_grp_{i}")
             joins.append((ca, and_(ca.activity_id == Activity.id, ca.dictionary_id == level["dictionary_id"])))
             level_exprs.append(ca.value_id.label(f"g{i}"))
+        elif level["kind"] == "udf":
+            suv = aliased(ScheduleUdfValue, name=f"suv_grp_{i}")
+            joins.append((suv, and_(suv.activity_id == Activity.id, suv.udf_id == level["udf_id"])))
+            level_exprs.append(getattr(suv, level["value_col"]).label(f"g{i}"))
         else:
             level_exprs.append(getattr(Activity, level["column"]).label(f"g{i}"))
 
@@ -177,7 +201,7 @@ async def resolve_grouped_layout(
         rows = (await session.execute(count_stmt)).all()
         count_rows: list[tuple[tuple[str | None, ...], int]] = []
         for row in rows:
-            keys = tuple(str(row[i]) if row[i] is not None else None for i in range(len(level_specs)))
+            keys = tuple(_group_key(row[i]) for i in range(len(level_specs)))
             count_rows.append((keys, int(row[-1])))
         meta = await _code_value_meta(session, level_specs, count_rows)
         bands, total = build_band_tree(count_rows, len(level_specs), meta)
@@ -198,7 +222,12 @@ async def resolve_grouped_layout(
     page_paths: dict[uuid.UUID, list[str]] = {}
     for r in page_result:
         act = r[0]
-        path = [str(r[i + 1]) if r[i + 1] is not None else _NONE_KEY for i in range(len(level_specs))]
+        # A None key (unassigned) maps to the same (none) band PHASE 1 emits; an
+        # empty-but-present value keeps its own key so the row still nests.
+        path = []
+        for i in range(len(level_specs)):
+            k = _group_key(r[i + 1])
+            path.append(_NONE_KEY if k is None else k)
         page_paths[act.id] = path
 
     activity_ids = [a.id for a in activities]

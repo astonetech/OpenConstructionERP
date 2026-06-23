@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
-from app.modules.schedule.codes_bandtree import build_band_tree
+from decimal import Decimal
+
+from app.modules.schedule.codes_bandtree import build_band_tree, group_key
 
 
 def test_single_level_counts_sum_to_total() -> None:
@@ -63,3 +65,45 @@ def test_empty_rows() -> None:
     bands, total = build_band_tree([], 1)
     assert bands == []
     assert total == 0
+
+
+# ── group_key: the shared PHASE 1 / PHASE 2 band-key stringifier (UDF grouping) ──
+
+
+def test_group_key_none_stays_none() -> None:
+    # An unassigned value must stay None so it lands in the (none) band.
+    assert group_key(None) is None
+
+
+def test_group_key_text_passthrough() -> None:
+    assert group_key("North wing") == "North wing"
+    # An empty-but-present value keeps its own (empty) key, it is not (none).
+    assert group_key("") == ""
+
+
+def test_group_key_decimal_drops_storage_padding() -> None:
+    # Numeric(18,4) reads back padded; the band key must not carry that padding,
+    # and must never expose the Decimal(..) repr.
+    assert group_key(Decimal("5.0000")) == "5"
+    assert group_key(Decimal("5.5000")) == "5.5"
+    assert group_key(Decimal("0.0000")) == "0"
+    assert group_key(Decimal("12.3400")) == "12.34"
+    assert "Decimal" not in group_key(Decimal("5"))
+
+
+def test_group_key_decimal_keeps_significant_fraction() -> None:
+    assert group_key(Decimal("0.2500")) == "0.25"
+    assert group_key(Decimal("100")) == "100"
+
+
+def test_udf_number_band_falls_back_to_raw_value_label() -> None:
+    # A UDF level supplies no meta, so the band label falls back to the raw
+    # value-string key. Mirrors how a number UDF appears in the grouped grid.
+    keys = [group_key(Decimal("5.0000"))]
+    rows = [((keys[0],), 4), ((None,), 1)]
+    bands, total = build_band_tree(rows, 1)
+    assert total == 5
+    by_key = {b["key"]: b for b in bands}
+    assert by_key["5"]["label"] == "5"
+    assert by_key["5"]["count"] == 4
+    assert by_key["__none__"]["label"] == "(none)"

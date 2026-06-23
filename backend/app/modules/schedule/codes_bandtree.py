@@ -10,9 +10,30 @@ unassigned activity falls into a ``(none)`` band).
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 NONE_KEY = "__none__"
+
+
+def group_key(value: Any) -> str | None:
+    """Stringify a group-level column value into a stable band key.
+
+    ``None`` (unassigned) stays ``None`` so it lands in the ``(none)`` band. The
+    same function feeds both the PHASE 1 band keys and the PHASE 2 row paths, so
+    a row always nests under its own band. A numeric UDF column comes back as a
+    ``Decimal``; render it without the storage padding (``Decimal('5.0000')`` ->
+    ``"5"``, ``Decimal('5.5000')`` -> ``"5.5"``) and never let the ``Decimal(..)``
+    repr leak into a band label.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        text = format(value, "f")
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return text or "0"
+    return str(value)
 
 
 def build_band_tree(
