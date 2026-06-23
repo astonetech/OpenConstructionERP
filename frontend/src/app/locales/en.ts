@@ -1878,6 +1878,8 @@ const resource = {
     "boq.tip_tab": "Use Tab to move between fields, Enter to save changes",
     "boq.tips_title": "Tips & Hints",
     "boq.title": "Bill of Quantities",
+    "construction_control.title": "Construction Control",
+    "portfolio.title": "Portfolio",
     "boq.from_assembly": "From Assembly",
     "boq.not_found": "BOQ not found",
     "boq.total": "Total",

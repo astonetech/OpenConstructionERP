@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.9.0] - 2026-06-23
+
+A major release for construction quality assurance and advanced scheduling.
+
+### Added
+
+- A new Construction Control module brings quality assurance and control into one place per project, across five linked areas. Acceptance criteria and inspections record what good looks like and whether it was met. Material records carry EN 10204 certificate types, full traceability and a digital passport, and lab tests are recorded against ISO/IEC 17025 accreditation. As-built records capture metrology tolerance, an e-signed validity attestation and import from a survey or scan. Hold and witness points gate work behind a party-role hierarchy with a can-proceed check. The handover acceptance package auto-assembles an evidence manifest, is blocked by open non-conformances and unreleased holds, and is issued under e-signature for a FIDIC, US or UK regime.
+- A full advanced scheduling suite. Lossless interchange imports and exports an industry-standard plan without dropping data and cleans it on the way in. A claims-grade critical-path engine computes the longest path, multiple float values and out-of-sequence progress. You can compare two schedule snapshots, run Monte-Carlo schedule risk with a joint confidence level on time and cost, and follow a guided forensic delay analysis. Activities support hierarchical codes, user-defined fields and saved layouts, and the server-side grouped grid can now group by a user-defined field. Resource histograms show time-phased demand against availability with serial leveling. Progress rigor adds several percent-complete types, step lists, suspend and resume and per-activity calendars. A multi-project portfolio, a schedule of schedules, gives a project tree, cross-project links and a portfolio critical-path analysis. A live collaboration view shows who is editing, with optimistic-concurrency guarded edits and field progress capture.
+- Persisted earned-value snapshots. As a schedule data date advances, the planned value, earned value, budget at completion and schedule performance index are frozen at that date so the performance trend can be charted over time.
+- A calendar-aware working-day offset primitive in the critical-path engine, so date math can skip weekends and holidays while leaving existing results unchanged.
+
+### Notes
+
+- The new modules ship with English interface text and fall back to English in other languages; full localisation follows in the regular translation pass.
+
 ## [8.8.4] - 2026-06-22
 
 A security and data-integrity hardening release from a deep internal audit.
