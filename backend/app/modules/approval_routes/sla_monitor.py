@@ -37,8 +37,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import event_bus
 from app.database import async_session_factory
-from app.modules.approval_routes import sla_engine
-from app.modules.approval_routes.models import Instance, Route, Step, StepState
+from app.modules.approval_routes import delegation_engine, sla_engine
+from app.modules.approval_routes.delegation_engine import DelegationView
+from app.modules.approval_routes.models import Delegation, Instance, Route, Step, StepState
+from app.modules.approval_routes.service import delegation_views_from_rows
 from app.modules.notifications.models import Notification
 from app.modules.notifications.service import NotificationService
 
@@ -116,16 +118,29 @@ async def _raise_breach(
     route: Route,
     status: sla_engine.BreachStatus,
     now: datetime,
+    delegations: list[DelegationView],
 ) -> None:
     """Notify the responsible approver and publish the timeline event.
 
-    The recipient is the step's named approver when set, otherwise the user who
-    started the instance, so a role-based step (which the engine cannot expand
-    to members) still produces an actionable nudge rather than a silent miss.
+    The recipient is, in order of precedence: the per-instance assignee
+    override (a one-tap reassignment), the named step approver resolved through
+    any active out-of-office delegation, or - for a role-based step the engine
+    cannot expand to members - the user who started the instance. This keeps a
+    breach nudge actionable rather than a silent miss.
     """
     overdue = round(status.hours_overdue, 1)
     ordinal = instance.current_step_ordinal
-    recipient = step.approver_user_id or instance.started_by
+    if instance.current_assignee_user_id is not None:
+        recipient = instance.current_assignee_user_id
+    elif step.approver_user_id is not None:
+        recipient = delegation_engine.resolve_delegate(
+            step.approver_user_id,
+            delegations,
+            now=now,
+            project_id=route.project_id,
+        )
+    else:
+        recipient = instance.started_by
 
     if recipient is not None:
         await NotificationService(session).create(
@@ -179,6 +194,12 @@ async def check_sla_breaches(session: AsyncSession, *, now: datetime | None = No
     now = now or _utc_now()
     actioned = 0
 
+    # Load active out-of-office delegations once per sweep so a breached
+    # approval still nudges whoever actually covers it while the named
+    # approver is away (the pure engine resolves the chain per instance).
+    delegation_rows = (await session.execute(select(Delegation).where(Delegation.is_active.is_(True)))).scalars().all()
+    delegations = delegation_views_from_rows(list(delegation_rows))
+
     result = await session.execute(
         select(Instance, Step, Route)
         .join(Step, and_(Step.route_id == Instance.route_id, Step.ordinal == Instance.current_step_ordinal))
@@ -195,7 +216,7 @@ async def check_sla_breaches(session: AsyncSession, *, now: datetime | None = No
                 continue
             if await _already_notified(session, instance.id, instance.current_step_ordinal, now):
                 continue
-            await _raise_breach(session, instance, step, route, status, now)
+            await _raise_breach(session, instance, step, route, status, now, delegations)
             actioned += 1
         except Exception:
             logger.exception("SLA check failed for approval instance %s", getattr(instance, "id", "?"))

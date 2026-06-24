@@ -43,8 +43,11 @@ from app.modules.approval_routes.models import (
 from app.modules.approval_routes.schemas import (
     CancelInstance,
     DecisionSubmit,
+    DelegationCreate,
+    DelegationResponse,
     InstanceCreate,
     InstanceResponse,
+    ReassignInstance,
     RouteCreate,
     RouteResponse,
     RouteUpdate,
@@ -424,3 +427,129 @@ async def cancel_instance(
         reason=payload.reason,
     )
     return await _instance_to_response(cancelled, service)
+
+
+@router.post(
+    "/instances/{instance_id}/reassign",
+    response_model=InstanceResponse,
+    dependencies=[Depends(RequirePermission("approval_routes.write"))],
+)
+async def reassign_instance(
+    instance_id: uuid.UUID,
+    payload: ReassignInstance,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    service: ApprovalRouteService = Depends(_get_service),
+) -> InstanceResponse:
+    """Reassign the current step of a pending instance to another user.
+
+    A one-tap hand-off that pins the chosen user as the sole eligible decider
+    for the current step without editing the shared route template.
+    """
+    instance = await service.get_instance(instance_id)
+    route = await service.get_route(instance.route_id)
+    if route.project_id is not None:
+        await verify_project_access(route.project_id, user_id, session)
+    updated = await service.reassign_current_step(
+        instance_id,
+        to_user_id=payload.to_user_id,
+        actor_id=_safe_user_uuid(user_id),
+        reason=payload.reason,
+    )
+    return await _instance_to_response(updated, service)
+
+
+# ── Delegations (out-of-office) ──────────────────────────────────────
+
+
+@router.get(
+    "/delegations",
+    response_model=list[DelegationResponse],
+    dependencies=[Depends(RequirePermission("approval_routes.read"))],
+)
+async def list_delegations(
+    session: SessionDep,
+    user_id: CurrentUserId,
+    role: str = Query(default="mine"),
+    include_inactive: bool = Query(default=False),
+    service: ApprovalRouteService = Depends(_get_service),
+) -> list[DelegationResponse]:
+    """List the caller's own delegations.
+
+    ``role=mine`` (default) lists hand-offs the caller created (approvals they
+    delegated away); ``role=covering`` lists hand-offs naming the caller as the
+    stand-in (approvals they now cover for others). Either way the result is
+    scoped to the caller - a user can never enumerate someone else's
+    delegations.
+    """
+    me = _safe_user_uuid(user_id)
+    if me is None:
+        return []
+    if role == "covering":
+        rows = await service.list_delegations(delegate_user_id=me, include_inactive=include_inactive)
+    else:
+        rows = await service.list_delegations(delegator_user_id=me, include_inactive=include_inactive)
+    return [DelegationResponse.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/delegations",
+    response_model=DelegationResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(RequirePermission("approval_routes.write"))],
+)
+async def create_delegation(
+    payload: DelegationCreate,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    service: ApprovalRouteService = Depends(_get_service),
+) -> DelegationResponse:
+    """Create an out-of-office hand-off of the caller's approvals.
+
+    The delegator is always the authenticated caller - never taken from the
+    body. When ``project_id`` is supplied the caller must have access to it.
+    """
+    me = _safe_user_uuid(user_id)
+    if me is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    if payload.project_id is not None:
+        await verify_project_access(payload.project_id, user_id, session)
+    row = await service.create_delegation(
+        delegator_id=me,
+        delegate_id=payload.delegate_user_id,
+        project_id=payload.project_id,
+        starts_at=payload.starts_at,
+        ends_at=payload.ends_at,
+        reason=payload.reason,
+        created_by=me,
+    )
+    return DelegationResponse.model_validate(row)
+
+
+@router.delete(
+    "/delegations/{delegation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(RequirePermission("approval_routes.write"))],
+)
+async def revoke_delegation(
+    delegation_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId,
+    service: ApprovalRouteService = Depends(_get_service),
+) -> None:
+    """Revoke one of the caller's own delegations.
+
+    Returns 404 when the delegation does not exist OR belongs to another user,
+    so a caller cannot probe for or revoke someone else's hand-off.
+    """
+    me = _safe_user_uuid(user_id)
+    delegation = await service.get_delegation(delegation_id)
+    if me is None or delegation.delegator_user_id != me:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Delegation not found",
+        )
+    await service.revoke_delegation(delegation_id, actor_id=me)
