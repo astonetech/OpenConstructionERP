@@ -2942,6 +2942,18 @@ def create_app() -> FastAPI:
         except Exception:  # noqa: BLE001 - never block startup on the scheduler
             logger.exception("AI agent scheduler failed to start")
 
+        # Approval SLA monitor: background sweep that nudges the responsible
+        # approver when a step blows past its configured sla_hours and records
+        # the breach on the project timeline. Same lightweight asyncio loop;
+        # fail-soft so a hiccup never blocks startup.
+        try:
+            if not _fast_startup:
+                from app.modules.approval_routes.sla_monitor import start_sla_checker
+
+                start_sla_checker()
+        except Exception:  # noqa: BLE001 - never block startup on the monitor
+            logger.exception("Approval SLA monitor failed to start")
+
         # Risk auto-escalation (item #24): hourly sweep that escalates risks
         # crossing their severity threshold or with a lapsed review date. The
         # review-lapse trigger has no update event, so a periodic sweep is the
