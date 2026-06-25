@@ -31,6 +31,7 @@ import {
   ShieldAlert,
   Import,
   Gauge,
+  FileSearch,
 } from 'lucide-react';
 import { Card, Badge, EmptyState, SkeletonTable, DismissibleInfo, TabBar, tabIds } from '@/shared/ui';
 import { MoneyDisplay } from '@/shared/ui/MoneyDisplay';
@@ -58,12 +59,14 @@ import {
   getIntakeProfiles,
   previewIntake,
   getDelayRiskBoard,
+  getScopeAmbiguity,
   type Urgency,
   type Awaiting,
   type ClarifiedRequest,
   type ExposureBand,
   type WatchClass,
   type DelayBand,
+  type ScopeBand,
   type IntakePreview,
 } from './api';
 
@@ -85,7 +88,8 @@ type Tab =
   | 'watch'
   | 'clarifier'
   | 'intake'
-  | 'delay';
+  | 'delay'
+  | 'scope';
 
 const URGENCY_VARIANT: Record<Urgency, BadgeVariant> = {
   overdue: 'error',
@@ -1294,6 +1298,98 @@ function DelayRiskTab({ projectId }: { projectId: string }) {
   );
 }
 
+// --- Tab: pre-construction scope ambiguity ---------------------------------
+
+const SCOPE_VARIANT: Record<ScopeBand, BadgeVariant> = {
+  high: 'error',
+  elevated: 'warning',
+  low: 'neutral',
+};
+
+// Mirrors backend REASON_LABELS in scope_ambiguity.py - report-level
+// top_reasons arrive as stable reason keys; map them to human wording here.
+const SCOPE_REASON_LABELS: Record<string, string> = {
+  vague_language: 'Vague or placeholder wording',
+  provisional_sum: 'Provisional sum or allowance',
+  missing_quantity: 'Missing or zero quantity',
+  missing_unit: 'Missing unit of measure',
+  underspecified_description: 'Under-specified description',
+};
+
+function scopeReasonLabel(reason: string): string {
+  return SCOPE_REASON_LABELS[reason] ?? humanize(reason);
+}
+
+function ScopeRiskTab({ projectId }: { projectId: string }) {
+  const q = useQuery({
+    queryKey: ['change-intelligence', 'scope-ambiguity', projectId],
+    queryFn: () => getScopeAmbiguity(projectId),
+    enabled: !!projectId,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const report = q.data;
+  const counts = report?.counts_by_band ?? {};
+  const lines = report?.lines ?? [];
+  const index = Math.round(report?.ambiguity_index ?? 0);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label="Ambiguity index"
+          value={report ? index : '-'}
+          tone={index >= 50 ? 'error' : index >= 25 ? 'warning' : 'success'}
+        />
+        <StatTile label="High" value={counts.high ?? 0} tone="error" />
+        <StatTile label="Elevated" value={counts.elevated ?? 0} tone="warning" />
+        <StatTile label="Low" value={counts.low ?? 0} tone="success" />
+      </div>
+      {report && report.top_reasons.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-content-tertiary">Top drivers</span>
+          {report.top_reasons.map((r) => (
+            <Badge key={r} variant="neutral">
+              {scopeReasonLabel(r)}
+            </Badge>
+          ))}
+        </div>
+      )}
+      <PanelState
+        loading={q.isLoading}
+        error={q.isError ? q.error : null}
+        empty={lines.length === 0}
+        emptyIcon={<FileSearch className="h-6 w-6" />}
+        emptyTitle="No bill lines to grade"
+        emptyDescription="Once this project carries a bill of quantities, its lines are graded here for the vague scope that breeds a change order later."
+      >
+        <div className="space-y-2">
+          {lines.map((ln) => (
+            <Card key={ln.line_id} className="p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={SCOPE_VARIANT[ln.band]}>{humanize(ln.band)}</Badge>
+                <span className="font-mono text-xs text-content-tertiary">{ln.line_id.slice(0, 8)}</span>
+                <span className="ml-auto text-sm font-semibold text-content-secondary">{`${ln.score}/100`}</span>
+              </div>
+              {ln.labels.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {ln.labels.map((label) => (
+                    <span
+                      key={label}
+                      className="rounded-full bg-surface-secondary px-2 py-0.5 text-2xs text-content-secondary"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      </PanelState>
+    </div>
+  );
+}
+
 // --- Page -------------------------------------------------------------------
 
 export function ChangeIntelligencePage() {
@@ -1365,6 +1461,7 @@ export function ChangeIntelligencePage() {
               { id: 'clarifier', label: 'Clarifier', icon: <Sparkles className="h-4 w-4" /> },
               { id: 'intake', label: 'Intake', icon: <Import className="h-4 w-4" /> },
               { id: 'delay', label: 'Delay risk', icon: <Gauge className="h-4 w-4" /> },
+              { id: 'scope', label: 'Scope risk', icon: <FileSearch className="h-4 w-4" /> },
             ]}
           />
           <div role="tabpanel" id={ids.panelId(tab)} aria-labelledby={ids.tabId(tab)}>
@@ -1379,6 +1476,7 @@ export function ChangeIntelligencePage() {
             {tab === 'clarifier' && <ClarifierTab />}
             {tab === 'intake' && <IntakeTab projectId={projectId} />}
             {tab === 'delay' && <DelayRiskTab projectId={projectId} />}
+            {tab === 'scope' && <ScopeRiskTab projectId={projectId} />}
           </div>
         </>
       )}

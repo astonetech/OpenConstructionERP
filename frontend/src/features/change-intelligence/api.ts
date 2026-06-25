@@ -529,3 +529,39 @@ export interface DelayRiskBoard {
 export function getDelayRiskBoard(projectId: string): Promise<DelayRiskBoard> {
   return apiGet<DelayRiskBoard>(`${CI_BASE}/projects/${projectId}/delay-risk`);
 }
+
+// --- Pre-construction scope ambiguity --------------------------------------
+// Grade a project's BOQ lines for how vague their scope is, worst-first, so the
+// soft spots that breed a change order later surface while they are still cheap
+// to firm up. The score is a pure 0-100 with no money; bands are high / elevated
+// / low and each line names the reasons that drove its grade.
+
+export type ScopeBand = 'high' | 'elevated' | 'low';
+
+export interface ScopeAmbiguityLine {
+  line_id: string;
+  score: number;
+  band: ScopeBand;
+  reasons: string[];
+  labels: string[];
+}
+
+export interface ScopeAmbiguityReport {
+  project_id: string;
+  boq_id: string | null;
+  line_count: number;
+  ambiguity_index: number;
+  counts_by_band: Record<string, number>;
+  top_reasons: string[];
+  lines: ScopeAmbiguityLine[];
+}
+
+export function getScopeAmbiguity(
+  projectId: string,
+  boqId?: string | null,
+): Promise<ScopeAmbiguityReport> {
+  const qs = boqId ? `?boq_id=${encodeURIComponent(boqId)}` : '';
+  return apiGet<ScopeAmbiguityReport>(
+    `${CI_BASE}/projects/${projectId}/scope-ambiguity${qs}`,
+  );
+}
