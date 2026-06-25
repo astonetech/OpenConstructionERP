@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   Plus,
   Search,
+  FileSearch,
   Pin,
   PinOff,
   Eye,
@@ -360,6 +361,8 @@ const navGroups: NavGroup[] = [
       { labelKey: 'nav.change_intelligence', to: '/change-intelligence', icon: BrainCircuit, advancedOnly: true },
       { labelKey: 'nav.value', to: '/value', icon: TrendingUp, advancedOnly: true },
       { labelKey: 'nav.phone_log', to: '/phone-log', icon: Phone, advancedOnly: true },
+      { labelKey: 'nav.connectors', to: '/connectors', icon: HardDrive, advancedOnly: true },
+      { labelKey: 'nav.find_records', to: '/find', icon: FileSearch, advancedOnly: true },
     ],
   },
   // ── 11. FIELD OPERATIONS ───────────────────────────────────────────

@@ -4245,6 +4245,8 @@ const resource = {
     "nav.change_intelligence": "Change Intelligence",
     "nav.value": "Value Realized",
     "nav.phone_log": "Phone Log",
+    "nav.connectors": "Document Connectors",
+    "nav.find_records": "Find Records",
     "nav.risk_register": "Risk Register",
     "nav.documents": "Documents",
     "nav.photos": "Project Photos",
