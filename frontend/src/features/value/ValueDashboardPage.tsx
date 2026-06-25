@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Trophy,
   ShieldCheck,
@@ -41,6 +41,7 @@ import {
   getPortfolioSummary,
   getAdoptionBenchmark,
   getAdoptionChecklist,
+  recordValueReport,
 } from './api';
 import type { Confidence, ValueSummary } from './types';
 
@@ -502,6 +503,7 @@ function ChecklistView({ projectId }: { projectId: string }) {
 
 export function ValueDashboardPage() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { projectId: routeProjectId } = useParams();
   const activeProjectId = useProjectContextStore((s) => s.activeProjectId);
   const { data: projects = [] } = useQuery({
@@ -546,7 +548,23 @@ export function ValueDashboardPage() {
         </div>
         <button
           type="button"
-          onClick={() => window.print()}
+          onClick={async () => {
+            // Exporting the value case is the "generate a value report" action:
+            // record it (project scope only) so the adoption checklist can flip
+            // that step to done, then print. Recording is best-effort and never
+            // blocks the print.
+            if (scope === 'project' && projectId) {
+              try {
+                await recordValueReport(projectId);
+                void queryClient.invalidateQueries({
+                  queryKey: ['value', 'adoption-checklist', projectId],
+                });
+              } catch {
+                /* best-effort: fall through to print */
+              }
+            }
+            window.print();
+          }}
           className="inline-flex items-center gap-1.5 rounded-md border border-border-light bg-surface-primary px-3 py-1.5 text-sm font-medium text-content-secondary hover:bg-surface-secondary print:hidden"
         >
           <Printer className="h-4 w-4" />

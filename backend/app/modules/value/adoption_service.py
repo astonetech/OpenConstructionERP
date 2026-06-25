@@ -14,19 +14,18 @@ that ran, a logged change, an AI run and a recorded verdict - not by whether a
 particular event happened to land in the activity log. The activity-log
 vocabulary is heterogeneous across modules and several first-value milestones
 leave no single canonical row, so existence is both clearer and more robust than
-event-name matching. The one milestone with no table of its own - assembling an
-evidence pack, which is computed on the fly - is read from the activity-log row
-that assembly already lands (``claims_evidence`` / ``evidence_pack_assembled``),
-scoped to the project exactly like the timeline and the hours-saved signal.
+event-name matching. The two milestones with no table of their own - assembling
+an evidence pack and generating a value report, both composed on the fly - are
+read from the activity-log rows those actions land (``claims_evidence`` /
+``evidence_pack_assembled`` and ``value`` / ``report_generated``, the latter
+written by the value router's POST ``.../report``), scoped to the project exactly
+like the timeline and the hours-saved signal.
 
 The engine stays pure: this module decides the observed-key SET, the engine
 decides done-ness and the score. Every read is project-scoped and read-only; the
-request-scoped session owns the commit and this layer only ever queries.
-
-Honest gap: ``value.report.generated`` has no persistence point yet (there is no
-value-report artifact to record), so that step is never marked done here - it
-stays an honest "do this next" nudge rather than being faked. When a value report
-gains a real generation action this layer gains one more existence check.
+request-scoped session owns the commit and this layer only ever queries. Nothing
+is invented: a milestone with no detectable trace simply stays absent, so the
+engine reports it as a next action rather than as done.
 """
 
 from __future__ import annotations
@@ -69,6 +68,8 @@ KEY_AI_RUN = "ai_agents.run.created"
 KEY_AI_VERDICT = "ai_agents.outcome.recorded"
 #: An evidence pack was assembled (read from the activity-log row assembly lands).
 KEY_EVIDENCE_PACK = "claims_evidence.evidence_pack.assembled"
+#: A value report was generated (read from the activity-log row generation lands).
+KEY_VALUE_REPORT = "value.report.generated"
 
 # The activity-log coordinates the evidence-pack assembly already records. The
 # pack itself is computed on the fly and has no table, so this row is the only
@@ -76,6 +77,12 @@ KEY_EVIDENCE_PACK = "claims_evidence.evidence_pack.assembled"
 # ``time_saved`` factor key (("claims_evidence", "evidence_pack_assembled")).
 _EVIDENCE_MODULE = "claims_evidence"
 _EVIDENCE_ACTION = "evidence_pack_assembled"
+
+# The activity-log coordinates a value-report generation records (see the value
+# router's POST .../report). Like the pack, a value report is composed on the fly
+# and has no table, so this row is its durable trace.
+_VALUE_REPORT_MODULE = "value"
+_VALUE_REPORT_ACTION = "report_generated"
 
 # Key inside ``AgentRun.trust`` (JSON) that holds the recorded verdict. Mirrors
 # ``app.modules.ai_agents.accuracy_service.OUTCOME_KEY``; kept as a literal here
@@ -90,6 +97,27 @@ async def _exists(session: AsyncSession, id_select) -> bool:  # type: ignore[no-
     never scans more than it must and never materialises a row it does not need.
     """
     return (await session.scalar(id_select.limit(1))) is not None
+
+
+async def _activity_exists(
+    session: AsyncSession,
+    project_id_str: str,
+    module: str,
+    action: str,
+) -> bool:
+    """Whether a project-scoped activity-log row with *module* / *action* exists.
+
+    Used for the milestones that leave only an activity-log trace (an assembled
+    evidence pack, a generated value report). Scoped the same way the timeline
+    and hours-saved signals are: the row's ``parent_entity_id`` (a module event
+    rolled up to its project) or ``entity_id`` is the project.
+    """
+    stmt = select(ActivityLog.id).where(
+        or_(ActivityLog.parent_entity_id == project_id_str, ActivityLog.entity_id == project_id_str),
+        ActivityLog.module == module,
+        ActivityLog.action == action,
+    )
+    return await _exists(session, stmt)
 
 
 async def _has_recorded_verdict(session: AsyncSession, project_id: uuid.UUID) -> bool:
@@ -148,13 +176,11 @@ async def gather_observed_action_keys(session: AsyncSession, project_id: uuid.UU
         observed.add(KEY_AI_VERDICT)
 
     pid_str = str(pid)
-    evidence_row = select(ActivityLog.id).where(
-        or_(ActivityLog.parent_entity_id == pid_str, ActivityLog.entity_id == pid_str),
-        ActivityLog.module == _EVIDENCE_MODULE,
-        ActivityLog.action == _EVIDENCE_ACTION,
-    )
-    if await _exists(session, evidence_row):
+    if await _activity_exists(session, pid_str, _EVIDENCE_MODULE, _EVIDENCE_ACTION):
         observed.add(KEY_EVIDENCE_PACK)
+
+    if await _activity_exists(session, pid_str, _VALUE_REPORT_MODULE, _VALUE_REPORT_ACTION):
+        observed.add(KEY_VALUE_REPORT)
 
     return frozenset(observed)
 

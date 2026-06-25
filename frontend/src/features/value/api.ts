@@ -8,13 +8,20 @@
 // benchmark on the firm's own projects. Money and rates are carried on the wire
 // as strings and passed straight to MoneyDisplay, never coerced here.
 
-import { apiGet } from '@/shared/lib/api';
+import { apiGet, apiPost } from '@/shared/lib/api';
 import type { AdoptionBenchmark, AdoptionChecklist, HoursSaved, ValueSummary } from './types';
 
 const BASE = '/v1/value';
 
 export function getValueSummary(projectId: string): Promise<ValueSummary> {
   return apiGet<ValueSummary>(`${BASE}/projects/${projectId}/summary`);
+}
+
+// Record that the user generated a project's value report (the "value case").
+// Returns the same composed summary the dashboard shows; the side effect is an
+// activity-log row that counts toward the guided adoption checklist.
+export function recordValueReport(projectId: string): Promise<ValueSummary> {
+  return apiPost<ValueSummary, Record<string, never>>(`${BASE}/projects/${projectId}/report`, {});
 }
 
 export function getPortfolioSummary(): Promise<ValueSummary> {

@@ -20,6 +20,7 @@ vi.mock('../api', async (importOriginal) => {
     getHoursSaved: vi.fn(),
     getAdoptionBenchmark: vi.fn(),
     getAdoptionChecklist: vi.fn(),
+    recordValueReport: vi.fn(),
   };
 });
 
@@ -41,6 +42,7 @@ import {
   getPortfolioSummary,
   getAdoptionBenchmark,
   getAdoptionChecklist,
+  recordValueReport,
 } from '../api';
 import { ValueDashboardPage } from '../ValueDashboardPage';
 
@@ -196,5 +198,38 @@ describe('ValueDashboardPage', () => {
     expect(screen.getByText('33%')).toBeInTheDocument();
     // The single next action is flagged so the user knows what to do next.
     expect(screen.getByText(/Do next/i)).toBeInTheDocument();
+  });
+
+  it('records the value report and prints when exporting the project value case', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/Admin hours saved/i)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Value case$/i }));
+    // Exporting in project scope records the generation (so the checklist can
+    // flip the step) and then prints.
+    await waitFor(() => {
+      expect(recordValueReport).toHaveBeenCalledWith('p-1');
+    });
+    expect(printSpy).toHaveBeenCalled();
+    printSpy.mockRestore();
+  });
+
+  it('does not record a report when exporting the portfolio value case', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: /Portfolio/i }));
+    await waitFor(() => {
+      expect(getPortfolioSummary).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Value case$/i }));
+    await waitFor(() => {
+      expect(printSpy).toHaveBeenCalled();
+    });
+    // The portfolio is not a single project, so generating its case records
+    // nothing - it just prints.
+    expect(recordValueReport).not.toHaveBeenCalled();
+    printSpy.mockRestore();
   });
 });

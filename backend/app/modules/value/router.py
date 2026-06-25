@@ -23,6 +23,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.audit_log import log_activity
 from app.dependencies import (
     CurrentUserId,
     SessionDep,
@@ -113,6 +114,35 @@ async def get_value_summary(
     """One project's composed value-realized summary (per currency + headlines)."""
     await verify_project_access(project_id, user_id or "", session)
     summary = await build_value_summary(session, project_id)
+    return _summary_out(summary, project_id=str(project_id))
+
+
+@router.post("/projects/{project_id}/report", response_model=ValueSummaryOut)
+async def generate_value_report(
+    project_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> ValueSummaryOut:
+    """Generate a project's value report and record that it was generated.
+
+    Returns the same composed value summary the dashboard shows, and writes a
+    single ``value`` / ``report_generated`` activity-log row so generating the
+    value case counts toward guided adoption and lands in the audit trail. The
+    action carries no saved-minute factor, so it never inflates the hours-saved
+    figure. Access is gated exactly like the summary (404 on missing or denied).
+    """
+    await verify_project_access(project_id, user_id or "", session)
+    summary = await build_value_summary(session, project_id)
+    await log_activity(
+        session,
+        actor_id=user_id or None,
+        entity_type="value.report",
+        entity_id=str(project_id),
+        action="report_generated",
+        module="value",
+        parent_entity_type="project",
+        parent_entity_id=str(project_id),
+    )
     return _summary_out(summary, project_id=str(project_id))
 
 

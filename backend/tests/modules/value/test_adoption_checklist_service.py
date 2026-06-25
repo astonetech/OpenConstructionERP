@@ -4,12 +4,12 @@
 
 PostgreSQL, py3.12. Seeds one project's real first-value records - a BOQ, a
 takeoff measurement, an approval instance against a project route, a change
-order, an AI run with a recorded verdict, and the activity-log row an evidence
-pack assembly lands - then drives the thin adoption service over the pure
-checklist engine, checking that each step is marked done from project STATE (not
-event logging), that a run with no recorded verdict leaves the verdict step
-open, that the value-report step (which has no persistence point yet) stays an
-honest nudge, and that the role lens scopes which steps apply.
+order, an AI run with a recorded verdict, the activity-log row an evidence pack
+assembly lands, and the row a value-report generation lands - then drives the
+thin adoption service over the pure checklist engine, checking that each step is
+marked done from project STATE (not event logging), that a run with no recorded
+verdict leaves the verdict step open, that a generated value report completes the
+path, and that the role lens scopes which steps apply.
 
 These live under tests/modules (the single non-sharded job) on purpose: they are
 not part of the pytest-split unit matrix, so adding them never reshuffles the
@@ -43,6 +43,7 @@ from app.modules.value.adoption_service import (
     KEY_EVIDENCE_PACK,
     KEY_PROJECT_CREATED,
     KEY_TAKEOFF,
+    KEY_VALUE_REPORT,
     build_adoption_checklist,
     gather_observed_action_keys,
 )
@@ -100,6 +101,19 @@ def _evidence_pack_row(project_id: uuid.UUID) -> ActivityLog:
     )
 
 
+def _value_report_row(project_id: uuid.UUID) -> ActivityLog:
+    """The activity-log row the value router's POST .../report lands."""
+    return ActivityLog(
+        entity_type="value.report",
+        entity_id=str(project_id),
+        action="report_generated",
+        module="value",
+        parent_entity_type="project",
+        parent_entity_id=str(project_id),
+        created_at=NOW,
+    )
+
+
 @pytest.mark.asyncio
 async def test_empty_project_only_has_project_created(session: AsyncSession) -> None:
     pid = await _project(session)
@@ -151,12 +165,43 @@ async def test_all_core_milestones_marked_done(session: AsyncSession) -> None:
 
     checklist = await build_adoption_checklist(session, pid, "manager")
     done = {s.step.key for s in checklist.steps if s.done}
-    # Everything detectable is done; only the value report (no persistence point
-    # yet) is left, so it is the single honest nudge.
+    # Every milestone except the value report is done; this project has not had a
+    # value report generated yet, so it is the single honest nudge.
     assert "generate_value_report" not in done
     assert {s.step.key for s in checklist.steps if not s.done} == {"generate_value_report"}
     assert [a.key for a in checklist.next_actions] == ["generate_value_report"]
     assert checklist.adoption_score >= 80
+
+
+@pytest.mark.asyncio
+async def test_generated_value_report_completes_the_path(session: AsyncSession) -> None:
+    pid = await _project(session)
+    session.add(BOQ(project_id=pid, name="Main BOQ"))
+    session.add(TakeoffMeasurement(project_id=pid, type="area"))
+    await _seed_approval(session, pid)
+    session.add(ChangeOrder(project_id=pid, code="CO-1", title="Change", status="submitted"))
+    session.add(
+        AgentRun(
+            agent_name="estimator",
+            user_id=uuid.uuid4(),
+            project_id=pid,
+            status="completed",
+            trust={"confidence": 0.8, "actual_outcome": True},
+        )
+    )
+    session.add(_evidence_pack_row(pid))
+    session.add(_value_report_row(pid))
+    await session.flush()
+
+    observed = await gather_observed_action_keys(session, pid)
+    assert KEY_VALUE_REPORT in observed
+
+    checklist = await build_adoption_checklist(session, pid, "manager")
+    # With a value report generated on top of every other milestone, every step
+    # the manager is asked to do is done and there is nothing left to nudge.
+    assert all(s.done for s in checklist.steps)
+    assert checklist.next_actions == []
+    assert checklist.adoption_score == 100
 
 
 @pytest.mark.asyncio
@@ -220,10 +265,16 @@ async def test_role_lens_scopes_applicable_steps(session: AsyncSession) -> None:
 async def test_detection_is_project_scoped(session: AsyncSession) -> None:
     pid = await _project(session)
     other = await _project(session)
-    # A BOQ on another project must not count for this one.
+    # State on another project must never count for this one - neither a table row
+    # (a BOQ) nor an activity-log milestone (an evidence pack, a value report),
+    # which exercises the scoping of both detection paths.
     session.add(BOQ(project_id=other, name="Other BOQ"))
+    session.add(_evidence_pack_row(other))
+    session.add(_value_report_row(other))
     await session.flush()
 
     observed = await gather_observed_action_keys(session, pid)
     assert KEY_BOQ not in observed
+    assert KEY_EVIDENCE_PACK not in observed
+    assert KEY_VALUE_REPORT not in observed
     assert observed == frozenset({KEY_PROJECT_CREATED})
