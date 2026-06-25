@@ -103,3 +103,65 @@ async def assemble_evidence(
     entries = await _activity_entries(session, project_id, activity_limit)
     entries += await _change_entries(session, project_id)
     return assemble_pack(subject_ref, entries, basis=basis)
+
+
+# Reconciliation record-type -> (evidence source_module, kind). The source_module
+# mirrors the activity-log module names the evidence engine sections on, so a
+# reconstructed pack groups each record into the same section the full project
+# pack would. A record type not listed here falls back to using the type itself.
+_RECON_TO_EVIDENCE: dict[str, tuple[str, str]] = {
+    "correspondence": ("correspondence", "correspondence"),
+    "change_order": ("changeorders", "change_order"),
+    "variation_request": ("variations", "variation_request"),
+    "variation_order": ("variations", "variation_order"),
+    "notice": ("notices", "notice"),
+    "moc": ("moc", "moc_entry"),
+}
+
+
+def _entry_from_thread_record(thread_record: object) -> EvidenceEntry:
+    """Project one reconciled-thread record onto an evidence entry."""
+    record = thread_record.record  # type: ignore[attr-defined]
+    source_module, kind = _RECON_TO_EVIDENCE.get(record.record_type, (record.record_type, record.record_type))
+    title = (record.subject or "").strip() or kind
+    occurred_at = record.occurred_at.isoformat() if record.occurred_at is not None else None
+    return EvidenceEntry(
+        ref_id=record.record_id,
+        source_module=source_module,
+        kind=kind,
+        title=title,
+        occurred_at=occurred_at,
+        actor_id=record.party,
+        summary="",
+    )
+
+
+async def reconstruct_subject(
+    session: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    subject_type: str,
+    subject_id: uuid.UUID,
+    basis: str = "dispute",
+) -> EvidencePack:
+    """Assemble an evidence pack scoped to ONE subject's reconciled thread.
+
+    Where :func:`assemble_evidence` pulls the whole project, this reconstructs
+    the story of a single change or dispute: it grows the cross-channel thread
+    around the subject (the reconciliation engine's connected component of
+    linked records), then assembles only those records into a deterministic,
+    SHA-256-digested pack. The same project state always yields the same pack,
+    so the export is reproducible for a claim.
+
+    If the reconciliation module is not installed the pack is empty rather than
+    failing (the feature degrades to "nothing linked yet").
+    """
+    event_key = f"{subject_type}:{subject_id}"
+    try:
+        from app.modules.reconciliation.service import build_event_thread
+    except ModuleNotFoundError:  # pragma: no cover - optional module absent
+        return assemble_pack(event_key, [], basis=basis)
+
+    thread = await build_event_thread(session, project_id, event_key)
+    entries = [_entry_from_thread_record(tr) for tr in thread.records]
+    return assemble_pack(event_key, entries, basis=basis)

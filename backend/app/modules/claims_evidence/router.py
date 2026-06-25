@@ -25,7 +25,7 @@ from app.modules.claims_evidence.schemas import (
     ProvabilitySubScoreOut,
     ProvabilityWeaknessOut,
 )
-from app.modules.claims_evidence.service import assemble_evidence
+from app.modules.claims_evidence.service import assemble_evidence, reconstruct_subject
 
 router = APIRouter(tags=["Claims Evidence"])
 
@@ -36,6 +36,17 @@ _SUBJECT_KINDS = (
     "variation_request",
     "variation_order",
     "moc_entry",
+)
+
+#: Subject types the reconstruct endpoint accepts (the reconciliation record
+#: types a thread can be seeded from), surfaced in its 422 message.
+_RECONSTRUCT_KINDS = (
+    "change_order",
+    "variation_request",
+    "variation_order",
+    "notice",
+    "moc",
+    "correspondence",
 )
 
 
@@ -57,6 +68,45 @@ async def get_evidence_pack(
         subject_ref=subject_ref,
         basis=basis,
         activity_limit=limit,
+    )
+    return EvidencePackOut.model_validate(pack)
+
+
+@router.get(
+    "/projects/{project_id}/reconstruct/{subject_type}/{subject_id}",
+    response_model=EvidencePackOut,
+)
+async def reconstruct_change(
+    project_id: uuid.UUID,
+    subject_type: str,
+    subject_id: uuid.UUID,
+    session: SessionDep,
+    basis: str = Query(default="dispute", description="The basis the pack is assembled under."),
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> EvidencePackOut:
+    """Reconstruct one change or dispute as a scoped, deterministic evidence pack.
+
+    Unlike the project-wide pack, this grows the cross-channel thread around the
+    single subject (its reconciled, linked records) and assembles only those
+    into the ordered, SHA-256-digested pack a claim needs. ``subject_type`` must
+    be one of the reconcilable record types in :data:`_RECONSTRUCT_KINDS`; an
+    unknown type is a 422. A subject that resolves to no records yields a valid
+    empty pack rather than an error.
+    """
+    await verify_project_access(project_id, user_id or "", session)
+
+    if subject_type not in _RECONSTRUCT_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown subject type '{subject_type}'. Expected one of: {', '.join(_RECONSTRUCT_KINDS)}.",
+        )
+
+    pack = await reconstruct_subject(
+        session,
+        project_id=project_id,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        basis=basis,
     )
     return EvidencePackOut.model_validate(pack)
 
