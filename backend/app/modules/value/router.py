@@ -1,0 +1,234 @@
+# DDC-CWICR-OE: DataDrivenConstruction - OpenConstructionERP
+# Copyright (c) 2026 Artem Boiko / DataDrivenConstruction
+"""Value-realized API routes (auto-mounted at /api/v1/value).
+
+One read surface that composes figures the rest of the platform already
+computes - approved-change exposure managed, cost recovered, admin hours given
+back and a documented dispute-risk proxy - into a project and portfolio
+"value realized" view, plus an adoption-vs-non-adoption benchmark on the firm's
+own projects.
+
+Access control mirrors every other project-scoped router: the project-scoped
+endpoints require an authenticated caller who passes :func:`verify_project_access`
+for the requested project (404 on both missing and denied, so project existence
+never leaks). The portfolio and benchmark endpoints scope to the caller's
+accessible projects via :func:`accessible_project_ids` (admins see all).
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import (
+    CurrentUserId,
+    SessionDep,
+    accessible_project_ids,
+    verify_project_access,
+)
+from app.modules.value.schemas import (
+    AdoptionBenchmarkOut,
+    CohortComparisonOut,
+    CurrencyValueOut,
+    HoursSavedBucketOut,
+    HoursSavedOut,
+    ProjectScoreOut,
+    ValueSummaryOut,
+)
+from app.modules.value.service import (
+    build_adoption_benchmark,
+    build_hours_saved,
+    build_portfolio_summary,
+    build_value_summary,
+)
+from app.modules.value.time_saved import (
+    BY_FEATURE,
+    BY_PERIOD,
+    BY_PROJECT,
+    BY_USER,
+    PERIOD_MONTH,
+    PERIOD_WEEK,
+)
+from app.modules.value.value_math import ValueSummary
+
+router = APIRouter(tags=["Value"])
+
+# Accepted grouping axes / period granularities for the hours-saved endpoint,
+# validated explicitly so an unknown value yields a 422 rather than reaching the
+# engine (which would raise). BY_PERIOD needs a period granularity.
+_HOURS_AXES = frozenset({BY_USER, BY_PROJECT, BY_FEATURE, BY_PERIOD})
+_HOURS_PERIODS = frozenset({PERIOD_WEEK, PERIOD_MONTH})
+
+
+def _rate_str(value) -> str | None:  # type: ignore[no-untyped-def]
+    """Render a Decimal rate / proxy as a string, preserving ``None``."""
+    return None if value is None else str(value)
+
+
+def _summary_out(summary: ValueSummary, *, project_id: str | None) -> ValueSummaryOut:
+    """Build the wire model for a value summary, money + rates as strings."""
+    return ValueSummaryOut(
+        project_id=project_id,
+        by_currency=[
+            CurrencyValueOut(
+                currency=row.currency,
+                overrun_exposure_managed=str(row.overrun_exposure_managed),
+                chargeable_total=str(row.chargeable_total),
+                recovered_total=str(row.recovered_total),
+                absorbed_total=str(row.absorbed_total),
+                recovery_rate=_rate_str(row.recovery_rate),
+                schedule_days_managed=str(row.schedule_days_managed),
+                impact_count=row.impact_count,
+                recovery_item_count=row.recovery_item_count,
+            )
+            for row in summary.by_currency
+        ],
+        primary_currency=summary.primary_currency,
+        estimated_hours_saved=str(summary.estimated_hours_saved),
+        dispute_risk_reduction=_rate_str(summary.dispute_risk_reduction),
+        exposure_confidence=summary.exposure_confidence,
+        recovery_confidence=summary.recovery_confidence,
+        hours_confidence=summary.hours_confidence,
+        risk_confidence=summary.risk_confidence,
+        cost_position_percentile=summary.cost_position_percentile,
+        impact_count=summary.impact_count,
+        recovery_item_count=summary.recovery_item_count,
+        hours_sample=summary.hours_sample,
+        activity_count=summary.activity_count,
+    )
+
+
+@router.get("/projects/{project_id}/summary", response_model=ValueSummaryOut)
+async def get_value_summary(
+    project_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> ValueSummaryOut:
+    """One project's composed value-realized summary (per currency + headlines)."""
+    await verify_project_access(project_id, user_id or "", session)
+    summary = await build_value_summary(session, project_id)
+    return _summary_out(summary, project_id=str(project_id))
+
+
+@router.get("/portfolio/summary", response_model=ValueSummaryOut)
+async def get_portfolio_summary(
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> ValueSummaryOut:
+    """Portfolio-wide value summary across every project the caller may access.
+
+    Non-admins are scoped to projects they own or are a team member of; an admin
+    sees all. An empty accessible set yields an empty summary rather than an
+    error - the safe default for a caller with no projects.
+    """
+    ids = await accessible_project_ids(session, user_id)
+    project_ids = await _resolve_project_ids(session, ids)
+    summary = await build_portfolio_summary(session, project_ids)
+    return _summary_out(summary, project_id=None)
+
+
+@router.get("/projects/{project_id}/hours-saved", response_model=HoursSavedOut)
+async def get_hours_saved(
+    project_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+    by: str = Query(BY_FEATURE, description="Grouping axis: user / project / feature / period"),
+    period: str | None = Query(None, description="Period granularity when by=period: week / month"),
+) -> HoursSavedOut:
+    """A project's estimated admin hours saved, grouped on one axis.
+
+    ``by`` defaults to ``feature`` (``module/action``). When ``by=period`` a
+    ``period`` of ``week`` or ``month`` is required. An unrecognised axis or
+    period yields a 422 before the engine is reached.
+    """
+    await verify_project_access(project_id, user_id or "", session)
+
+    axis = by if by in _HOURS_AXES else BY_FEATURE
+    effective_period: str | None = None
+    if axis == BY_PERIOD:
+        effective_period = period if period in _HOURS_PERIODS else PERIOD_WEEK
+
+    buckets, total, event_count = await build_hours_saved(
+        session,
+        project_id,
+        by=axis,
+        period=effective_period,
+    )
+    return HoursSavedOut(
+        project_id=str(project_id),
+        by=axis,
+        total_hours=str(total),
+        event_count=event_count,
+        buckets=[
+            HoursSavedBucketOut(
+                key=b.key,
+                event_count=b.event_count,
+                unit_count=b.unit_count,
+                minutes=str(b.minutes),
+                hours=str(b.hours),
+            )
+            for b in buckets
+        ],
+    )
+
+
+@router.get("/adoption-benchmark", response_model=AdoptionBenchmarkOut)
+async def get_adoption_benchmark(
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> AdoptionBenchmarkOut:
+    """High-vs-low adoption benchmark across the caller's accessible projects.
+
+    Scores each project's adoption of the change discipline and contrasts the
+    high- and low-adoption cohorts on recovery rate, overrun and cycle time, with
+    honest low-n confidence. Scoped to the caller's accessible projects.
+    """
+    ids = await accessible_project_ids(session, user_id)
+    project_ids = await _resolve_project_ids(session, ids)
+    benchmark = await build_adoption_benchmark(session, project_ids)
+    return AdoptionBenchmarkOut(
+        project_scores=[
+            ProjectScoreOut(project_id=s.project_id, adoption=s.adoption, cohort=s.cohort)
+            for s in benchmark.project_scores
+        ],
+        comparisons=[
+            CohortComparisonOut(
+                metric=c.metric,
+                high_mean=c.high_mean,
+                low_mean=c.low_mean,
+                delta=c.delta,
+                high_n=c.high_n,
+                low_n=c.low_n,
+                higher_is_better=c.higher_is_better,
+                favours_high=c.favours_high,
+                confidence=c.confidence,
+            )
+            for c in benchmark.comparisons
+        ],
+        confidence=benchmark.confidence,
+        high_count=benchmark.high_count,
+        low_count=benchmark.low_count,
+    )
+
+
+async def _resolve_project_ids(
+    session: AsyncSession,
+    accessible: set[uuid.UUID] | None,
+) -> list[uuid.UUID]:
+    """Turn the accessible-project sentinel into a concrete id list.
+
+    ``accessible_project_ids`` returns ``None`` for an admin (meaning "do not
+    filter" - every project). Here we need a concrete list to roll up, so an
+    admin is expanded to all project ids; a non-admin uses their own set (which
+    may be empty, yielding an empty roll-up).
+    """
+    if accessible is not None:
+        return sorted(accessible)
+
+    from app.modules.projects.models import Project
+
+    rows = (await session.execute(select(Project.id))).scalars().all()
+    return [r if isinstance(r, uuid.UUID) else uuid.UUID(str(r)) for r in rows]
