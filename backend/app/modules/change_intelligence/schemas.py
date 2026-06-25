@@ -190,3 +190,45 @@ class CommsDigestOut(BaseModel):
     open_count: int
     awaiting_us_count: int
     threads: list[ThreadDigestOut]
+
+
+# --- Ownership hand-off chain ----------------------------------------------
+
+
+class OwnershipSegmentOut(BaseModel):
+    """One uninterrupted stretch during which a party held the ball."""
+
+    party: str | None
+    from_ts: str
+    to_ts: str | None
+    dwell_days: float
+    is_open: bool
+    set_by: str | None
+    reason: str | None
+
+
+class PartyDwellOut(BaseModel):
+    """Total time a party held the ball across all of its segments."""
+
+    party: str | None
+    dwell_days: float
+    segment_count: int
+
+
+class OwnershipChainOut(BaseModel):
+    """Reconstructed ownership history for one change record."""
+
+    kind: str
+    entity_id: str
+    project_id: str
+    as_of: str
+    current_holder: str | None
+    ownership_ambiguous: bool
+    has_current_holder: bool
+    has_unrecorded_origin: bool
+    chain_inconsistent: bool
+    unchanged_across_transition: bool
+    total_handoffs: int
+    ambiguity_reasons: list[str]
+    segments: list[OwnershipSegmentOut]
+    dwell_by_party: list[PartyDwellOut]

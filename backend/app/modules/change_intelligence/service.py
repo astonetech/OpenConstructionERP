@@ -47,6 +47,11 @@ from app.modules.change_intelligence.impact_projection import (
     ImpactProjection,
     project_impacts,
 )
+from app.modules.change_intelligence.ownership_chain import (
+    HandoffRow,
+    OwnershipChain,
+    build_ownership_chain,
+)
 from app.modules.change_intelligence.thread_digest import (
     DIRECTION_INBOUND,
     DIRECTION_OUTBOUND,
@@ -275,3 +280,127 @@ async def build_comms_digest_for_project(
             )
         )
     return build_digest(messages, moment)
+
+
+# --- Ownership hand-off chain (accountability reconstruction) ---------------
+#
+# Each change-family record stores ``ball_in_court`` as one mutable string with
+# no history. The service layer records every change of that field as an
+# ``oe_activity_log`` row (``action="ownership_handoff"``) carrying the old and
+# new holder; status moves are already recorded as ``action="status_changed"``.
+# This read resolves both row sets for one record and feeds them to the pure
+# :mod:`ownership_chain` engine, which rebuilds who held the ball, in what order,
+# and for how long.
+#
+# The audit ``entity_type`` written for each family is identical to its engine
+# kind token (``change_order`` / ``variation_notice`` / ``variation_request`` /
+# ``variation_order`` / ``moc_entry``), so the same token resolves the source
+# record and filters the activity rows - the read can never drift from the
+# write.
+_KIND_TO_MODEL: dict[str, type] = {kind: model for model, kind in _SOURCES}
+
+#: Activity-log action verbs the chain reads back (kept in sync with the write
+#: side: ``log_ownership_handoff`` and each module's status-transition audit).
+_ACTION_OWNERSHIP_HANDOFF = "ownership_handoff"
+_ACTION_STATUS_CHANGED = "status_changed"
+
+
+async def build_ownership_chain_for(
+    session: AsyncSession,
+    kind: str,
+    entity_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> tuple[OwnershipChain, uuid.UUID]:
+    """Reconstruct the ownership chain for one change record.
+
+    Resolves the record by ``kind`` + ``entity_id`` (to fetch its project for the
+    caller's access check and its current ball-in-court), gathers the recorded
+    hand-off and status-transition rows, and feeds them to the pure engine.
+
+    Returns the :class:`OwnershipChain` together with the record's
+    ``project_id`` so the router can run :func:`verify_project_access` against
+    the resolved owner. Raises a 404-style :class:`KeyError` for an unknown kind
+    and a 404 ``HTTPException`` (via the caller) is expected when the record is
+    missing - here a missing record raises ``LookupError`` which the router maps
+    to 404.
+
+    Synthesis: when no hand-off rows exist yet but the record still names a
+    current ball-in-court, a single open segment is synthesized from the record
+    itself (opened at its ``created_at``) so a change that was assigned once and
+    never handed off still reports its current holder rather than an empty chain.
+    """
+    moment = now or datetime.now(UTC)
+    model = _KIND_TO_MODEL.get(kind)
+    if model is None:
+        raise KeyError(kind)
+
+    # Resolve the source record: project (for access) + current holder + opened.
+    rec_stmt = select(
+        model.id,
+        model.project_id,
+        model.ball_in_court,
+        model.created_at,
+    ).where(model.id == entity_id)
+    rec = (await session.execute(rec_stmt)).one_or_none()
+    if rec is None:
+        raise LookupError(kind)
+    project_id: uuid.UUID = rec.project_id
+    current_ball: str | None = rec.ball_in_court
+
+    # Local import keeps the engine read decoupled from the audit model at import
+    # time (mirrors the module services' lazy import of the audit helpers).
+    from app.core.audit_log import ActivityLog
+
+    rows = (
+        await session.execute(
+            select(
+                ActivityLog.action,
+                ActivityLog.from_status,
+                ActivityLog.to_status,
+                ActivityLog.actor_id,
+                ActivityLog.reason,
+                ActivityLog.created_at,
+            )
+            .where(ActivityLog.entity_type == kind)
+            .where(ActivityLog.entity_id == str(entity_id))
+            .where(ActivityLog.action.in_((_ACTION_OWNERSHIP_HANDOFF, _ACTION_STATUS_CHANGED)))
+            .order_by(ActivityLog.created_at.asc())
+        )
+    ).all()
+
+    handoffs: list[HandoffRow] = []
+    status_transition_times: list[datetime] = []
+    for row in rows:
+        if row.action == _ACTION_OWNERSHIP_HANDOFF:
+            handoffs.append(
+                HandoffRow(
+                    at=row.created_at,
+                    from_party=row.from_status,
+                    to_party=row.to_status,
+                    set_by=str(row.actor_id) if row.actor_id is not None else None,
+                    reason=row.reason,
+                )
+            )
+        elif row.action == _ACTION_STATUS_CHANGED:
+            status_transition_times.append(row.created_at)
+
+    # Never handed off but currently assigned: synthesize one open segment from
+    # the record so the current holder is still reported.
+    if not handoffs and current_ball is not None:
+        handoffs.append(
+            HandoffRow(
+                at=rec.created_at,
+                from_party=None,
+                to_party=current_ball,
+                set_by=None,
+                reason=None,
+            )
+        )
+
+    chain = build_ownership_chain(
+        handoffs,
+        now=moment,
+        status_transition_times=status_transition_times or None,
+    )
+    return chain, project_id

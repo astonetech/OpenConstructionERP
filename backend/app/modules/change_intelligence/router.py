@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from app.dependencies import CurrentUserId, SessionDep, verify_project_access
 from app.modules.change_intelligence.schemas import (
@@ -26,6 +26,9 @@ from app.modules.change_intelligence.schemas import (
     ImpactProjectionOut,
     ItemAgingOut,
     KindImpactOut,
+    OwnershipChainOut,
+    OwnershipSegmentOut,
+    PartyDwellOut,
     PartyLoadOut,
     ThreadDigestOut,
 )
@@ -33,6 +36,7 @@ from app.modules.change_intelligence.service import (
     build_comms_digest_for_project,
     build_coordination_plan,
     build_impact_projection,
+    build_ownership_chain_for,
     build_project_board,
     clarify_change_note,
 )
@@ -144,4 +148,60 @@ async def get_comms_digest(
         open_count=digest.open_count,
         awaiting_us_count=digest.awaiting_us_count,
         threads=[ThreadDigestOut.model_validate(t) for t in digest.threads],
+    )
+
+
+@router.get("/changes/{kind}/{entity_id}/ownership-chain", response_model=OwnershipChainOut)
+async def get_ownership_chain(
+    kind: str,
+    entity_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId = None,  # type: ignore[assignment]
+) -> OwnershipChainOut:
+    """Reconstructed ball-in-court hand-off chain + dwell-time for one change.
+
+    ``kind`` is the change-family token (``change_order`` / ``variation_notice``
+    / ``variation_request`` / ``variation_order`` / ``moc_entry``). The record's
+    project drives :func:`verify_project_access`, so the chain is only returned
+    to a caller who may see the underlying change. An unknown kind or a missing
+    record both 404, consistent with the rest of the project-scoped surface.
+    """
+    try:
+        chain, project_id = await build_ownership_chain_for(session, kind, entity_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown change kind: {kind}") from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change record not found") from exc
+
+    await verify_project_access(project_id, user_id or "", session)
+
+    return OwnershipChainOut(
+        kind=kind,
+        entity_id=str(entity_id),
+        project_id=str(project_id),
+        as_of=chain.as_of.isoformat(),
+        current_holder=chain.current_holder,
+        ownership_ambiguous=chain.ownership_ambiguous,
+        has_current_holder=chain.has_current_holder,
+        has_unrecorded_origin=chain.has_unrecorded_origin,
+        chain_inconsistent=chain.chain_inconsistent,
+        unchanged_across_transition=chain.unchanged_across_transition,
+        total_handoffs=chain.total_handoffs,
+        ambiguity_reasons=list(chain.ambiguity_reasons),
+        segments=[
+            OwnershipSegmentOut(
+                party=seg.party,
+                from_ts=seg.from_ts.isoformat(),
+                to_ts=seg.to_ts.isoformat() if seg.to_ts is not None else None,
+                dwell_days=seg.dwell_days,
+                is_open=seg.is_open,
+                set_by=seg.set_by,
+                reason=seg.reason,
+            )
+            for seg in chain.segments
+        ],
+        dwell_by_party=[
+            PartyDwellOut(party=pd.party, dwell_days=pd.dwell_days, segment_count=pd.segment_count)
+            for pd in chain.dwell_by_party
+        ],
     )
