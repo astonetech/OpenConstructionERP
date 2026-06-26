@@ -820,7 +820,8 @@ def cmd_init_db(args: argparse.Namespace) -> None:
         asyncio.run(_create())
     except Exception as exc:
         print(_red(f"Database initialisation failed: {exc}"))
-        print(_dim(f"  {_u('\u2192', '->')} Run 'openconstructionerp doctor' for diagnostics."))
+        arrow = _u("\u2192", "->")
+        print(_dim(f"  {arrow} Run 'openconstructionerp doctor' for diagnostics."))
         sys.exit(1)
 
     print()
@@ -833,8 +834,9 @@ def cmd_init_db(args: argparse.Namespace) -> None:
             print(f"    - {_bold(name)}: {_dim(err)}")
         print()
         print(_red("Schema may be incomplete. Reinstall the package or check the error above."))
-        print(_dim(f"  {_u('\u2192', '->')} pip install --upgrade --force-reinstall openconstructionerp"))
-        print(_dim(f"  {_u('\u2192', '->')} Then run 'openconstructionerp doctor' to verify."))
+        arrow = _u("\u2192", "->")
+        print(_dim(f"  {arrow} pip install --upgrade --force-reinstall openconstructionerp"))
+        print(_dim(f"  {arrow} Then run 'openconstructionerp doctor' to verify."))
         sys.exit(1)
 
     print()
